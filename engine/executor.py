@@ -1,46 +1,146 @@
 """BacktestExecutor — event-driven fill simulation."""
 from __future__ import annotations
 
-from datetime import datetime
-
+import numpy as np
 import pandas as pd
 
 from .models import BacktestTrade, EngineConfig, ExitReason, _Position
 from .strategy import Signal, StrategyBase
 
+# ── Module-level constants ─────────────────────────────────────────────────────
+
+_REQUIRED_OHLC: frozenset[str] = frozenset({"open", "high", "low", "close"})
+
+# Accepted signal values: Signal enum members or their exact string equivalents.
+_VALID_SIGNAL_VALUES: frozenset[str] = frozenset(s.value for s in Signal)
+
+
+# ── Input validators ───────────────────────────────────────────────────────────
+
+def _validate_bars(bars: pd.DataFrame) -> None:
+    """Raise ``ValueError`` if *bars* is not a structurally valid OHLC DataFrame.
+
+    Checks performed (in order):
+    1. All required columns (open, high, low, close) are present.
+    2. No NaN values in those columns.
+    3. No infinite values in those columns.
+    4. ``high >= low`` for every row.
+    5. ``open`` is within ``[low, high]`` for every row.
+    6. ``close`` is within ``[low, high]`` for every row.
+    """
+    missing = _REQUIRED_OHLC - set(bars.columns)
+    if missing:
+        raise ValueError(
+            f"bars is missing required column(s): {sorted(missing)}"
+        )
+
+    ohlc = bars[["open", "high", "low", "close"]]
+
+    if ohlc.isnull().any().any():
+        raise ValueError(
+            "bars contains NaN values in OHLC columns; "
+            "clean or forward-fill the data before backtesting"
+        )
+
+    if np.isinf(ohlc.to_numpy(dtype=float)).any():
+        raise ValueError(
+            "bars contains infinite values in OHLC columns"
+        )
+
+    if (bars["high"] < bars["low"]).any():
+        raise ValueError(
+            "bars contains rows where high < low (corrupted candle data)"
+        )
+
+    if (bars["open"] < bars["low"]).any() or (bars["open"] > bars["high"]).any():
+        raise ValueError(
+            "bars contains rows where open is outside [low, high]"
+        )
+
+    if (bars["close"] < bars["low"]).any() or (bars["close"] > bars["high"]).any():
+        raise ValueError(
+            "bars contains rows where close is outside [low, high]"
+        )
+
+
+def _validate_signals(signals: pd.Series, expected_len: int) -> None:
+    """Raise ``ValueError`` if *signals* has the wrong length or invalid values.
+
+    Accepted values: ``Signal`` enum members, or their exact uppercase string
+    equivalents (e.g. ``"BUY"``).  Lowercase variants, ``None``, and
+    arbitrary objects are rejected.
+    """
+    if len(signals) != expected_len:
+        raise ValueError(
+            f"generate_signals returned {len(signals)} values for "
+            f"{expected_len} bars"
+        )
+
+    invalid_mask = ~signals.isin(_VALID_SIGNAL_VALUES)
+    if invalid_mask.any():
+        bad_val = signals[invalid_mask].iloc[0]
+        bad_idx = signals[invalid_mask].index[0]
+        raise ValueError(
+            f"generate_signals returned invalid signal {bad_val!r} at "
+            f"index {bad_idx!r}. "
+            f"Valid values are: {sorted(_VALID_SIGNAL_VALUES)}"
+        )
+
+
+# ── Executor ───────────────────────────────────────────────────────────────────
 
 class BacktestExecutor:
     """Translate a strategy's signals into a list of completed trades.
 
     Execution rules
     ---------------
-    - Signal at bar T close → fill at bar T+1 open.  No bar-T data is
-      used after the signal is emitted, so lookahead bias is impossible
-      at the execution layer.
+    - Signal at bar T  →  fill at bar T+1 open.  No bar-T data is used after
+      the signal is emitted, so lookahead bias is structurally impossible at
+      the execution layer.
     - One position at a time.  A BUY signal while already long is ignored.
-    - Stop-loss and take-profit are checked against each held bar's
-      intrabar low/high.
+    - SL/TP are evaluated at the start of every held bar, including the entry
+      bar.  A position can be stopped out intrabar on the same bar it opened.
     - When SL and TP both trigger on the same bar, SL wins (conservative).
-    - Gap-through-stop: if the bar opens on the wrong side of the stop,
-      the fill is at the bar open (not at the stop level).
-    - Slippage is applied symmetrically: buyers pay more, sellers receive
-      less.
+    - Gap-through-stop: if the bar opens on the wrong side of the stop level,
+      fill is at the bar open (the first executable price), not at the stop.
+    - Slippage is applied symmetrically: buyers pay more, sellers receive less.
     - Any open position at the last bar is closed at that bar's close.
+
+    See ``EngineConfig`` for full documentation of each parameter and the
+    underlying assumptions of each model (stop-loss, take-profit, slippage,
+    position sizing).
     """
 
     def __init__(self, config: EngineConfig | None = None) -> None:
         self.config = config or EngineConfig()
 
     def run(self, bars: pd.DataFrame, strategy: StrategyBase) -> list[BacktestTrade]:
-        """Run the strategy over bars and return completed trades in order."""
+        """Run *strategy* over *bars* and return completed trades in order.
+
+        Args:
+            bars:     OHLCV DataFrame from ``data.get_bars()``.  Must contain
+                      columns ``open``, ``high``, ``low``, ``close`` with no
+                      NaN or infinite values and valid candle geometry
+                      (high ≥ low, open/close within [low, high]).
+            strategy: A ``StrategyBase`` implementation.  Its
+                      ``generate_signals`` method is called once with the
+                      full ``bars`` DataFrame.  Signals must be causal — see
+                      ``StrategyBase`` for the lookahead constraint.
+
+        Returns:
+            List of ``BacktestTrade`` records in chronological order.
+
+        Raises:
+            ValueError: If ``bars`` fails structural validation, or if
+                        ``generate_signals`` returns an invalid result.
+        """
         if bars.empty:
             return []
 
+        _validate_bars(bars)
+
         signals = strategy.generate_signals(bars)
-        if len(signals) != len(bars):
-            raise ValueError(
-                f"generate_signals returned {len(signals)} values for {len(bars)} bars"
-            )
+        _validate_signals(signals, len(bars))
 
         n = len(bars)
         position: _Position | None = None
@@ -64,7 +164,7 @@ class BacktestExecutor:
 
             # ── 2. Execute signal at next bar open ────────────────────────────
             if i + 1 >= n:
-                break  # no next bar to fill into
+                break  # no next bar to fill into; last bar's signal is discarded
 
             raw_next_open = float(bars.iloc[i + 1]["open"])
             next_time = bars.index[i + 1]
@@ -98,6 +198,11 @@ class BacktestExecutor:
     # ── private ───────────────────────────────────────────────────────────────
 
     def _open_long(self, raw_open: float, entry_time, entry_bar: int) -> _Position:
+        """Build a ``_Position`` for a new long entry.
+
+        ``entry_price`` is the fill price after slippage.
+        SL/TP levels are derived from the fill price, not the raw open.
+        """
         cfg = self.config
         fill = raw_open * (1.0 + cfg.slippage_pct)
         size = cfg.position_size
@@ -118,7 +223,18 @@ class BacktestExecutor:
     def _check_sl_tp(
         self, pos: _Position, bar: pd.Series
     ) -> tuple[float, ExitReason] | None:
-        """Return (raw_exit_price, reason) if SL or TP is triggered, else None."""
+        """Return ``(raw_exit_price, reason)`` if SL or TP fires on *bar*, else ``None``.
+
+        SL check: ``bar_low <= stop_loss_level``.
+        TP check: ``bar_high >= take_profit_level``.
+        SL takes priority when both fire on the same bar.
+
+        Gap handling:
+        - Gap-down through SL: ``raw = min(stop_level, bar_open)`` — fills at
+          bar open when the bar opens below the stop level.
+        - Gap-up through TP: ``raw = max(tp_level, bar_open)`` — fills at bar
+          open when the bar opens above the target.
+        """
         bar_low = float(bar["low"])
         bar_high = float(bar["high"])
         bar_open = float(bar["open"])
@@ -131,12 +247,12 @@ class BacktestExecutor:
 
         if sl_hit:
             # SL wins when both fire on the same bar.
-            # Gap-down: if bar opened below stop, we fill at open (not stop).
+            # Gap-down: bar opened below stop → fill at open (first executable price).
             raw = min(pos.stop_loss, bar_open)
             return raw, ExitReason.STOP_LOSS
 
-        # TP only
-        # Gap-up: if bar opened above target, we get the better fill.
+        # TP only.
+        # Gap-up: bar opened above target → receive the better opening price.
         raw = max(pos.take_profit, bar_open)
         return raw, ExitReason.TAKE_PROFIT
 
@@ -149,6 +265,12 @@ class BacktestExecutor:
         exit_bar: int,
         reason: ExitReason,
     ) -> BacktestTrade:
+        """Build a ``BacktestTrade`` by closing *pos* at *raw_exit*.
+
+        *raw_exit* is the reference price before slippage (stop level, TP
+        level, bar open, or last-bar close depending on exit type).
+        Slippage and fees are applied here.
+        """
         cfg = self.config
         exit_fill = raw_exit * (1.0 - cfg.slippage_pct)
         exit_slippage = raw_exit * cfg.slippage_pct * pos.size

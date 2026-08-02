@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pandas as pd
 import pytest
 
-from engine.executor import BacktestExecutor
+from engine.executor import BacktestExecutor, _validate_bars, _validate_signals
 from engine.models import BacktestTrade, EngineConfig, ExitReason
 from engine.strategy import Signal, StrategyBase
 
@@ -422,9 +423,9 @@ class TestTradeMetadata:
 
     def test_end_of_data_closes_on_last_bar_close(self, ex):
         bars = _bars([
-            (100.0, 101.0, 99.0, 100.0),
-            (100.0, 101.0, 99.0, 100.0),
-            (100.0, 101.0, 99.0, 120.0),   # close = 120
+            (100.0, 101.0,  99.0, 100.0),
+            (100.0, 101.0,  99.0, 100.0),
+            (100.0, 121.0,  99.0, 120.0),  # close=120 within [99, 121]
         ])
         t = ex.run(bars, _Signals({0: Signal.BUY}))[0]
         assert t.exit_price == pytest.approx(120.0)
@@ -523,3 +524,187 @@ class TestEdgeCases:
         loser = BacktestExecutor(free).run(falling, strategy)[0]
         assert winner.is_winner is True and winner.is_loser is False
         assert loser.is_loser is True and loser.is_winner is False
+
+
+# ── EngineConfig validation ────────────────────────────────────────────────────
+
+class TestEngineConfigValidation:
+    def test_zero_position_size_raises(self):
+        with pytest.raises(ValueError, match="position_size"):
+            EngineConfig(position_size=0.0)
+
+    def test_negative_position_size_raises(self):
+        with pytest.raises(ValueError, match="position_size"):
+            EngineConfig(position_size=-1.0)
+
+    def test_negative_fee_rate_raises(self):
+        with pytest.raises(ValueError, match="fee_rate"):
+            EngineConfig(fee_rate=-0.001)
+
+    def test_negative_slippage_raises(self):
+        with pytest.raises(ValueError, match="slippage_pct"):
+            EngineConfig(slippage_pct=-0.0005)
+
+    def test_stop_loss_zero_raises(self):
+        with pytest.raises(ValueError, match="stop_loss_pct"):
+            EngineConfig(stop_loss_pct=0.0)
+
+    def test_stop_loss_one_raises(self):
+        with pytest.raises(ValueError, match="stop_loss_pct"):
+            EngineConfig(stop_loss_pct=1.0)
+
+    def test_stop_loss_greater_than_one_raises(self):
+        with pytest.raises(ValueError, match="stop_loss_pct"):
+            EngineConfig(stop_loss_pct=1.5)
+
+    def test_take_profit_zero_raises(self):
+        with pytest.raises(ValueError, match="take_profit_pct"):
+            EngineConfig(take_profit_pct=0.0)
+
+    def test_take_profit_negative_raises(self):
+        with pytest.raises(ValueError, match="take_profit_pct"):
+            EngineConfig(take_profit_pct=-0.01)
+
+    def test_valid_config_does_not_raise(self):
+        cfg = EngineConfig(
+            position_size=2.0,
+            stop_loss_pct=0.02,
+            take_profit_pct=0.04,
+            fee_rate=0.001,
+            slippage_pct=0.0005,
+        )
+        assert cfg.position_size == 2.0
+
+    def test_zero_fee_and_slippage_are_valid(self):
+        cfg = EngineConfig(fee_rate=0.0, slippage_pct=0.0)
+        assert cfg.fee_rate == 0.0
+        assert cfg.slippage_pct == 0.0
+
+    def test_stop_loss_none_and_tp_none_are_valid(self):
+        cfg = EngineConfig(stop_loss_pct=None, take_profit_pct=None)
+        assert cfg.stop_loss_pct is None
+        assert cfg.take_profit_pct is None
+
+
+# ── Bar validation ─────────────────────────────────────────────────────────────
+
+class TestBarValidation:
+    """Tests for _validate_bars; also exercises it via BacktestExecutor.run()."""
+
+    def _good_bars(self) -> pd.DataFrame:
+        return _flat_bars(100.0, 3)
+
+    def test_missing_column_raises(self):
+        bars = self._good_bars().drop(columns=["close"])
+        with pytest.raises(ValueError, match="missing required column"):
+            _validate_bars(bars)
+
+    def test_nan_in_ohlc_raises(self):
+        bars = self._good_bars().copy()
+        bars.iloc[1, bars.columns.get_loc("close")] = float("nan")
+        with pytest.raises(ValueError, match="NaN"):
+            _validate_bars(bars)
+
+    def test_inf_in_ohlc_raises(self):
+        bars = self._good_bars().copy()
+        bars.iloc[0, bars.columns.get_loc("high")] = float("inf")
+        with pytest.raises(ValueError, match="infinite"):
+            _validate_bars(bars)
+
+    def test_high_less_than_low_raises(self):
+        bars = _bars([
+            (100.0, 101.0, 99.0, 100.0),
+            (100.0,  98.0, 99.0, 100.0),   # high < low
+            (100.0, 101.0, 99.0, 100.0),
+        ])
+        with pytest.raises(ValueError, match="high < low"):
+            _validate_bars(bars)
+
+    def test_open_below_low_raises(self):
+        bars = _bars([
+            ( 95.0, 101.0, 99.0, 100.0),   # open=95 < low=99
+        ])
+        with pytest.raises(ValueError, match="open is outside"):
+            _validate_bars(bars)
+
+    def test_open_above_high_raises(self):
+        bars = _bars([
+            (105.0, 101.0, 99.0, 100.0),   # open=105 > high=101
+        ])
+        with pytest.raises(ValueError, match="open is outside"):
+            _validate_bars(bars)
+
+    def test_close_below_low_raises(self):
+        bars = _bars([
+            (100.0, 101.0, 99.0, 98.0),   # close=98 < low=99
+        ])
+        with pytest.raises(ValueError, match="close is outside"):
+            _validate_bars(bars)
+
+    def test_close_above_high_raises(self):
+        bars = _bars([
+            (100.0, 101.0, 99.0, 102.0),   # close=102 > high=101
+        ])
+        with pytest.raises(ValueError, match="close is outside"):
+            _validate_bars(bars)
+
+    def test_valid_bars_do_not_raise(self):
+        _validate_bars(self._good_bars())   # must not raise
+
+    def test_invalid_bars_raise_via_executor(self):
+        bars = self._good_bars().copy()
+        bars.iloc[0, bars.columns.get_loc("high")] = float("nan")
+        ex = BacktestExecutor(EngineConfig(fee_rate=0.0, slippage_pct=0.0))
+        with pytest.raises(ValueError, match="NaN"):
+            ex.run(bars, _Signals({}))
+
+
+# ── Signal validation ──────────────────────────────────────────────────────────
+
+class TestSignalValidation:
+    """Tests for _validate_signals; also exercises it via BacktestExecutor.run()."""
+
+    def _idx(self, n: int = 4) -> pd.DatetimeIndex:
+        return pd.date_range("2024-01-01", periods=n, freq="1h", tz="UTC")
+
+    def test_lowercase_buy_raises(self):
+        signals = pd.Series(["buy", "hold", "hold", "hold"], index=self._idx())
+        with pytest.raises(ValueError, match="invalid signal"):
+            _validate_signals(signals, 4)
+
+    def test_none_value_raises(self):
+        signals = pd.Series([None, Signal.HOLD, Signal.HOLD, Signal.HOLD],
+                            index=self._idx(), dtype=object)
+        with pytest.raises(ValueError, match="invalid signal"):
+            _validate_signals(signals, 4)
+
+    def test_unknown_string_raises(self):
+        signals = pd.Series(["LONG", "HOLD", "HOLD", "HOLD"], index=self._idx())
+        with pytest.raises(ValueError, match="invalid signal"):
+            _validate_signals(signals, 4)
+
+    def test_wrong_length_raises(self):
+        signals = pd.Series([Signal.HOLD, Signal.HOLD], index=self._idx(2))
+        with pytest.raises(ValueError, match="4 bars"):
+            _validate_signals(signals, 4)
+
+    def test_signal_enum_members_are_valid(self):
+        signals = pd.Series(
+            [Signal.BUY, Signal.HOLD, Signal.EXIT, Signal.SELL], index=self._idx()
+        )
+        _validate_signals(signals, 4)   # must not raise
+
+    def test_uppercase_string_equivalents_are_valid(self):
+        signals = pd.Series(["BUY", "HOLD", "EXIT", "SELL"], index=self._idx())
+        _validate_signals(signals, 4)   # must not raise
+
+    def test_invalid_signal_raises_via_executor(self):
+        bars = _flat_bars(100.0, 4)
+
+        class _BadSignals(StrategyBase):
+            def generate_signals(self, b: pd.DataFrame) -> pd.Series:
+                return pd.Series(["buy", "hold", "hold", "hold"], index=b.index)
+
+        ex = BacktestExecutor(EngineConfig(fee_rate=0.0, slippage_pct=0.0))
+        with pytest.raises(ValueError, match="invalid signal"):
+            ex.run(bars, _BadSignals())
