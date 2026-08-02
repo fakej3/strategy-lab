@@ -141,3 +141,25 @@ class TestRandomSearchOptimizer:
         r1 = opt1.run(_bars())
         r2 = opt2.run(_bars())
         assert r1.best_params == r2.best_params
+
+
+# ── Objective validation ───────────────────────────────────────────────────────
+
+class TestObjectiveValidation:
+    def test_invalid_objective_raises_value_error(self):
+        space = ParameterSpace({"fast": [5]})
+        opt   = GridSearchOptimizer(space, _HoldStrategy, objective="nonexistent_metric")
+        with pytest.raises(ValueError, match="nonexistent_metric"):
+            opt.run(_bars())
+
+    def test_valid_objective_does_not_raise(self):
+        space = ParameterSpace({"fast": [5]})
+        opt   = GridSearchOptimizer(space, _HoldStrategy, objective="calmar_ratio")
+        result = opt.run(_bars())
+        assert result.objective == "calmar_ratio"
+
+    def test_invalid_objective_random_raises(self):
+        space = ParameterSpace({"fast": [5]})
+        opt   = RandomSearchOptimizer(space, _HoldStrategy, n_iter=1, objective="bad_field")
+        with pytest.raises(ValueError, match="bad_field"):
+            opt.run(_bars())

@@ -122,3 +122,17 @@ class TestMetricsDict:
         bars   = _bars()
         result = compare_strategies(bars, {"Hold": _Hold()})
         assert isinstance(result.results["Hold"], PortfolioResult)
+
+
+# ── Invalid sort_by ───────────────────────────────────────────────────────────
+
+class TestInvalidSortBy:
+    def test_invalid_sort_by_raises_value_error(self):
+        bars = _bars()
+        with pytest.raises(ValueError, match="sort_by"):
+            compare_strategies(bars, {"Hold": _Hold()}, sort_by="not_a_real_column")
+
+    def test_valid_sort_by_does_not_raise(self):
+        bars   = _bars()
+        result = compare_strategies(bars, {"Hold": _Hold()}, sort_by="cagr")
+        assert "cagr" in result.ranking.columns

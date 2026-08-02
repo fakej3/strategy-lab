@@ -234,6 +234,14 @@ def _run_search(
     engine_config    : EngineConfig,
     bars_per_year    : int,
 ) -> OptimizationResult:
+    import dataclasses
+    valid_objectives = {f.name for f in dataclasses.fields(InstitutionalMetrics)}
+    if objective not in valid_objectives:
+        raise ValueError(
+            f"objective '{objective}' is not a field of InstitutionalMetrics. "
+            f"Valid objectives: {sorted(valid_objectives)}"
+        )
+
     engine = PortfolioEngine(portfolio_config)
     rows: list[dict[str, Any]] = []
 

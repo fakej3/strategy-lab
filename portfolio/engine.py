@@ -194,7 +194,8 @@ def build_equity_curve(
 
         # In-position bars: unrealized PnL from bar close
         if entry < exit_ and exit_ <= n:
-            unrealized = (closes[entry:exit_] - trade.entry_price) * trade.size
+            direction_sign = -1.0 if getattr(trade, "direction", "long") == "short" else 1.0
+            unrealized = (closes[entry:exit_] - trade.entry_price) * trade.size * direction_sign
             equity_arr[entry:exit_] = starting_capital + realized + unrealized
 
         # Exit bar: position closed; net_pnl realized
@@ -313,7 +314,8 @@ def _apply_dynamic_sizing(
             fraction        = portfolio_cfg.fraction,
         )
 
-        gross_pnl = (t.exit_price - t.entry_price) * actual_size
+        direction_sign = -1.0 if t.direction == "short" else 1.0
+        gross_pnl = (t.exit_price - t.entry_price) * actual_size * direction_sign
         entry_fee = t.entry_price * actual_size * engine_cfg.fee_rate
         exit_fee  = t.exit_price  * actual_size * engine_cfg.fee_rate
         net_pnl   = gross_pnl - entry_fee - exit_fee

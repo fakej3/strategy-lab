@@ -89,16 +89,57 @@ class TestSharpeRatio:
 # ── Sortino ratio ──────────────────────────────────────────────────────────────
 
 class TestSortinoRatio:
-    def test_no_downside_returns_zero(self):
+    def test_no_downside_returns_inf(self):
         eq = _equity([100.0 + i for i in range(20)])
         m  = calculate_research_metrics(eq, [], bars_per_year=252)
-        # All returns positive → no downside deviation → sortino = 0
-        assert m.sortino_ratio == 0.0
+        # All returns positive → no downside deviation, positive excess → sortino = inf
+        assert m.sortino_ratio == math.inf
 
     def test_downside_only_gives_negative_sortino(self):
         eq = _equity([100.0 - i for i in range(20)])
         m  = calculate_research_metrics(eq, [], bars_per_year=252)
         assert m.sortino_ratio < 0.0
+
+    def test_sortino_formula_accuracy(self):
+        # Manual computation: returns [-0.01, 0.02, -0.03], MAR=0
+        # neg_sq = [0.01^2, 0, 0.03^2]; mean = (0.0001 + 0 + 0.0009)/3 = 1/3000
+        # downside_vol_bar = sqrt(1/3000); ann = downside_vol_bar * sqrt(252)
+        import numpy as np
+        returns = np.array([-0.01, 0.02, -0.03])
+        neg_sq  = np.minimum(returns, 0.0) ** 2
+        expected_dv_bar = math.sqrt(float(neg_sq.mean()))
+        expected_dv_ann = expected_dv_bar * math.sqrt(252)
+        mean_excess_ann = float(returns.mean()) * 252
+        expected_sortino = mean_excess_ann / expected_dv_ann
+
+        # Build equity that produces exactly these three returns
+        prices = [100.0]
+        for r in returns:
+            prices.append(prices[-1] * (1 + r))
+        eq = _equity(prices)
+        m  = calculate_research_metrics(eq, [], bars_per_year=252)
+        assert m.sortino_ratio == pytest.approx(expected_sortino, rel=1e-6)
+
+    def test_information_ratio_formula(self):
+        # IR = mean_active * sqrt(bpy) / std_active  (both numerator and denominator annualised same way)
+        import numpy as np
+        rng       = np.random.default_rng(7)
+        n         = 100
+        strat_ret = rng.normal(0.001, 0.01, n)
+        bm_ret    = rng.normal(0.0005, 0.01, n)
+        active    = strat_ret - bm_ret
+        te        = float(active.std(ddof=1))
+        expected_ir = float(active.mean() * math.sqrt(252) / te)
+
+        idx = pd.date_range("2024-01-01", periods=n + 1, freq="1D")
+        equity_vals = [100.0]
+        for r in strat_ret:
+            equity_vals.append(equity_vals[-1] * (1 + r))
+        eq = pd.Series(equity_vals, index=idx, name="equity")
+
+        bm_series = pd.Series(bm_ret, index=idx[1:], name="bm")
+        m = calculate_research_metrics(eq, [], bars_per_year=252, benchmark_returns=bm_series)
+        assert m.information_ratio == pytest.approx(expected_ir, rel=1e-6)
 
 
 # ── Max drawdown ───────────────────────────────────────────────────────────────

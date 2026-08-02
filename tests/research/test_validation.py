@@ -130,6 +130,21 @@ class TestValidationWarning:
             w.code = "z"
 
 
+# ── Missing bars guard: unsorted data ─────────────────────────────────────────
+
+class TestMissingBarsUnsorted:
+    def test_unsorted_data_no_missing_bars_warning(self):
+        # Reversed data triggers unsorted_timestamps but must NOT also produce
+        # spurious missing_bars warnings caused by running the gap check on
+        # non-monotonic data.
+        bars     = _make_bars(10, freq="1h")
+        bars     = bars.iloc[::-1]  # reverse
+        warnings = validate_bars_extended(bars)
+        codes    = [w.code for w in warnings]
+        assert "unsorted_timestamps" in codes
+        assert "missing_bars" not in codes
+
+
 # ── No warnings on clean data ─────────────────────────────────────────────────
 
 class TestCleanData:

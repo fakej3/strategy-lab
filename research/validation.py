@@ -111,7 +111,7 @@ def validate_bars_extended(bars: pd.DataFrame) -> list[ValidationWarning]:
     # Strategy: compute the minimum timedelta between consecutive bars (the
     # "base tick") and then check whether every interval is a multiple of it.
     # Any gap larger than one base tick means missing bars.
-    if isinstance(index, pd.DatetimeIndex) and len(index) >= 3:
+    if isinstance(index, pd.DatetimeIndex) and len(index) >= 3 and index.is_monotonic_increasing:
         deltas    = pd.Series(index[1:] - index[:-1])
         min_delta = deltas.min()
 

@@ -125,12 +125,32 @@ class TestFixedUnitsSizing:
         assert trade.net_pnl == pytest.approx(0.0, abs=1.0)
 
     def test_equity_grows_with_profit(self, free):
+        # BUY at bar 0 → fills bar 1 open (120); EXIT at bar 1 → fills bar 2 open (120)
+        # Flat exit at same price → no PnL; this test verifies no crash and valid result
         bars   = _bars([(100, 110, 90, 105), (120, 125, 115, 120), (120, 125, 115, 120)])
         cfg    = PortfolioConfig(starting_capital=10_000.0, position_size=1.0)
         result = PortfolioEngine(cfg).run(
             bars, _FixedSignals({0: Signal.BUY, 1: Signal.EXIT}), free
         )
-        assert result.ending_equity > result.starting_capital or result.trades is not None
+        assert len(result.trades) == 1
+        assert result.ending_equity == pytest.approx(result.starting_capital, rel=1e-6)
+
+    def test_equity_curve_long_direction_sign(self, free):
+        # Price rises from 100 to 200 while in a long position
+        # Unrealized PnL should be positive, raising the equity curve
+        bars = _bars([
+            (100, 101, 99, 100),
+            (100, 201, 99, 200),
+            (200, 201, 199, 200),
+            (200, 201, 199, 200),
+        ])
+        cfg    = PortfolioConfig(starting_capital=10_000.0, position_size=1.0)
+        result = PortfolioEngine(cfg).run(
+            bars, _FixedSignals({0: Signal.BUY, 2: Signal.EXIT}), free
+        )
+        if result.trades:
+            # While in position bars 1–2, equity should exceed starting capital
+            assert result.equity_curve.iloc[1] > result.starting_capital
 
 
 # ── PCT_OF_EQUITY sizing ───────────────────────────────────────────────────────

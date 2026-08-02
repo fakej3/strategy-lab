@@ -159,14 +159,16 @@ def calculate_research_metrics(
         sharpe = 0.0
 
     # ── Sortino ───────────────────────────────────────────────────────────────
-    neg_returns     = returns[returns < rf_per_bar] - rf_per_bar
-    downside_vol_bar = float(neg_returns.std(ddof=1)) if len(neg_returns) > 1 else 0.0
+    # Semi-deviation = sqrt(mean(min(r - MAR, 0)^2)) across ALL periods
+    neg_sq           = np.minimum(returns.to_numpy() - rf_per_bar, 0.0) ** 2
+    mean_neg_sq      = float(neg_sq.mean())
+    downside_vol_bar = math.sqrt(mean_neg_sq) if mean_neg_sq > 0 else 0.0
     ann_downside_vol = downside_vol_bar * math.sqrt(bars_per_year)
 
     if ann_downside_vol > 0:
         sortino = (mean_excess * bars_per_year) / ann_downside_vol
     else:
-        sortino = 0.0
+        sortino = math.inf if mean_excess > 0 else 0.0
 
     # ── Drawdown stats ────────────────────────────────────────────────────────
     rolling_peak = equity_curve.cummax()
@@ -184,7 +186,7 @@ def calculate_research_metrics(
         aligned_ret, aligned_bm = returns.align(benchmark_returns, join="inner")
         active   = aligned_ret - aligned_bm
         te       = float(active.std(ddof=1))
-        ir       = float(active.mean() * bars_per_year / te) if te > 0 else 0.0
+        ir       = float(active.mean() * math.sqrt(bars_per_year) / te) if te > 0 else 0.0
     else:
         ir = 0.0
 

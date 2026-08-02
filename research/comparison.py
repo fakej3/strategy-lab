@@ -121,8 +121,12 @@ def compare_strategies(
         rows.append(row)
 
     ranking = pd.DataFrame(rows)
-    if sort_by in ranking.columns:
-        ranking = ranking.sort_values(sort_by, ascending=False).reset_index(drop=True)
+    if sort_by not in ranking.columns:
+        raise ValueError(
+            f"sort_by='{sort_by}' is not a valid column. "
+            f"Available: {sorted(ranking.columns.tolist())}"
+        )
+    ranking = ranking.sort_values(sort_by, ascending=False).reset_index(drop=True)
 
     return ComparisonResult(
         ranking = ranking,
