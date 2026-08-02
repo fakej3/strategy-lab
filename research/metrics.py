@@ -27,7 +27,8 @@ class InstitutionalMetrics:
     sortino_ratio : float
         Annualised Sortino ratio (excess return / downside deviation).
     calmar_ratio : float
-        CAGR divided by maximum drawdown magnitude.  0.0 when max DD = 0.
+        CAGR divided by maximum drawdown magnitude.
+        math.nan when max DD = 0 or CAGR period < 1 year.
     information_ratio : float
         Mean excess return over benchmark divided by tracking error.
         0.0 when benchmark returns are not provided.
@@ -42,7 +43,7 @@ class InstitutionalMetrics:
         0.0 when there are no losing trades.
     profit_factor : float
         Total gross profit / total gross loss.
-        0.0 when gross loss = 0.
+        math.inf when there are no losing trades.
     win_rate : float
         Fraction of trades that are winners (in [0, 1]).
     avg_trade_pnl : float
@@ -143,10 +144,15 @@ def calculate_research_metrics(
     ending   = float(equity_curve.iloc[-1])
     n_years  = n_bars / bars_per_year
 
-    if starting > 0 and n_years > 0:
+    # Suppress CAGR when the period is shorter than one full year.  The
+    # annualisation exponent (1 / n_years) blows up for short periods:
+    # a 5 % gain over 50 daily bars produces a CAGR > 28 %.  Rather than
+    # report a meaningless number, return nan and let the display layer
+    # format it as "N/A".
+    if starting > 0 and n_years >= 1.0:
         cagr = (ending / starting) ** (1 / n_years) - 1
     else:
-        cagr = 0.0
+        cagr = math.nan
 
     # ── Volatility & Sharpe ───────────────────────────────────────────────────
     excess   = returns - rf_per_bar
@@ -179,7 +185,27 @@ def calculate_research_metrics(
     avg_dd     = float(-neg_dd.mean()) if len(neg_dd) > 0 else 0.0
 
     # ── Calmar ────────────────────────────────────────────────────────────────
-    calmar = cagr / max_dd_pct if max_dd_pct > 0 else 0.0
+    # Only valid when both CAGR is meaningful (period ≥ 1 year) AND there is
+    # a non-zero drawdown.  Otherwise return nan — never 0.0 or Infinity.
+    if max_dd_pct > 0 and not math.isnan(cagr):
+        calmar = cagr / max_dd_pct
+    else:
+        calmar = math.nan
+
+    # ── Recovery factor ───────────────────────────────────────────────────────
+    # Use the rolling peak at the drawdown trough (local peak), not the global
+    # peak.  After a new ATH follows a past drawdown, equity_curve.max() >
+    # local_peak, causing max_dd_abs to be overstated.
+    # Computed here (before the early-return) because it depends only on the
+    # equity curve, not on individual trade records.
+    net_profit = ending - starting
+    if max_dd_pct > 0:
+        trough_idx  = dd_curve.idxmin()
+        local_peak  = float(rolling_peak[trough_idx])
+        max_dd_abs  = max_dd_pct * local_peak
+        recovery    = net_profit / max_dd_abs if max_dd_abs > 0 else 0.0
+    else:
+        recovery = 0.0
 
     # ── Information ratio ─────────────────────────────────────────────────────
     if benchmark_returns is not None and len(benchmark_returns) > 1:
@@ -202,7 +228,7 @@ def calculate_research_metrics(
             calmar_ratio       = calmar,
             information_ratio  = ir,
             kelly_fraction     = 0.0,
-            recovery_factor    = 0.0,
+            recovery_factor    = recovery,
             payoff_ratio       = 0.0,
             profit_factor      = 0.0,
             win_rate           = 0.0,
@@ -233,7 +259,7 @@ def calculate_research_metrics(
 
     gross_profit = sum(t.net_pnl for t in winners)
     gross_loss   = sum(abs(t.net_pnl) for t in losers)
-    profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else math.inf
 
     # ── Kelly fraction ────────────────────────────────────────────────────────
     # Full Kelly = W - (1 - W) / (avg_win / avg_loss)
@@ -242,11 +268,6 @@ def calculate_research_metrics(
     else:
         kelly = 0.0
     kelly = min(kelly, 1.0)
-
-    # ── Recovery factor ───────────────────────────────────────────────────────
-    net_profit     = ending - starting
-    max_dd_abs     = max_dd_pct * float(equity_curve.max())
-    recovery       = net_profit / max_dd_abs if max_dd_abs > 0 else 0.0
 
     # ── R-multiple ────────────────────────────────────────────────────────────
     # Best-effort: use portfolio_equity_at_entry and SL to compute risk,

@@ -353,7 +353,16 @@ def print_summary(result, research_metrics, report, gate, cfg, json_path, md_pat
         print(f"  {label:<26} {value}")
 
     def _f(v: float) -> str:
-        return "∞" if math.isinf(v) else f"{v:.4f}"
+        if math.isnan(v):
+            return "N/A"
+        if math.isinf(v):
+            return "∞" if v > 0 else "-∞"
+        return f"{v:.4f}"
+
+    def _pct(v: float) -> str:
+        if math.isnan(v):
+            return "N/A"
+        return f"{v:>+14.2%}"
 
     # ── Config recap ──────────────────────────────────────────────────────────
     print()
@@ -393,7 +402,7 @@ def print_summary(result, research_metrics, report, gate, cfg, json_path, md_pat
     print(_DASH)
     print("  INSTITUTIONAL METRICS")
     print(_DASH)
-    kv("CAGR",                f"{m.cagr:>+14.2%}")
+    kv("CAGR",                f"{_pct(m.cagr):>14}")
     kv("Sharpe ratio",        f"{_f(m.sharpe_ratio):>14}")
     kv("Sortino ratio",       f"{_f(m.sortino_ratio):>14}")
     kv("Calmar ratio",        f"{_f(m.calmar_ratio):>14}")

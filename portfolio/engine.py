@@ -129,7 +129,16 @@ class PortfolioEngine:
         net_profit       = ending_equity - cfg.starting_capital
         total_return     = net_profit / cfg.starting_capital
         max_drawdown_pct = float(-drawdown_curve.min())
-        max_drawdown_abs = max_drawdown_pct * peak_equity
+        # Use the rolling peak at the drawdown trough, not the global peak.
+        # After a new ATH follows a past drawdown, peak_equity > local_peak,
+        # which would overstate max_drawdown_abs by a factor of peak/local_peak.
+        if max_drawdown_pct > 0:
+            trough_idx       = drawdown_curve.idxmin()
+            rolling_peak     = equity_curve.cummax()
+            local_peak       = float(rolling_peak[trough_idx])
+            max_drawdown_abs = float(local_peak - equity_curve[trough_idx])
+        else:
+            max_drawdown_abs = 0.0
 
         n_bars   = max(len(bars), 1)
         in_bars  = sum(t.exit_bar - t.entry_bar + 1 for t in ptrades)

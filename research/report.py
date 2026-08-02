@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -64,14 +65,15 @@ class ResearchReport:
             indent: JSON indentation level (default 2).
 
         Returns:
-            JSON string.
+            JSON string.  ``nan`` and ``inf`` metric values are serialised
+            as ``null`` — valid JSON that downstream tools can handle.
 
         Usage example
         -------------
         >>> report = build_report(result, "EMA_Crossover", "BTCUSDT")
         >>> print(report.to_json())
         """
-        return json.dumps(self.to_dict(), indent=indent, default=str)
+        return json.dumps(_sanitize_floats(self.to_dict()), indent=indent, default=str)
 
     def to_csv(self) -> str:
         """Serialise to a flat CSV string (one row per key-value pair).
@@ -180,6 +182,17 @@ def build_report(
         metrics        = metrics,
         trades_summary = trades_summary,
     )
+
+
+def _sanitize_floats(obj: Any) -> Any:
+    """Replace float nan/inf with None so json.dumps produces valid JSON."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_floats(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
 
 
 def _flatten(d: Any, prefix: str = "") -> dict[str, Any]:
