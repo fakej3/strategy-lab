@@ -1,0 +1,143 @@
+{
+  "generated_at": "2026-08-02T11:58:20.504129",
+  "config": {
+    "symbol": "BTCUSDT",
+    "interval": "1h",
+    "start_date": "2024-01-01",
+    "end_date": "2024-10-01",
+    "starting_capital": 100000,
+    "strategy": "EMA Crossover",
+    "params": {
+      "fast": 10,
+      "slow": 30
+    },
+    "fee_rate": 0.001,
+    "slippage_pct": 0.0005,
+    "stop_loss_pct": null,
+    "take_profit_pct": null,
+    "bars_per_year": 8760
+  },
+  "portfolio": {
+    "starting_capital": 100000.0,
+    "ending_equity": 97805.63874828804,
+    "net_profit": -2194.361251711962,
+    "total_return": -0.02194361251711962,
+    "max_drawdown_pct": 0.02194361251711962,
+    "max_drawdown_abs": 2194.361251711962,
+    "peak_equity": 100000.0,
+    "exposure_pct": 0.14,
+    "total_trades": 5
+  },
+  "metrics": {
+    "cagr": -0.47685064241712094,
+    "sharpe_ratio": -11.922074820588518,
+    "sortino_ratio": -13.812015361435206,
+    "calmar_ratio": -21.730726517573128,
+    "information_ratio": 0.0,
+    "kelly_fraction": 0.0,
+    "recovery_factor": -1.0,
+    "payoff_ratio": 0.0,
+    "profit_factor": 0.0,
+    "win_rate": 0.0,
+    "avg_trade_pnl": -438.8722503423919,
+    "avg_holding_period": 7.4,
+    "avg_r_multiple": 0.0,
+    "total_trades": 5,
+    "skewness": -1.5927497132559978,
+    "kurtosis": 12.58846935623042,
+    "downside_volatility": 0.04695587571473306,
+    "avg_drawdown": 0.013204994860825332,
+    "max_drawdown_pct": 0.02194361251711962,
+    "bars_per_year": 8760
+  },
+  "quality_gate": {
+    "decision": "REJECT",
+    "overall_score": 6.1,
+    "categories": [
+      {
+        "name": "Capital Preservation",
+        "score": 17.5,
+        "weight": 0.35,
+        "rules": [
+          {
+            "name": "Max Drawdown",
+            "status": "FAIL",
+            "score": 0.0,
+            "detail": "Max drawdown 2194.36 $ \u2014 equals or exceeds net profit"
+          },
+          {
+            "name": "Return / Max Drawdown",
+            "status": "FAIL",
+            "score": 0.0,
+            "detail": "Return / max drawdown = -1.00 \u2014 poor; drawdown not justified by returns (target \u2265 1.5)"
+          },
+          {
+            "name": "Consecutive Losses",
+            "status": "WARNING",
+            "score": 50.0,
+            "detail": "Max 5 consecutive losses \u2014 elevated; compound drawdown risk during streaks"
+          },
+          {
+            "name": "Loss Concentration",
+            "status": "PASS",
+            "score": 100.0,
+            "detail": "Largest loss = 1.8\u00d7 average loss \u2014 no dangerous outliers (target \u2264 3\u00d7)"
+          }
+        ]
+      },
+      {
+        "name": "Profitability",
+        "score": 0.0,
+        "weight": 0.3,
+        "rules": [
+          {
+            "name": "Profit Factor",
+            "status": "FAIL",
+            "score": 0.0,
+            "detail": "Profit factor 0.00 \u2014 weak (< 1.2); losses nearly match or exceed gains"
+          },
+          {
+            "name": "Expectancy",
+            "status": "FAIL",
+            "score": 0.0,
+            "detail": "Negative expectancy \u2014 -1.00R per trade; strategy loses money on average"
+          },
+          {
+            "name": "Net Profit",
+            "status": "FAIL",
+            "score": 0.0,
+            "detail": "Net profit is negative (-2194.36 $) \u2014 no edge demonstrated"
+          }
+        ]
+      },
+      {
+        "name": "Robustness",
+        "score": 0.0,
+        "weight": 0.35,
+        "rules": [
+          {
+            "name": "Sample Size",
+            "status": "FAIL",
+            "score": 0.0,
+            "detail": "5 trades \u2014 insufficient for any valid conclusion (minimum 30, target \u2265 100)"
+          },
+          {
+            "name": "Risk / Reward",
+            "status": "FAIL",
+            "score": 0.0,
+            "detail": "Risk/reward 0.00 \u2014 unfavorable (< 1.0); average loss exceeds average win"
+          },
+          {
+            "name": "Win Rate",
+            "status": "FAIL",
+            "score": 0.0,
+            "detail": "Win rate 0.0% \u2014 critically low; unsustainable without exceptional R/R"
+          }
+        ]
+      }
+    ],
+    "primary_failure": "net_profit",
+    "next_experiment": "The strategy has no demonstrable edge. Strip back to the core entry signal, remove all filters and optimisations, and verify that the base idea generates positive expectancy on at least 30 trades with fixed parameters.",
+    "expected_goal": "Achieve positive net profit and a positive expectancy across \u2265 30 trades before introducing any secondary conditions."
+  }
+}
