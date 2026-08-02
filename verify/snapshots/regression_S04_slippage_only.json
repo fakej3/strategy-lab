@@ -1,0 +1,32 @@
+{
+  "starting_capital": 10000.0,
+  "ending_equity": 10009.79,
+  "peak_equity": 10011.9,
+  "net_profit": 9.79,
+  "total_return": 0.000979,
+  "max_drawdown_pct": 0.00021075,
+  "max_drawdown_abs": 2.11,
+  "exposure_pct": 0.75,
+  "n_trades": 1,
+  "equity_curve": [
+    10000.0,
+    10004.9,
+    10011.9,
+    10009.79
+  ],
+  "trades": [
+    {
+      "trade_number": 1,
+      "entry_bar": 1,
+      "exit_bar": 3,
+      "entry_price": 100.1,
+      "exit_price": 109.89,
+      "gross_pnl": 9.79,
+      "net_pnl": 9.79,
+      "entry_fee": 0.0,
+      "exit_fee": 0.0,
+      "holding_period": 2,
+      "exit_reason": "ExitReason.SIGNAL"
+    }
+  ]
+}
