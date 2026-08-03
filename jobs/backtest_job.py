@@ -83,11 +83,12 @@ class BacktestJob(BaseJob):
             gate_decision = gate.decision.value
             gate_score    = gate.overall_score
 
-        # Sample equity curve for storage (≤ 300 points)
-        eq = result.equity_curve.tolist()
-        if len(eq) > 300:
-            step = len(eq) // 300
-            eq   = eq[::step]
+        # Sample equity curve for storage (≤ 300 points) as [{equity: v}, ...]
+        eq_series = result.equity_curve
+        if len(eq_series) > 300:
+            step     = len(eq_series) // 300
+            eq_series = eq_series.iloc[::step]
+        eq = [{"equity": round(float(v), 2)} for v in eq_series]
 
         return {
             "strategy_name"   : p.strategy_class.__name__,

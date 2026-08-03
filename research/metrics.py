@@ -149,7 +149,7 @@ def calculate_research_metrics(
     # a 5 % gain over 50 daily bars produces a CAGR > 28 %.  Rather than
     # report a meaningless number, return nan and let the display layer
     # format it as "N/A".
-    if starting > 0 and n_years >= 1.0:
+    if starting > 0 and ending > 0 and n_years >= 1.0:
         cagr = (ending / starting) ** (1 / n_years) - 1
     else:
         cagr = math.nan

@@ -13,8 +13,13 @@ def equity_curve_data(equity_json: str | None, label: str = "Equity") -> dict:
         points: list[dict] = json.loads(equity_json)
     except Exception:
         return {"labels": [], "values": []}
-    labels = [p.get("date", p.get("t", i)) for i, p in enumerate(points)]
-    values = [round(p.get("equity", p.get("v", 0)), 2) for p in points]
+    if points and isinstance(points[0], (int, float)):
+        # flat list of floats
+        labels = list(range(len(points)))
+        values = [round(float(p), 2) for p in points]
+    else:
+        labels = [p.get("date", p.get("t", i)) for i, p in enumerate(points)]
+        values = [round(p.get("equity", p.get("v", 0)), 2) for p in points]
     return {"labels": labels, "values": values, "label": label}
 
 

@@ -21,7 +21,6 @@ from typing import Any
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
-from research_db.database import Database
 from research_db.storage import ResearchStorage
 
 # ── App setup ─────────────────────────────────────────────────────────────────
@@ -34,9 +33,7 @@ _DATA_DIR    = Path(os.environ.get("EDGELAB_DATA_DIR","data/bars"))
 
 
 def _storage() -> ResearchStorage:
-    db = Database(str(_DB_PATH))
-    db.connect()
-    return ResearchStorage(db)
+    return ResearchStorage(str(_DB_PATH))
 
 
 # ── Shared CSS + layout ───────────────────────────────────────────────────────
@@ -159,24 +156,33 @@ def _job_badge(status: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def overview(request: Request) -> HTMLResponse:
-    store = _storage()
-    stats = store.get_stats()
+    store    = _storage()
+    stats    = store.get_stats()
+    sessions = store.get_sessions(limit=1000)
     store.db.close()
+
+    n_sessions  = len(sessions)
+    n_total     = stats.get("total", 0)
+    n_promising = stats.get("promising", 0)
+    n_needs_imp = stats.get("needs_imp", 0)
+    n_rejected  = stats.get("rejected", 0)
+    n_passed    = n_promising + n_needs_imp
+    best_sharpe = stats.get("best_sharpe")
 
     tiles = f"""
     <div class="grid">
-      <div class="tile"><div class="tile-val">{stats.get('total_sessions',0)}</div>
+      <div class="tile"><div class="tile-val">{n_sessions}</div>
         <div class="tile-label">Sessions</div></div>
-      <div class="tile"><div class="tile-val">{stats.get('total_results',0)}</div>
+      <div class="tile"><div class="tile-val">{n_total}</div>
         <div class="tile-label">Results</div></div>
-      <div class="tile"><div class="tile-val">{stats.get('passed',0)}</div>
+      <div class="tile"><div class="tile-val">{n_passed}</div>
         <div class="tile-label">Passed Gate</div></div>
-      <div class="tile"><div class="tile-val">{stats.get('rejected',0)}</div>
+      <div class="tile"><div class="tile-val">{n_rejected}</div>
         <div class="tile-label">Rejected</div></div>
-      <div class="tile"><div class="tile-val">{_fmt(stats.get('best_sharpe'),2)}</div>
+      <div class="tile"><div class="tile-val">{_fmt(best_sharpe, 2)}</div>
         <div class="tile-label">Best Sharpe</div></div>
-      <div class="tile"><div class="tile-val">{_fmt(stats.get('best_cagr'),3,pct=True) if stats.get('best_cagr') else '—'}</div>
-        <div class="tile-label">Best CAGR</div></div>
+      <div class="tile"><div class="tile-val">{_fmt(stats.get('avg_sharpe'), 3)}</div>
+        <div class="tile-label">Avg Sharpe</div></div>
     </div>"""
 
     return _page("/", "Overview", tiles)

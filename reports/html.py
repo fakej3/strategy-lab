@@ -113,19 +113,22 @@ def _strategy_table(results: list[StrategyResult]) -> str:
 
 def _chart_section(results: list[StrategyResult]) -> str:
     """Inline JS that draws equity curves for each strategy on Canvas."""
-    passed = [r for r in results if r.gate_decision.upper() == "PASS"]
-    if not passed:
+    non_reject = [r for r in results if r.gate_decision.upper() != "REJECT"]
+    if not non_reject:
         return ""
 
     datasets = []
-    for i, r in enumerate(passed[:8]):  # cap at 8 curves
+    for i, r in enumerate(non_reject[:8]):  # cap at 8 curves
         try:
             pts = json.loads(r.equity_curve_json or "[]")
         except Exception:
             pts = []
         if not pts:
             continue
-        values = [p.get("equity", p.get("v", 0)) for p in pts]
+        if pts and isinstance(pts[0], (int, float)):
+            values = [float(p) for p in pts]
+        else:
+            values = [p.get("equity", p.get("v", 0)) for p in pts]
         label  = f"{r.strategy_class} {r.params[:30]}"
         datasets.append({"label": label, "values": values})
 
