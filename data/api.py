@@ -6,10 +6,19 @@ Usage::
     from datetime import date
 
     df = get_bars("BTCUSDT", "1h", date(2024, 1, 1), date(2024, 3, 31))
+
+    # With provider fallback chain:
+    from data.manager import ProviderManager
+    from data.providers import YahooFinanceProvider
+    mgr = ProviderManager([BinanceProvider(), YahooFinanceProvider()])
+    df = get_bars("BTCUSDT", "1h", date(2024, 1, 1), date(2024, 3, 31), provider=mgr)
 """
 from __future__ import annotations
 
+import hashlib
 import os
+import struct
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -161,11 +170,72 @@ def _fetch_and_cache(
     year: int,
     month: int,
 ) -> pd.DataFrame:
-    """Fetch one month from provider, write to store, return the DataFrame."""
+    """Fetch one month from provider, validate, write to store, record metadata."""
     df = provider.fetch_month(symbol, interval, year, month)
-    if not df.empty:
-        store.write(symbol, interval, year, month, df)
+    if df.empty:
+        return df
+
+    # Validate before caching — hard failures propagate, soft issues are logged
+    integrity_score: float | None = None
+    try:
+        from research.integrity import audit_bars as _audit
+        report = _audit(df, symbol=symbol, interval=interval)
+        integrity_score = report.integrity_score
+        if not report.passed:
+            warnings.warn(
+                f"Data quality warning for {symbol}/{interval} "
+                f"{year}-{month:02d} "
+                f"(score={integrity_score:.0f}/100): "
+                + "; ".join(report.warnings),
+                RuntimeWarning,
+                stacklevel=4,
+            )
+    except ValueError as exc:
+        # Hard integrity failure — refuse to cache corrupt data
+        raise ValueError(
+            f"Data integrity hard failure for {symbol}/{interval} "
+            f"{year}-{month:02d}: {exc}"
+        ) from exc
+    except ImportError:
+        pass  # research package not available in minimal environments
+
+    store.write(symbol, interval, year, month, df)
+
+    # Write metadata sidecar (best-effort — don't fail the whole fetch on this)
+    try:
+        store.write_meta(symbol, interval, year, month, _build_meta(df, provider, integrity_score))
+    except Exception:
+        pass
+
     return df
+
+
+def _build_meta(
+    df: pd.DataFrame,
+    provider: MarketDataProvider,
+    integrity_score: float | None,
+) -> dict:
+    """Build a metadata dict for the downloaded month."""
+    provider_name = type(provider).__name__
+    checksum = _df_checksum(df)
+    return {
+        "provider"       : provider_name,
+        "download_time"  : datetime.now(timezone.utc).isoformat(),
+        "bar_count"      : len(df),
+        "first_bar"      : df.index[0].isoformat() if not df.empty else None,
+        "last_bar"       : df.index[-1].isoformat() if not df.empty else None,
+        "integrity_score": integrity_score,
+        "checksum"       : checksum,
+    }
+
+
+def _df_checksum(df: pd.DataFrame) -> str:
+    """Fast, deterministic MD5 checksum over row-count + close prices."""
+    h = hashlib.md5()
+    h.update(struct.pack(">q", len(df)))
+    if not df.empty and "close" in df.columns:
+        h.update(df["close"].values.astype("float64").tobytes())
+    return h.hexdigest()[:16]
 
 
 def _iter_months(from_date: date, to_date: date):
