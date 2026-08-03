@@ -236,3 +236,14 @@ class TestBarsPerYear:
         m365 = calculate_research_metrics(eq, [], bars_per_year=365)
         # Higher bars_per_year → higher annualised Sharpe
         assert m365.sharpe_ratio > m252.sharpe_ratio
+
+    def test_zero_bars_per_year_raises(self):
+        # Regression: bars_per_year=0 caused ZeroDivisionError
+        eq = _equity([100.0] * 10)
+        with pytest.raises(ValueError, match="bars_per_year"):
+            calculate_research_metrics(eq, [], bars_per_year=0)
+
+    def test_negative_bars_per_year_raises(self):
+        eq = _equity([100.0] * 10)
+        with pytest.raises(ValueError, match="bars_per_year"):
+            calculate_research_metrics(eq, [], bars_per_year=-1)

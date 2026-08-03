@@ -363,8 +363,7 @@ def _run_scenario_with_skip(
         signals = strategy_instance.generate_signals(bars)
 
         rng     = random.Random(seed)
-        buy_idx = [i for i, s in enumerate(signals)
-                   if str(s).upper() in ("BUY", "Signal.BUY")]
+        buy_idx = [i for i, s in enumerate(signals) if s == Signal.BUY]
         to_skip = set(rng.sample(buy_idx, k=int(len(buy_idx) * skip_pct)))
 
         modified = signals.copy()

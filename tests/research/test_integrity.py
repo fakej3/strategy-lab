@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 import pytest
 
@@ -217,3 +218,35 @@ def test_no_volume_column_still_passes():
     report = audit_bars(bars)
     assert report.passed
     assert report.zero_volume_bars == 0
+
+
+# ── Future timestamps ─────────────────────────────────────────────────────────
+
+def _make_future_bars(n: int = 10) -> pd.DataFrame:
+    """Build bars with timestamps 30 days in the future."""
+    future_start = datetime.now(timezone.utc) + timedelta(days=30)
+    idx = pd.date_range(future_start, periods=n, freq="1h", tz="UTC", name="open_time")
+    return pd.DataFrame(
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 1000.0},
+        index=idx,
+    )
+
+
+def test_future_timestamps_generates_warning():
+    # Regression: future timestamps were silently ignored
+    bars = _make_future_bars(5)
+    report = audit_bars(bars, symbol="BTCUSDT", interval="1h")
+    warning_text = " ".join(report.warnings)
+    assert "future" in warning_text.lower()
+
+
+def test_future_timestamps_deducts_score():
+    bars = _make_future_bars(10)
+    report = audit_bars(bars, symbol="BTCUSDT", interval="1h")
+    assert report.integrity_score < 100.0
+
+
+def test_historical_timestamps_no_future_warning():
+    bars = _make_bars(50)
+    report = audit_bars(bars)
+    assert not any("future" in w.lower() for w in report.warnings)

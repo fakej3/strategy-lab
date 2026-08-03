@@ -133,6 +133,10 @@ def calculate_research_metrics(
     >>> print(f"Sharpe: {metrics.sharpe_ratio:.2f}")
     >>> print(f"CAGR:   {metrics.cagr:.2%}")
     """
+    if bars_per_year <= 0:
+        raise ValueError(
+            f"bars_per_year must be a positive integer, got {bars_per_year}"
+        )
     rf_per_bar = (1 + risk_free_rate) ** (1 / bars_per_year) - 1
 
     # ── Returns ───────────────────────────────────────────────────────────────

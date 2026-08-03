@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import pandas as pd
@@ -199,6 +200,19 @@ def audit_bars(
                 f"Mixed or inconsistent timezone in {symbol}/{interval}: {exc}"
             ) from exc
 
+    # ── Soft: future timestamps ────────────────────────────────────────────────
+    n_future = 0
+    if isinstance(bars.index, pd.DatetimeIndex) and bars.index.tz is not None:
+        now_utc = datetime.now(timezone.utc)
+        utc_idx = bars.index.tz_convert("UTC")
+        future_mask = utc_idx > pd.Timestamp(now_utc)
+        n_future = int(future_mask.sum())
+        if n_future > 0:
+            warnings.append(
+                f"{n_future} bar(s) have timestamps in the future — "
+                "possible data corruption or timezone error."
+            )
+
     # ── Hard failure: negative / zero prices ──────────────────────────────────
     price_cols = [c for c in ("open", "high", "low", "close") if c in bars.columns]
     for col in price_cols:
@@ -330,6 +344,10 @@ def audit_bars(
         doji_rate = doji_bars / total_bars
         if doji_rate > 0.10:
             deductions += min(5.0, doji_rate * 20.0)
+
+    # Future timestamps: up to 20 points
+    if total_bars > 0 and n_future > 0:
+        deductions += min(20.0, n_future / total_bars * 100.0)
 
     integrity_score = max(0.0, 100.0 - deductions)
     passed = integrity_score >= threshold and len(hard_failures) == 0

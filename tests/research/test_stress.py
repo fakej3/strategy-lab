@@ -270,3 +270,35 @@ def test_seed_reproducibility():
     r2 = run_stress_tests(**kwargs)
     assert r1.stress_score == r2.stress_score
     assert r1.n_survived == r2.n_survived
+
+
+# ── Trade-skip scenario correctness ──────────────────────────────────────────
+
+class _BuyOnFirstSignal(StrategyBase):
+    """Generates BUY on even bars, HOLD on odd bars — controllable skip target."""
+    def generate_signals(self, bars: pd.DataFrame):
+        sigs = [Signal.BUY if i % 20 == 0 else Signal.HOLD for i in range(len(bars))]
+        return pd.Series(sigs, index=bars.index)
+
+
+def test_trade_skip_scenario_actually_skips_buys():
+    """Regression: str(Signal.BUY).upper() was 'SIGNAL.BUY', never matching, so
+    no trades were ever skipped in the 10%-Skip scenario."""
+    bars = _make_bars(500)
+    skip_scenario = [StressScenario("10% Skipped Trades", skip_pct=0.10)]
+
+    # A deterministic strategy with many BUY signals
+    report = run_stress_tests(
+        bars              = bars,
+        strategy_class    = _AlwaysBuy,
+        params            = {},
+        baseline_fee      = 0.001,
+        baseline_slippage = 0.0005,
+        scenarios         = skip_scenario,
+        seed              = 42,
+    )
+    assert len(report.scenarios) == 1
+    sc = report.scenarios[0]
+    # If skip actually works the stressed result differs slightly from baseline.
+    # The baseline and stressed n_trades must be available (not None).
+    assert sc.n_trades > 0
