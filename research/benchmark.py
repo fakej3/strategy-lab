@@ -170,10 +170,17 @@ def compute_alpha_beta(
     active_mean_ann = float(active.mean()) * bars_per_year
     ir = active_mean_ann / tracking_error if tracking_error > 0 else 0.0
 
-    # Correlation
-    s_std = float(s_aligned.std(ddof=1))
-    b_std = float(b_aligned.std(ddof=1))
-    corr  = cov_sb / (s_std * b_std) if s_std > 0 and b_std > 0 else 0.0
+    # Correlation — use raw returns (not excess) for Pearson correlation.
+    # cov_sb was computed from excess returns; recompute from raw returns here.
+    s_raw = s_aligned.to_numpy(dtype=float)
+    b_raw = b_aligned.to_numpy(dtype=float)
+    s_std = float(s_raw.std(ddof=1))
+    b_std = float(b_raw.std(ddof=1))
+    if s_std > 0 and b_std > 0:
+        cov_raw = float(((s_raw - s_raw.mean()) * (b_raw - b_raw.mean())).mean())
+        corr    = cov_raw / (s_std * b_std)
+    else:
+        corr = 0.0
 
     # Total returns
     s_total = float(strategy_equity.iloc[-1] / strategy_equity.iloc[0]) - 1

@@ -145,8 +145,13 @@ def _fmt(v: float | None, d: int = 4, pct: bool = False) -> str:
 
 
 def _badge(decision: str) -> str:
-    d = decision.lower()
-    cls = "pass" if d == "pass" else "reject"
+    d = decision.upper()
+    if d == "PROMISING":
+        cls = "pass"
+    elif d in ("NEEDS_IMPROVEMENT", "NEEDS IMPROVEMENT"):
+        cls = "warning"
+    else:
+        cls = "reject"
     return f'<span class="badge {cls}">{decision}</span>'
 
 

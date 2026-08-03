@@ -66,6 +66,18 @@ class StrategyResult:
     distribution_json: str | None     = None
     bootstrap_json: str | None        = None
     robustness_json: str | None       = None
+    # Phase 9 — hardening signals
+    data_integrity_score: float | None    = None
+    data_integrity_json: str | None       = None
+    overfitting_score: float | None       = None
+    overfitting_risk_level: str | None    = None
+    overfitting_json: str | None          = None
+    stress_score: float | None            = None
+    stress_risk_level: str | None         = None
+    stress_json: str | None               = None
+    confidence_score: float | None        = None
+    confidence_recommendation: str | None = None
+    confidence_json: str | None           = None
 
 
 @dataclass

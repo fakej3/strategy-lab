@@ -240,6 +240,7 @@ class WalkForwardTester:
             raise ValueError("No complete walk-forward folds could be constructed.")
 
         combined_equity = pd.concat(equity_segments)
+        combined_equity = combined_equity[~combined_equity.index.duplicated(keep="last")]
         combined_equity.name = "wf_equity"
 
         starting = float(equity_segments[0].iloc[0])

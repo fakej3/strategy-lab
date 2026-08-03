@@ -21,7 +21,12 @@ def _fmt(v: float | None, decimals: int = 4, pct: bool = False) -> str:
 
 
 def _decision_class(d: str) -> str:
-    return "pass" if d.upper() == "PASS" else "reject"
+    u = d.upper()
+    if u == "PROMISING":
+        return "pass"
+    if u == "NEEDS_IMPROVEMENT" or u == "NEEDS IMPROVEMENT":
+        return "warning"
+    return "reject"
 
 
 def _equity_json(r: StrategyResult) -> str:
@@ -43,7 +48,7 @@ def _stats_grid(
     n_tested: int,
     elapsed_secs: float,
 ) -> str:
-    n_pass   = sum(1 for r in results if r.gate_decision.upper() == "PASS")
+    n_pass   = sum(1 for r in results if r.gate_decision.upper() in ("PROMISING", "NEEDS_IMPROVEMENT", "NEEDS IMPROVEMENT"))
     n_reject = n_tested - n_pass
     best_sh  = max((r.sharpe_ratio for r in results if r.sharpe_ratio), default=None)
     best_cagr= max((r.cagr         for r in results if r.cagr),         default=None)
@@ -303,7 +308,7 @@ def _robustness_section(results: list[StrategyResult]) -> str:
           <td class="num"><span class="badge {rob_cls}">{_fmt(rob, 1)}</span></td>
           <td class="num">{_fmt(stab, 1)}</td>
           <td class="num">{d.get('n_neighbors', '—')}</td>
-          <td class="num">{d.get('n_profitable_neighbors', '—')}</td>
+          <td class="num">{d.get('n_profitable', '—')}</td>
           <td class="num">{_fmt(d.get('focal_sharpe'), 3)}</td>
           <td class="num">{_fmt(d.get('neighbor_sharpe_mean'), 3)}</td>
           <td class="num">{_fmt(d.get('neighbor_sharpe_std'), 3)}</td>

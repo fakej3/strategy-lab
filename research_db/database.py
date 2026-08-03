@@ -117,6 +117,20 @@ _PHASE7_COLS: list[tuple[str, str]] = [
     ("robustness_json",   "TEXT"),
 ]
 
+_PHASE9_COLS: list[tuple[str, str]] = [
+    ("data_integrity_score",    "REAL"),
+    ("data_integrity_json",     "TEXT"),
+    ("overfitting_score",       "REAL"),
+    ("overfitting_risk_level",  "TEXT"),
+    ("overfitting_json",        "TEXT"),
+    ("stress_score",            "REAL"),
+    ("stress_risk_level",       "TEXT"),
+    ("stress_json",             "TEXT"),
+    ("confidence_score",        "REAL"),
+    ("confidence_recommendation","TEXT"),
+    ("confidence_json",         "TEXT"),
+]
+
 
 class Database:
     """Thin SQLite wrapper with automatic schema migration."""
@@ -157,8 +171,8 @@ class Database:
             stmt = stmt.strip()
             if stmt:
                 conn.execute(stmt)
-        # Add Phase 7 columns to existing databases via ALTER TABLE (idempotent).
-        for col, typedef in _PHASE7_COLS:
+        # Add Phase 7 + Phase 9 columns via ALTER TABLE (idempotent).
+        for col, typedef in _PHASE7_COLS + _PHASE9_COLS:
             try:
                 conn.execute(
                     f"ALTER TABLE strategy_results ADD COLUMN {col} {typedef}"

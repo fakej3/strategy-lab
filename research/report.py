@@ -161,7 +161,7 @@ def build_report(
         "losers"       : len(losers),
         "breakeven"    : n_trades - len(winners) - len(losers),
         "gross_profit" : sum(t.net_pnl for t in winners),
-        "gross_loss"   : sum(t.net_pnl for t in losers),
+        "gross_loss"   : sum(abs(t.net_pnl) for t in losers),
         "largest_win"  : max((t.net_pnl for t in winners), default=0.0),
         "largest_loss" : min((t.net_pnl for t in losers),  default=0.0),
         "avg_win"      : (

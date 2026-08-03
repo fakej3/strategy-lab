@@ -115,15 +115,25 @@ def get_bars(
                     ): (y, m)
                     for y, m in fetch_months
                 }
+                fetch_errors: list[str] = []
                 for future in as_completed(future_to_ym):
                     ym = future_to_ym[future]
                     try:
                         results[ym] = future.result()
-                    except Exception:
+                    except Exception as exc:
                         results[ym] = pd.DataFrame(columns=_EMPTY_COLS)
+                        fetch_errors.append(f"{ym[0]}-{ym[1]:02d}: {exc}")
                     done += 1
                     if on_progress:
                         on_progress(f"{ym[0]}-{ym[1]:02d}", done, total)
+                if fetch_errors:
+                    import warnings as _warn
+                    _warn.warn(
+                        f"Data fetch failures for {symbol}/{interval}: "
+                        + "; ".join(fetch_errors),
+                        RuntimeWarning,
+                        stacklevel=3,
+                    )
 
     # Assemble frames in chronological order
     frames = [results[ym] for ym in months if not results.get(ym, pd.DataFrame()).empty]

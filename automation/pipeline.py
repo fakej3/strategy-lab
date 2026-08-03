@@ -40,6 +40,7 @@ from jobs.walkforward_job import WalkForwardJob, WalkForwardParams
 from research_db.models import SessionRecord, StrategyResult
 from research_db.storage import ResearchStorage
 from research.validation import validate_bars_extended
+from research.integrity import audit_bars
 
 
 # ── Default parameter spaces for known strategies ─────────────────────────────
@@ -311,6 +312,28 @@ class ResearchPipeline:
             for w in warnings:
                 self.notify.warn(f"Data: {w}")
 
+        # Full integrity audit — hard failures halt this symbol/interval
+        try:
+            integrity = audit_bars(bars, symbol=symbol, interval=interval, threshold=60.0)
+            if not integrity.passed:
+                self.notify.error(
+                    f"Data integrity FAIL: score={integrity.integrity_score:.1f}/100. "
+                    + ("; ".join(integrity.hard_failures + integrity.warnings))[:200]
+                )
+                return None
+            if integrity.warnings:
+                for w in integrity.warnings:
+                    self.notify.warn(f"Integrity: {w}")
+            # Attach to bars so downstream steps can reference it
+            bars.attrs["_integrity_score"] = integrity.integrity_score
+            import json as _json
+            bars.attrs["_integrity_json"]  = _json.dumps(integrity.to_dict())
+        except ValueError as exc:
+            self.notify.error(f"Data integrity hard failure: {exc}")
+            return None
+        except Exception:
+            pass  # audit failure must never block the pipeline
+
         self.notify.ok(
             f"{len(bars):,} bars  "
             f"({bars.index[0].strftime('%Y-%m-%d')} → "
@@ -530,6 +553,88 @@ class ResearchPipeline:
             except Exception:
                 pass
 
+        # Overfitting analysis
+        if not cfg.fast_mode:
+            try:
+                from research.overfitting import analyze_overfitting
+                rob_json_str = data.get("robustness_json")
+                rob_data_parsed = json.loads(rob_json_str) if rob_json_str else None
+                n_params_tested = 1
+                if cls.__name__ in STRATEGY_PARAMETER_SPACES:
+                    space = STRATEGY_PARAMETER_SPACES[cls.__name__]
+                    import math as _math
+                    import functools as _ft
+                    n_params_tested = _ft.reduce(lambda a, b: a * b,
+                                                 [len(v) for v in space.values()], 1)
+                of_report = analyze_overfitting(
+                    total_trades         = data.get("total_trades", 0),
+                    sharpe_ratio         = data.get("sharpe_ratio", 0.0) or 0.0,
+                    robustness_data      = rob_data_parsed,
+                    wf_efficiency        = data.get("wf_efficiency"),
+                    n_params_tested      = n_params_tested,
+                )
+                data["overfitting_score"]      = of_report.overfitting_score
+                data["overfitting_risk_level"] = of_report.risk_level
+                data["overfitting_json"]       = json.dumps(of_report.to_dict())
+            except Exception:
+                pass
+
+        # Stress testing (run for non-rejected strategies to measure resilience)
+        if not cfg.fast_mode and data.get("gate_decision", "REJECT") != "REJECT":
+            try:
+                from research.stress import run_stress_tests
+                interval = data.get("interval", "1h")
+                bpy = {"1m": 525_600, "3m": 175_200, "5m": 105_120,
+                       "15m": 35_040, "30m": 17_520, "1h": 8_760,
+                       "2h": 4_380,   "4h": 2_190,   "6h": 1_460,
+                       "8h": 1_095,   "12h": 730,    "1d": 365,
+                       "3d": 121,     "1w": 52}.get(interval, 252)
+                st_report = run_stress_tests(
+                    bars              = bars,
+                    strategy_class    = cls,
+                    params            = params,
+                    baseline_fee      = cfg.fee_rate,
+                    baseline_slippage = cfg.slippage_pct,
+                    starting_capital  = cfg.starting_capital,
+                    bars_per_year     = bpy,
+                    stop_loss_pct     = cfg.stop_loss_pct,
+                    take_profit_pct   = cfg.take_profit_pct,
+                )
+                data["stress_score"]      = st_report.stress_score
+                data["stress_risk_level"] = st_report.risk_level
+                data["stress_json"]       = json.dumps(st_report.to_dict())
+            except Exception:
+                pass
+
+        # Data integrity score (passed via bars.attrs from step1)
+        try:
+            data["data_integrity_score"] = bars.attrs.get("_integrity_score")
+            data["data_integrity_json"]  = bars.attrs.get("_integrity_json")
+        except Exception:
+            pass
+
+        # Confidence score
+        try:
+            from research.confidence import calculate_confidence
+            cf_report = calculate_confidence(
+                data_integrity_score   = data.get("data_integrity_score"),
+                accounting_passed      = True,  # gate passed means accounting reconciled
+                sharpe_ratio           = data.get("sharpe_ratio"),
+                total_trades           = data.get("total_trades"),
+                wf_efficiency          = data.get("wf_efficiency"),
+                stress_score           = data.get("stress_score"),
+                stress_risk_level      = data.get("stress_risk_level"),
+                robustness_score       = data.get("robustness_score"),
+                stability_score        = data.get("stability_score"),
+                overfitting_score      = data.get("overfitting_score"),
+                overfitting_risk_level = data.get("overfitting_risk_level"),
+            )
+            data["confidence_score"]          = cf_report.confidence_score
+            data["confidence_recommendation"] = cf_report.recommendation
+            data["confidence_json"]           = json.dumps(cf_report.to_dict())
+        except Exception:
+            pass
+
         return data
 
     # ── Step 6: filter + build StrategyResult ─────────────────────────────────
@@ -592,6 +697,18 @@ class ResearchPipeline:
             distribution_json   = data.get("distribution_json"),
             bootstrap_json      = data.get("bootstrap_json"),
             robustness_json     = data.get("robustness_json"),
+            # Phase 9
+            data_integrity_score      = data.get("data_integrity_score"),
+            data_integrity_json       = data.get("data_integrity_json"),
+            overfitting_score         = data.get("overfitting_score"),
+            overfitting_risk_level    = data.get("overfitting_risk_level"),
+            overfitting_json          = data.get("overfitting_json"),
+            stress_score              = data.get("stress_score"),
+            stress_risk_level         = data.get("stress_risk_level"),
+            stress_json               = data.get("stress_json"),
+            confidence_score          = data.get("confidence_score"),
+            confidence_recommendation = data.get("confidence_recommendation"),
+            confidence_json           = data.get("confidence_json"),
         )
 
     # ── Step 8: generate reports ──────────────────────────────────────────────

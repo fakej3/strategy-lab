@@ -73,9 +73,13 @@ class ResearchStorage:
                 degradation_score, robustness_score, stability_score,
                 wf_n_folds, wf_efficiency, wf_consistency,
                 regime_json, rolling_json, degradation_json,
-                distribution_json, bootstrap_json, robustness_json)
+                distribution_json, bootstrap_json, robustness_json,
+                data_integrity_score, data_integrity_json,
+                overfitting_score, overfitting_risk_level, overfitting_json,
+                stress_score, stress_risk_level, stress_json,
+                confidence_score, confidence_recommendation, confidence_json)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
-                       ?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (r.session_id, r.strategy_class, r.strategy_name, r.params,
              r.symbol, r.interval, r.start_date, r.end_date,
              r.gate_decision, _safe(r.gate_score),
@@ -91,7 +95,11 @@ class ResearchStorage:
              _safe(r.stability_score), r.wf_n_folds,
              _safe(r.wf_efficiency), _safe(r.wf_consistency),
              r.regime_json, r.rolling_json, r.degradation_json,
-             r.distribution_json, r.bootstrap_json, r.robustness_json),
+             r.distribution_json, r.bootstrap_json, r.robustness_json,
+             _safe(r.data_integrity_score), r.data_integrity_json,
+             _safe(r.overfitting_score), r.overfitting_risk_level, r.overfitting_json,
+             _safe(r.stress_score), r.stress_risk_level, r.stress_json,
+             _safe(r.confidence_score), r.confidence_recommendation, r.confidence_json),
         )
         self.db.commit()
         return cur.lastrowid
@@ -324,6 +332,18 @@ def _row_to_result(row) -> StrategyResult:
         distribution_json   = _get("distribution_json"),
         bootstrap_json      = _get("bootstrap_json"),
         robustness_json     = _get("robustness_json"),
+        # Phase 9 columns
+        data_integrity_score      = _get("data_integrity_score"),
+        data_integrity_json       = _get("data_integrity_json"),
+        overfitting_score         = _get("overfitting_score"),
+        overfitting_risk_level    = _get("overfitting_risk_level"),
+        overfitting_json          = _get("overfitting_json"),
+        stress_score              = _get("stress_score"),
+        stress_risk_level         = _get("stress_risk_level"),
+        stress_json               = _get("stress_json"),
+        confidence_score          = _get("confidence_score"),
+        confidence_recommendation = _get("confidence_recommendation"),
+        confidence_json           = _get("confidence_json"),
     )
 
 
