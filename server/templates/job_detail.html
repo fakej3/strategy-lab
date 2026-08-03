@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.job_id[:8] }}{% endblock %}
+
+{% block head %}
+<style>
+  .progress-track{font-family:'Courier New',monospace;font-size:16px;
+    color:var(--accent);letter-spacing:2px}
+  .stage-label{font-size:20px;font-weight:700;margin-bottom:4px}
+  .stage-sub{color:var(--muted);font-size:13px}
+  .pct-big{font-size:48px;font-weight:800;color:var(--accent);
+    font-variant-numeric:tabular-nums;line-height:1}
+  .status-card{background:var(--surface);border:1px solid var(--border);
+    border-radius:8px;padding:28px;margin-bottom:24px}
+  .log-entry{padding:2px 0;font-size:12px;font-family:'Courier New',monospace}
+  .cancelled{opacity:.6}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:6px">
+  <h1>Job {{ job.job_id[:16] }}</h1>
+  {% if job.status == 'running' %}
+    <span class="badge badge-warn">Running</span>
+  {% elif job.status == 'done' %}
+    <span class="badge badge-pass">Complete</span>
+  {% elif job.status == 'failed' %}
+    <span class="badge badge-fail">Failed</span>
+  {% elif job.status == 'cancelled' %}
+    <span class="badge badge-muted">Cancelled</span>
+  {% else %}
+    <span class="badge badge-muted">{{ job.status }}</span>
+  {% endif %}
+</div>
+<p class="page-sub">
+  Started: {{ job.started_at[:19] if job.started_at else 'Pending' }}
+  {% if job.finished_at %} · Finished: {{ job.finished_at[:19] }}{% endif %}
+  {% if job.elapsed_secs %} · Duration: {{ "%.1f"|format(job.elapsed_secs) }}s{% endif %}
+</p>
+
+<!-- Live progress area -->
+<div class="status-card" id="progress-card">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start">
+    <div>
+      <div class="stage-label" id="stage-label">
+        {% if job.status == 'running' %}Connecting…
+        {% elif job.status == 'done' %}Complete
+        {% elif job.status == 'failed' %}Failed
+        {% else %}{{ job.status|title }}{% endif %}
+      </div>
+      <div class="stage-sub" id="stage-sub">
+        {% if job.session_id %}Session: {{ job.session_id[:16] }}{% endif %}
+      </div>
+    </div>
+    <div class="pct-big" id="pct-display">
+      {% if job.status == 'done' %}100{% elif job.status in ('failed','cancelled') %}—{% else %}0{% endif %}%
+    </div>
+  </div>
+  <div class="progress-bar-wrap" style="margin-top:20px">
+    <div class="progress-bar" id="progress-bar"
+         style="width:{% if job.status == 'done' %}100{% else %}0{% endif %}%">
+    </div>
+  </div>
+  <div class="progress-track" id="progress-track" style="margin-top:12px">
+    {% if job.status == 'done' %}████████████████████ 100%
+    {% elif job.status == 'running' %}░░░░░░░░░░░░░░░░░░░░  0%
+    {% else %}—{% endif %}
+  </div>
+</div>
+
+<!-- Results (shown when done) -->
+<div id="results-block" {% if job.status not in ('done','failed') %}style="display:none"{% endif %}>
+  {% if job.status == 'done' %}
+  <div class="tiles">
+    <div class="tile">
+      <div class="tile-val">{{ job.n_passed }}</div>
+      <div class="tile-label">Passed Gate</div>
+    </div>
+    <div class="tile">
+      <div class="tile-val">{{ job.n_tested }}</div>
+      <div class="tile-label">Strategies Tested</div>
+    </div>
+    <div class="tile">
+      <div class="tile-val">{{ job.n_rejected }}</div>
+      <div class="tile-label">Rejected</div>
+    </div>
+    <div class="tile">
+      <div class="tile-val">{{ "%.1f"|format(job.elapsed_secs) }}s</div>
+      <div class="tile-label">Duration</div>
+    </div>
+  </div>
+  {% if job.session_id %}
+  <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap">
+    <a href="/reports" class="btn btn-primary">📄 View Reports</a>
+    <a href="/strategies" class="btn btn-secondary">📊 Strategies</a>
+    <a href="/history" class="btn btn-secondary">🕐 History</a>
+  </div>
+  {% endif %}
+  {% elif job.status == 'failed' %}
+  <div class="alert alert-fail">
+    <strong>Pipeline failed:</strong><br>
+    <pre style="margin-top:8px;white-space:pre-wrap;font-size:11px">{{ job.error[:1000] }}</pre>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Live log -->
+<h2>Live Log</h2>
+<div class="log-box" id="log-box">
+  {% if job.status == 'done' %}
+    <div class="log-entry log-line-ok">✓  Research complete</div>
+  {% elif job.status == 'failed' %}
+    <div class="log-entry log-line-error">✗  Pipeline failed</div>
+  {% elif job.status == 'running' %}
+    <div class="log-entry log-line-info">  Connecting to job stream…</div>
+  {% else %}
+    <div class="log-entry log-line-info">  Job is {{ job.status }}</div>
+  {% endif %}
+</div>
+
+<!-- Controls -->
+<div style="display:flex;gap:12px;margin-top:20px;flex-wrap:wrap">
+  <a href="/jobs" class="btn btn-secondary">← All Jobs</a>
+  {% if job.status in ('running', 'pending') %}
+  <form method="POST" action="/jobs/{{ job.job_id }}/cancel" style="display:inline">
+    <button type="submit" class="btn btn-danger btn-sm">⏹ Cancel</button>
+  </form>
+  {% endif %}
+  {% if job.status in ('done', 'failed', 'cancelled') %}
+  <form method="POST" action="/jobs/{{ job.job_id }}/restart" style="display:inline">
+    <button type="submit" class="btn btn-secondary btn-sm">↺ Restart</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if job.status in ('running', 'pending') %}
+<script>
+(function() {
+  const jobId   = "{{ job.job_id }}";
+  const wsUrl   = `ws://${location.host}/ws/job/${jobId}`;
+  const logBox  = document.getElementById('log-box');
+  const bar     = document.getElementById('progress-bar');
+  const track   = document.getElementById('progress-track');
+  const pctDisp = document.getElementById('pct-display');
+  const stageLbl= document.getElementById('stage-label');
+  const stageSub= document.getElementById('stage-sub');
+  const resultsBlk = document.getElementById('results-block');
+
+  let pct = 0;
+  let ws;
+  let retryDelay = 1000;
+
+  function renderBar(p) {
+    const filled = Math.round(p / 5);   // 0-20 blocks
+    const empty  = 20 - filled;
+    return '█'.repeat(filled) + '░'.repeat(empty) + `  ${p}%`;
+  }
+
+  function appendLog(cls, text) {
+    const div = document.createElement('div');
+    div.className = `log-entry ${cls}`;
+    div.textContent = text;
+    logBox.appendChild(div);
+    logBox.scrollTop = logBox.scrollHeight;
+    // keep max 500 lines
+    while (logBox.children.length > 500) {
+      logBox.removeChild(logBox.firstChild);
+    }
+  }
+
+  function setProgress(p, label, sub) {
+    pct = Math.max(pct, p);
+    bar.style.width = pct + '%';
+    track.textContent = renderBar(pct);
+    pctDisp.textContent = pct + '%';
+    if (label) stageLbl.textContent = label;
+    if (sub)   stageSub.textContent = sub;
+  }
+
+  function handleMessage(msg) {
+    if (msg.type === 'step') {
+      setProgress(msg.pct || 0, 'Step ' + msg.n + ' — ' + msg.label, '');
+      appendLog('log-line-step', `  STEP ${msg.n} · ${msg.label}`);
+    } else if (msg.type === 'section') {
+      appendLog('log-line-info', msg.label);
+      stageSub.textContent = msg.label;
+    } else if (msg.type === 'ok') {
+      appendLog('log-line-ok', '  ✓  ' + msg.message);
+    } else if (msg.type === 'info') {
+      appendLog('log-line-info', '  ·  ' + msg.message);
+    } else if (msg.type === 'warn') {
+      appendLog('log-line-warn', '  ⚠  ' + msg.message);
+    } else if (msg.type === 'error') {
+      appendLog('log-line-error', '  ✗  ' + msg.message);
+    } else if (msg.type === 'done') {
+      setProgress(100, msg.success ? 'Complete' : (msg.cancelled ? 'Cancelled' : 'Failed'), '');
+      resultsBlk.style.display = '';
+      if (msg.success) {
+        const inner = `
+          <div class="tiles">
+            <div class="tile"><div class="tile-val">${msg.n_passed||0}</div><div class="tile-label">Passed Gate</div></div>
+            <div class="tile"><div class="tile-val">${msg.n_tested||0}</div><div class="tile-label">Tested</div></div>
+            <div class="tile"><div class="tile-val">${msg.n_rejected||0}</div><div class="tile-label">Rejected</div></div>
+            <div class="tile"><div class="tile-val">${(msg.elapsed_secs||0).toFixed(1)}s</div><div class="tile-label">Duration</div></div>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <a href="/reports" class="btn btn-primary">📄 Reports</a>
+            <a href="/strategies" class="btn btn-secondary">📊 Strategies</a>
+          </div>`;
+        resultsBlk.innerHTML = inner;
+        appendLog('log-line-ok', '  ✓  Research complete');
+      } else if (msg.cancelled) {
+        resultsBlk.innerHTML = '<div class="alert alert-warn">Job was cancelled.</div>';
+      } else {
+        resultsBlk.innerHTML = `<div class="alert alert-fail"><strong>Failed:</strong><br><pre style="font-size:11px;white-space:pre-wrap">${(msg.error||'').substring(0,800)}</pre></div>`;
+        appendLog('log-line-error', '  ✗  Pipeline failed');
+      }
+      ws.close();
+    } else if (msg.type === 'ping') {
+      // keepalive, ignore
+    }
+  }
+
+  function connect() {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = () => {
+      retryDelay = 1000;
+      stageLbl.textContent = 'Running…';
+    };
+    ws.onmessage = (ev) => {
+      try { handleMessage(JSON.parse(ev.data)); }
+      catch(e) {}
+    };
+    ws.onerror = () => {};
+    ws.onclose = (ev) => {
+      if (ev.code !== 1000) {
+        // Reconnect with backoff
+        setTimeout(connect, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 30_000);
+      }
+    };
+  }
+
+  connect();
+
+  // Elapsed timer
+  const startTs = Date.now();
+  const elapsedEl = document.createElement('div');
+  elapsedEl.style.cssText = 'color:var(--muted);font-size:12px;margin-top:6px';
+  document.getElementById('progress-card').appendChild(elapsedEl);
+  setInterval(() => {
+    const secs = ((Date.now() - startTs) / 1000).toFixed(0);
+    elapsedEl.textContent = `Elapsed: ${secs}s`;
+  }, 1000);
+})();
+</script>
+{% endif %}
+{% endblock %}

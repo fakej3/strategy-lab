@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Strategies{% endblock %}
+
+{% block content %}
+<h1>Strategy Results</h1>
+<p class="page-sub">All backtested strategies ranked by performance</p>
+
+<!-- Filter bar -->
+<form method="GET" style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-end">
+  <div class="form-group" style="min-width:160px">
+    <label>Sort By</label>
+    <select name="metric">
+      {% for m in ['sharpe_ratio','cagr','win_rate','profit_factor','total_return','max_drawdown_pct'] %}
+      <option value="{{ m }}" {% if m == metric %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="form-group" style="min-width:160px">
+    <label>Gate Decision</label>
+    <select name="decision">
+      <option value="">All</option>
+      <option value="PROMISING" {% if decision == 'PROMISING' %}selected{% endif %}>Promising</option>
+      <option value="NEEDS IMPROVEMENT" {% if decision == 'NEEDS IMPROVEMENT' %}selected{% endif %}>Needs Improvement</option>
+      <option value="REJECT" {% if decision == 'REJECT' %}selected{% endif %}>Rejected</option>
+    </select>
+  </div>
+  <button type="submit" class="btn btn-secondary">Filter</button>
+</form>
+
+{% if not results %}
+<p class="empty">No results found.</p>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Strategy</th>
+      <th>Params</th>
+      <th>Market</th>
+      <th class="r">Sharpe</th>
+      <th class="r">CAGR</th>
+      <th class="r">Max DD</th>
+      <th class="r">Win Rate</th>
+      <th class="r">PF</th>
+      <th class="r">Trades</th>
+      <th>Gate</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in results %}
+    <tr>
+      <td style="font-weight:600">{{ r.strategy_class }}</td>
+      <td class="mono">{{ r.params[:50] if r.params else '' }}</td>
+      <td>{{ r.symbol }} {{ r.interval }}</td>
+      <td class="r">{{ fmt(r.sharpe_ratio, 3) }}</td>
+      <td class="r">{{ fmt(r.cagr, 4, pct=True) }}</td>
+      <td class="r">{{ fmt(r.max_drawdown_pct, 2, pct=True) }}</td>
+      <td class="r">{{ fmt(r.win_rate, 2, pct=True) }}</td>
+      <td class="r">{{ fmt(r.profit_factor, 3) }}</td>
+      <td class="r">{{ r.total_trades }}</td>
+      <td>
+        {% set d = r.gate_decision.upper() %}
+        {% if d == 'PROMISING' %}<span class="badge badge-pass">{{ r.gate_decision }}</span>
+        {% elif d == 'NEEDS IMPROVEMENT' %}<span class="badge badge-warn">Needs Imp.</span>
+        {% else %}<span class="badge badge-fail">Reject</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p style="color:var(--muted);font-size:12px;margin-top:12px">
+  {{ results|length }} result(s)
+</p>
+{% endif %}
+{% endblock %}

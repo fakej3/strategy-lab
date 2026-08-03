@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block title %}New Research Run{% endblock %}
+
+{% block content %}
+<h1>New Research Run</h1>
+<p class="page-sub">Configure and launch the research pipeline</p>
+
+<form method="POST" action="/research/run" id="research-form">
+
+  <!-- Market Data -->
+  <div class="form-section">
+    <div class="form-section-title">Market Data</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="symbols">Symbols</label>
+        <input id="symbols" name="symbols" type="text"
+               value="BTCUSDT" placeholder="BTCUSDT, ETHUSDT, SOLUSDT">
+        <span class="hint">Comma-separated Binance symbols</span>
+      </div>
+      <div class="form-group">
+        <label for="intervals">Intervals</label>
+        <input id="intervals" name="intervals" type="text"
+               value="1h" placeholder="1h, 4h, 1d">
+        <span class="hint">Comma-separated timeframes</span>
+      </div>
+      <div class="form-group">
+        <label for="start_date">Start Date</label>
+        <input id="start_date" name="start_date" type="date"
+               value="{{ default_start }}">
+      </div>
+      <div class="form-group">
+        <label for="end_date">End Date</label>
+        <input id="end_date" name="end_date" type="date"
+               value="{{ today }}">
+      </div>
+    </div>
+  </div>
+
+  <!-- Portfolio -->
+  <div class="form-section">
+    <div class="form-section-title">Portfolio Settings</div>
+    <div class="form-grid cols3">
+      <div class="form-group">
+        <label for="starting_capital">Starting Capital ($)</label>
+        <input id="starting_capital" name="starting_capital"
+               type="number" step="1000" min="1000" value="100000">
+      </div>
+      <div class="form-group">
+        <label for="fee_rate">Fee Rate</label>
+        <input id="fee_rate" name="fee_rate"
+               type="number" step="0.0001" min="0" max="0.1" value="0.001">
+        <span class="hint">e.g. 0.001 = 0.1%</span>
+      </div>
+      <div class="form-group">
+        <label for="slippage_pct">Slippage</label>
+        <input id="slippage_pct" name="slippage_pct"
+               type="number" step="0.0001" min="0" max="0.05" value="0.0005">
+      </div>
+      <div class="form-group">
+        <label for="stop_loss_pct">Stop Loss (optional)</label>
+        <input id="stop_loss_pct" name="stop_loss_pct"
+               type="number" step="0.01" min="0" max="1"
+               placeholder="e.g. 0.05 for 5%">
+      </div>
+      <div class="form-group">
+        <label for="take_profit_pct">Take Profit (optional)</label>
+        <input id="take_profit_pct" name="take_profit_pct"
+               type="number" step="0.01" min="0" max="10"
+               placeholder="e.g. 0.15 for 15%">
+      </div>
+    </div>
+  </div>
+
+  <!-- Quality Gate -->
+  <div class="form-section">
+    <div class="form-section-title">Quality Gate Thresholds</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="min_trades">Minimum Trades</label>
+        <input id="min_trades" name="min_trades"
+               type="number" min="1" max="10000" value="10">
+      </div>
+      <div class="form-group">
+        <label for="max_drawdown_threshold">Max Drawdown Threshold</label>
+        <input id="max_drawdown_threshold" name="max_drawdown_threshold"
+               type="number" step="0.01" min="0" max="1" value="0.35">
+        <span class="hint">Reject if max DD exceeds this (e.g. 0.35)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Strategies -->
+  <div class="form-section">
+    <div class="form-section-title">Strategy Selection</div>
+    {% if strategies %}
+    <div style="display:flex;flex-direction:column;gap:8px">
+      {% for s in strategies %}
+      <div class="checkbox-row">
+        <input type="checkbox" id="strat_{{ s.name }}" name="strategy_{{ s.name }}"
+               checked value="1">
+        <label for="strat_{{ s.name }}">
+          {{ s.name }}
+          {% if s.param_space %}
+          <span style="color:var(--muted);font-size:11px;font-weight:400">
+            — {{ s.param_space|length }} param(s)
+          </span>
+          {% endif %}
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No strategies discovered in the strategies/ package.</p>
+    {% endif %}
+  </div>
+
+  <!-- Walk-Forward -->
+  <div class="form-section">
+    <div class="form-section-title">Walk-Forward Analysis</div>
+    <div class="form-grid">
+      <div class="form-group full-width">
+        <div class="checkbox-row">
+          <input type="checkbox" id="run_walk_forward" name="run_walk_forward"
+                 checked value="on">
+          <label for="run_walk_forward">Enable Walk-Forward Analysis</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="wf_train_bars">Training Bars</label>
+        <input id="wf_train_bars" name="wf_train_bars"
+               type="number" min="100" max="100000" value="1008">
+        <span class="hint">~6 weeks of 1h bars</span>
+      </div>
+      <div class="form-group">
+        <label for="wf_test_bars">Test Bars</label>
+        <input id="wf_test_bars" name="wf_test_bars"
+               type="number" min="50" max="50000" value="336">
+        <span class="hint">~2 weeks of 1h bars</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Monte Carlo -->
+  <div class="form-section">
+    <div class="form-section-title">Monte Carlo Simulation</div>
+    <div class="form-grid">
+      <div class="form-group full-width">
+        <div class="checkbox-row">
+          <input type="checkbox" id="run_monte_carlo" name="run_monte_carlo"
+                 checked value="on">
+          <label for="run_monte_carlo">Enable Monte Carlo</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="mc_simulations">Simulations</label>
+        <input id="mc_simulations" name="mc_simulations"
+               type="number" min="50" max="10000" value="500">
+      </div>
+    </div>
+  </div>
+
+  <!-- Robustness -->
+  <div class="form-section">
+    <div class="form-section-title">Parameter Robustness</div>
+    <div class="form-grid">
+      <div class="form-group full-width">
+        <div class="checkbox-row">
+          <input type="checkbox" id="run_robustness" name="run_robustness"
+                 checked value="on">
+          <label for="run_robustness">Enable Robustness Analysis (neighbor parameter testing)</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="robustness_steps">Neighbor Steps</label>
+        <input id="robustness_steps" name="robustness_steps"
+               type="number" min="1" max="3" value="1">
+        <span class="hint">±steps in each parameter dimension</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Execution -->
+  <div class="form-section">
+    <div class="form-section-title">Execution</div>
+    <div class="form-grid cols3">
+      <div class="form-group">
+        <label for="n_workers">Workers</label>
+        <input id="n_workers" name="n_workers"
+               type="number" min="1" max="64" value="{{ n_workers_default }}">
+        <span class="hint">Parallel backtest processes</span>
+      </div>
+      <div class="form-group" style="justify-content:flex-end;gap:12px">
+        <div class="checkbox-row">
+          <input type="checkbox" id="fast_mode" name="fast_mode" value="on">
+          <label for="fast_mode">Fast Mode (skip WF + MC)</label>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="verbose" name="verbose" value="on">
+          <label for="verbose">Verbose Logging</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:12px;margin-top:8px">
+    <button type="submit" class="btn btn-primary" id="run-btn">
+      ▶ Launch Research Run
+    </button>
+    <a href="/" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>
+
+<script>
+document.getElementById('research-form').addEventListener('submit', function() {
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = '⌛ Submitting…';
+});
+</script>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+<h1>Reports</h1>
+<p class="page-sub">Generated HTML research reports</p>
+
+{% if not files %}
+<p class="empty">No reports yet. <a href="/research" style="color:var(--accent)">Run research first →</a></p>
+{% else %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+{% for f in files %}
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px">
+  <div style="font-weight:700;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+    {{ f.name }}
+  </div>
+  <div style="color:var(--muted);font-size:12px;margin-bottom:12px">
+    {{ f.modified }}
+    {% if f.symbol %} · {{ f.symbol }}{% endif %}
+    {% if f.interval %} {{ f.interval }}{% endif %}
+    &nbsp;·&nbsp; {{ f.size_kb }} KB
+  </div>
+  {% if f.n_passed != '' %}
+  <div style="margin-bottom:12px">
+    <span class="badge badge-pass">{{ f.n_passed }} passed</span>
+    {% if f.sharpe %}&nbsp;<span class="badge badge-blue">Sharpe {{ "%.3f"|format(f.sharpe|float) }}</span>{% endif %}
+  </div>
+  {% endif %}
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/reports/view/{{ f.name }}" class="btn btn-primary btn-sm"
+       target="_blank">Open</a>
+    <a href="/reports/download/{{ f.name }}" class="btn btn-secondary btn-sm">
+      ⬇ Download
+    </a>
+    <form method="POST" action="/reports/delete/{{ f.name }}"
+          style="display:inline"
+          onsubmit="return confirm('Delete {{ f.name }}?')">
+      <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endblock %}

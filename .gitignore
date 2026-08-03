@@ -11,3 +11,4 @@ logs/
 *.log
 market_data/
 research.db
+server/.secret_key

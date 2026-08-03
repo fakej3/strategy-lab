@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Running Jobs{% endblock %}
+
+{% block content %}
+<h1>Job Queue</h1>
+<p class="page-sub">All research jobs — running, completed, and failed</p>
+
+<div style="margin-bottom:20px">
+  <a href="/research" class="btn btn-primary">▶ New Research Run</a>
+</div>
+
+{% if not jobs %}
+<p class="empty">No jobs yet. <a href="/research" style="color:var(--accent)">Start a research run →</a></p>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Job ID</th>
+      <th>Status</th>
+      <th>Started</th>
+      <th>Finished</th>
+      <th class="r">Passed</th>
+      <th class="r">Tested</th>
+      <th class="r">Elapsed</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for j in jobs %}
+    <tr>
+      <td class="mono">{{ j.job_id[:16] }}</td>
+      <td>
+        {% if j.status == 'running' %}<span class="badge badge-warn">Running</span>
+        {% elif j.status == 'done'  %}<span class="badge badge-pass">Done</span>
+        {% elif j.status == 'failed'%}<span class="badge badge-fail">Failed</span>
+        {% elif j.status == 'cancelled'%}<span class="badge badge-muted">Cancelled</span>
+        {% else %}<span class="badge badge-muted">{{ j.status }}</span>
+        {% endif %}
+      </td>
+      <td>{{ (j.started_at or '')[:19] }}</td>
+      <td>{{ (j.finished_at or '')[:19] }}</td>
+      <td class="r">{{ j.n_passed if j.n_passed else '—' }}</td>
+      <td class="r">{{ j.n_tested if j.n_tested else '—' }}</td>
+      <td class="r">
+        {% if j.elapsed_secs %}{{ "%.1f"|format(j.elapsed_secs) }}s{% else %}—{% endif %}
+      </td>
+      <td>
+        <a href="/jobs/{{ j.job_id }}" class="btn btn-secondary btn-sm">
+          {% if j.status == 'running' %}Watch →{% else %}Details{% endif %}
+        </a>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if jobs %}
+<!-- Auto-refresh every 10s if any job is running -->
+<script>
+const running = {{ jobs | selectattr('status', 'equalto', 'running') | list | length }};
+if (running > 0) {
+  setTimeout(() => location.reload(), 10000);
+  const note = document.createElement('p');
+  note.style.cssText = 'color:var(--muted);font-size:12px;margin-top:16px';
+  note.textContent = 'Page refreshes automatically every 10s while jobs are running.';
+  document.querySelector('main').appendChild(note);
+}
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Scheduler{% endblock %}
+
+{% block content %}
+<h1>Research Scheduler</h1>
+<p class="page-sub">Automate research runs on a recurring schedule</p>
+
+<!-- Existing schedules -->
+{% if schedules %}
+<h2>Active Schedules</h2>
+<div class="table-wrap" style="margin-bottom:32px">
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Frequency</th>
+      <th>Time (UTC)</th>
+      <th>Status</th>
+      <th>Last Run</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in schedules %}
+    <tr>
+      <td style="font-weight:600">{{ s.name }}</td>
+      <td>{{ s.frequency|title }}</td>
+      <td class="mono">
+        {{ "%02d:%02d"|format(s.hour, s.minute) }} UTC
+        {% if s.frequency == 'weekly' %}
+          ({{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][s.day_of_week] }})
+        {% elif s.frequency == 'monthly' %}
+          (day {{ s.day_of_month }})
+        {% endif %}
+      </td>
+      <td>
+        {% if s.enabled %}
+          <span class="badge badge-pass">Enabled</span>
+        {% else %}
+          <span class="badge badge-muted">Disabled</span>
+        {% endif %}
+      </td>
+      <td>{{ (s.last_run or '—')[:16] }}</td>
+      <td>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <form method="POST" action="/scheduler/{{ s.id }}/run-now" style="display:inline">
+            <button class="btn btn-secondary btn-sm" type="submit">▶ Run Now</button>
+          </form>
+          <form method="POST" action="/scheduler/{{ s.id }}/toggle" style="display:inline">
+            <button class="btn btn-secondary btn-sm" type="submit">
+              {% if s.enabled %}Disable{% else %}Enable{% endif %}
+            </button>
+          </form>
+          <form method="POST" action="/scheduler/{{ s.id }}/delete" style="display:inline"
+                onsubmit="return confirm('Delete schedule {{ s.name }}?')">
+            <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="empty" style="margin-bottom:32px">No schedules configured.</p>
+{% endif %}
+
+<!-- Create schedule form -->
+<h2>Create New Schedule</h2>
+<form method="POST" action="/scheduler/create">
+  <div class="form-section">
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="name">Schedule Name</label>
+        <input id="name" name="name" type="text"
+               placeholder="Nightly BTC Research" required>
+      </div>
+      <div class="form-group">
+        <label for="frequency">Frequency</label>
+        <select id="frequency" name="frequency" onchange="updateFrequencyFields()">
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="hour">Hour (UTC)</label>
+        <input id="hour" name="hour" type="number" min="0" max="23" value="2">
+      </div>
+      <div class="form-group">
+        <label for="minute">Minute</label>
+        <input id="minute" name="minute" type="number" min="0" max="59" value="0">
+      </div>
+
+      <div class="form-group" id="dow-group" style="display:none">
+        <label for="day_of_week">Day of Week</label>
+        <select id="day_of_week" name="day_of_week">
+          <option value="0">Monday</option>
+          <option value="1">Tuesday</option>
+          <option value="2">Wednesday</option>
+          <option value="3">Thursday</option>
+          <option value="4">Friday</option>
+          <option value="5">Saturday</option>
+          <option value="6">Sunday</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="dom-group" style="display:none">
+        <label for="day_of_month">Day of Month</label>
+        <input id="day_of_month" name="day_of_month" type="number" min="1" max="28" value="1">
+      </div>
+    </div>
+  </div>
+
+  <!-- Research config -->
+  <div class="form-section">
+    <div class="form-section-title">Research Configuration</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Symbols</label>
+        <input name="symbols" type="text" value="BTCUSDT">
+      </div>
+      <div class="form-group">
+        <label>Intervals</label>
+        <input name="intervals" type="text" value="1h">
+      </div>
+      <div class="form-group">
+        <label>Start Date</label>
+        <input name="start_date" type="date" value="2024-01-01">
+      </div>
+      <div class="form-group">
+        <label>End Date (leave blank for today)</label>
+        <input name="end_date" type="date" value="{{ today }}">
+      </div>
+      <div class="form-group">
+        <label>Starting Capital</label>
+        <input name="starting_capital" type="number" value="100000">
+      </div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:16px;flex-wrap:wrap">
+      <div class="checkbox-row">
+        <input type="checkbox" id="s_wf" name="run_walk_forward" value="on" checked>
+        <label for="s_wf">Walk-Forward</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="s_mc" name="run_monte_carlo" value="on" checked>
+        <label for="s_mc">Monte Carlo</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="s_rob" name="run_robustness" value="on" checked>
+        <label for="s_rob">Robustness</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="s_fast" name="fast_mode" value="on">
+        <label for="s_fast">Fast Mode</label>
+      </div>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Create Schedule</button>
+</form>
+
+<script>
+function updateFrequencyFields() {
+  const freq = document.getElementById('frequency').value;
+  document.getElementById('dow-group').style.display = freq === 'weekly'  ? '' : 'none';
+  document.getElementById('dom-group').style.display = freq === 'monthly' ? '' : 'none';
+}
+updateFrequencyFields();
+</script>
+{% endblock %}

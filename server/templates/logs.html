@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Logs{% endblock %}
+
+{% block head %}
+<style>
+  .log-line{padding:1px 0;font-family:'Courier New',monospace;font-size:12px;
+    line-height:1.6;word-break:break-all}
+  .log-line.ok{color:#3fb950}
+  .log-line.warn{color:#f0b429}
+  .log-line.err{color:#f85149}
+  .log-line.step{color:#4FC3F7;font-weight:600}
+  .log-line.muted{color:#8b949e}
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Logs</h1>
+<p class="page-sub">Research engine log — last {{ log_lines|length }} lines</p>
+
+<div style="margin-bottom:16px;display:flex;gap:12px">
+  <a href="/logs?lines=200"  class="btn btn-secondary btn-sm {% if request.query_params.get('lines','200')=='200' %}btn-primary{% endif %}">Last 200</a>
+  <a href="/logs?lines=500"  class="btn btn-secondary btn-sm">Last 500</a>
+  <a href="/logs?lines=2000" class="btn btn-secondary btn-sm">Last 2000</a>
+  <button onclick="location.reload()" class="btn btn-secondary btn-sm">↺ Refresh</button>
+</div>
+
+{% if log_lines %}
+<div class="log-box" id="log-box" style="max-height:calc(100vh - 220px)">
+  {% for line in log_lines %}
+  <div class="log-line {% if '✓' in line or 'ok' in line.lower() %}ok
+      {% elif '⚠' in line or 'warn' in line.lower() %}warn
+      {% elif '✗' in line or 'error' in line.lower() or 'Error' in line or 'ERROR' in line %}err
+      {% elif 'STEP' in line %}step
+      {% else %}muted{% endif %}">{{ line }}</div>
+  {% endfor %}
+</div>
+<script>
+  // Scroll to bottom on load
+  document.getElementById('log-box').scrollTop = 999999;
+</script>
+{% else %}
+<p class="empty">Log file is empty or not found at the configured path.</p>
+{% endif %}
+{% endblock %}

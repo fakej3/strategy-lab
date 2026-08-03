@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Session History{% endblock %}
+
+{% block content %}
+<h1>Session History</h1>
+<p class="page-sub">All completed research sessions</p>
+
+{% if not sessions %}
+<p class="empty">No sessions yet. <a href="/research" style="color:var(--accent)">Run research first →</a></p>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Session ID</th>
+      <th>Started</th>
+      <th>Finished</th>
+      <th>Status</th>
+      <th>Symbols</th>
+      <th>Intervals</th>
+      <th class="r">Tested</th>
+      <th class="r">Passed</th>
+      <th class="r">Rejected</th>
+      <th class="r">Elapsed</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in sessions %}
+    <tr>
+      <td class="mono" title="{{ s.session_id }}">{{ s.session_id[:16] }}</td>
+      <td>{{ (s.started_at or '')[:16] }}</td>
+      <td>{{ (s.finished_at or '')[:16] }}</td>
+      <td>
+        {% if s.status == 'complete' %}<span class="badge badge-pass">Complete</span>
+        {% elif s.status == 'running' %}<span class="badge badge-warn">Running</span>
+        {% elif s.status == 'failed'  %}<span class="badge badge-fail">Failed</span>
+        {% else %}<span class="badge badge-muted">{{ s.status }}</span>
+        {% endif %}
+      </td>
+      <td class="mono">{{ s.symbols }}</td>
+      <td class="mono">{{ s.intervals }}</td>
+      <td class="r">{{ s.n_strategies_run }}</td>
+      <td class="r">{{ s.n_passed }}</td>
+      <td class="r">{{ s.n_rejected }}</td>
+      <td class="r">
+        {% if s.elapsed_secs %}{{ "%.1f"|format(s.elapsed_secs) }}s{% else %}—{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

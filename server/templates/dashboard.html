@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+<p class="page-sub">Research engine overview</p>
+
+{% if running_jobs %}
+<div class="alert alert-pass" style="margin-bottom:24px">
+  ⚡ {{ n_running }} job{{ 's' if n_running != 1 else '' }} running —
+  <a href="/jobs" style="color:inherit;font-weight:700">View progress →</a>
+</div>
+{% endif %}
+
+<div class="tiles">
+  <div class="tile">
+    <div class="tile-val">{{ stats.total or 0 }}</div>
+    <div class="tile-label">Results</div>
+  </div>
+  <div class="tile">
+    <div class="tile-val">{{ (stats.promising or 0) + (stats.needs_imp or 0) }}</div>
+    <div class="tile-label">Passed Gate</div>
+  </div>
+  <div class="tile">
+    <div class="tile-val">{{ stats.rejected or 0 }}</div>
+    <div class="tile-label">Rejected</div>
+  </div>
+  <div class="tile">
+    <div class="tile-val">
+      {% if stats.best_sharpe %}{{ "%.3f"|format(stats.best_sharpe) }}{% else %}—{% endif %}
+    </div>
+    <div class="tile-label">Best Sharpe</div>
+  </div>
+  <div class="tile">
+    <div class="tile-val">
+      {% if stats.avg_sharpe %}{{ "%.3f"|format(stats.avg_sharpe) }}{% else %}—{% endif %}
+    </div>
+    <div class="tile-label">Avg Sharpe</div>
+  </div>
+  <div class="tile">
+    <div class="tile-val">{{ n_running }}</div>
+    <div class="tile-label">Running Now</div>
+  </div>
+</div>
+
+<h2>Quick Actions</h2>
+<div style="display:flex;gap:12px;margin-bottom:32px;flex-wrap:wrap">
+  <a href="/research" class="btn btn-primary">▶ New Research Run</a>
+  <a href="/reports"  class="btn btn-secondary">📄 View Reports</a>
+  <a href="/history"  class="btn btn-secondary">🕐 Session History</a>
+  <a href="/strategies" class="btn btn-secondary">📊 Best Strategies</a>
+</div>
+
+{% if sessions %}
+<h2>Recent Sessions</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Session ID</th>
+      <th>Started</th>
+      <th>Status</th>
+      <th class="r">Tested</th>
+      <th class="r">Passed</th>
+      <th class="r">Elapsed</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for s in sessions %}
+    <tr>
+      <td class="mono">{{ s.session_id[:16] }}</td>
+      <td>{{ (s.started_at or '')[:19] }}</td>
+      <td>
+        {% if s.status == 'complete' %}<span class="badge badge-pass">Complete</span>
+        {% elif s.status == 'running'  %}<span class="badge badge-warn">Running</span>
+        {% elif s.status == 'failed'   %}<span class="badge badge-fail">Failed</span>
+        {% else %}<span class="badge badge-muted">{{ s.status }}</span>
+        {% endif %}
+      </td>
+      <td class="r">{{ s.n_strategies_run }}</td>
+      <td class="r">{{ s.n_passed }}</td>
+      <td class="r">{% if s.elapsed_secs %}{{ "%.1f"|format(s.elapsed_secs) }}s{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if running_jobs %}
+<h2>Active Jobs</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Job ID</th>
+      <th>Status</th>
+      <th>Started</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for j in running_jobs %}
+    <tr>
+      <td class="mono">{{ j.job_id[:16] }}</td>
+      <td><span class="badge badge-warn">Running</span></td>
+      <td>{{ (j.started_at or '')[:19] }}</td>
+      <td><a href="/jobs/{{ j.job_id }}" class="btn btn-secondary btn-sm">Watch →</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

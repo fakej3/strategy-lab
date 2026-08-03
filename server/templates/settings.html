@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<h1>Settings</h1>
+<p class="page-sub">Server configuration and environment</p>
+
+{% if using_default_creds %}
+<div class="alert alert-warn" style="margin-bottom:24px">
+  ⚠ <strong>Default credentials in use.</strong>
+  Generate a password hash and set <code>EDGELAB_PASSWORD_HASH</code>:
+  <pre style="margin-top:8px;font-size:12px">python -c "from server.auth import hash_password; print(hash_password('yourpassword'))"</pre>
+  Then set the environment variable before starting the server.
+</div>
+{% endif %}
+
+<h2>Paths</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Database</td><td class="mono">{{ db_path }}</td></tr>
+    <tr><td>Reports Directory</td><td class="mono">{{ reports_dir }}</td></tr>
+    <tr><td>Market Data</td><td class="mono">{{ data_dir }}</td></tr>
+    <tr><td>Log File</td><td class="mono">{{ log_path }}</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>Environment Variables</h2>
+{% if env_vars %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Variable</th><th>Value</th></tr></thead>
+  <tbody>
+  {% for k, v in env_vars.items() %}
+    <tr>
+      <td class="mono">{{ k }}</td>
+      <td class="mono">
+        {% if 'HASH' in k or 'SECRET' in k or 'PASSWORD' in k %}
+          <span style="color:var(--muted)">*** (hidden)</span>
+        {% else %}{{ v }}{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="empty">No EDGELAB_ environment variables are set.</p>
+{% endif %}
+
+<h2>How to Set a Password</h2>
+<div class="form-section" style="font-size:13px;line-height:2">
+  <strong>1. Generate a hash:</strong>
+  <pre style="background:var(--bg);padding:12px;border-radius:4px;margin:8px 0;font-size:12px">python -c "from server.auth import hash_password; print(hash_password('yourpassword'))"</pre>
+
+  <strong>2. Set environment variables before starting:</strong>
+  <pre style="background:var(--bg);padding:12px;border-radius:4px;margin:8px 0;font-size:12px">export EDGELAB_USERNAME=admin
+export EDGELAB_PASSWORD_HASH=&lt;output from step 1&gt;
+export EDGELAB_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+python serve.py</pre>
+</div>
+
+<h2>How to Expose on a VPS</h2>
+<div class="form-section" style="font-size:13px;line-height:2">
+  Run behind a reverse proxy (nginx/caddy) with TLS. Example nginx snippet:
+  <pre style="background:var(--bg);padding:12px;border-radius:4px;margin:8px 0;font-size:12px">location / {
+    proxy_pass         http://127.0.0.1:8000;
+    proxy_http_version 1.1;
+    proxy_set_header   Upgrade $http_upgrade;
+    proxy_set_header   Connection "upgrade";
+    proxy_set_header   Host $host;
+}</pre>
+  The <code>Upgrade</code> header is required for WebSocket support.
+</div>
+{% endblock %}
