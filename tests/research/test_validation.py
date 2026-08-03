@@ -97,6 +97,14 @@ class TestVolumeChecks:
         # zero volume is fine (thinly traded, not negative)
         validate_bars_extended(bars)
 
+    def test_negative_volume_raised_even_when_nan_also_present(self):
+        """Regression: elif structure skipped negative-volume check when NaN was also present."""
+        bars = _make_bars(10)
+        bars.iloc[0, bars.columns.get_loc("volume")] = float("nan")
+        bars.iloc[1, bars.columns.get_loc("volume")] = -100.0
+        with pytest.raises(ValueError, match="Negative volume"):
+            validate_bars_extended(bars)
+
 
 # ── Missing bars ───────────────────────────────────────────────────────────────
 

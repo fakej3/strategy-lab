@@ -202,6 +202,31 @@ class TestTradeLevelMetrics:
         m      = calculate_research_metrics(eq, trades)
         assert m.kelly_fraction <= 1.0
 
+    def test_payoff_ratio_inf_when_no_losers(self):
+        """Regression: payoff_ratio was 0.0 (no-losers → avg_loss=0 → else 0.0)
+        but should be math.inf (unlimited avg win per unit of avg loss)."""
+        trades = [_Trade(100.0), _Trade(200.0)]  # all winners
+        eq     = _equity([100.0] * 20)
+        m      = calculate_research_metrics(eq, trades)
+        assert m.payoff_ratio == math.inf
+
+    def test_kelly_positive_when_all_winners(self):
+        """Regression: when no losers, payoff was 0.0 → kelly skipped → 0.0.
+        After fix, payoff=inf → kelly=win_rate=1.0."""
+        trades = [_Trade(100.0)] * 10
+        eq     = _equity([100.0 + i for i in range(20)])
+        m      = calculate_research_metrics(eq, trades)
+        assert m.kelly_fraction > 0.0
+
+
+class TestDrawdownEdgeCases:
+    def test_zero_starting_equity_no_nan(self):
+        """Regression: rolling_peak at index 0 was 0 → 0/0 → NaN in drawdown."""
+        eq = _equity([0.0, 50.0, 40.0])
+        m  = calculate_research_metrics(eq, [])
+        assert not math.isnan(m.max_drawdown_pct)
+        assert not math.isinf(m.max_drawdown_pct)
+
 
 # ── Skewness and kurtosis ──────────────────────────────────────────────────────
 

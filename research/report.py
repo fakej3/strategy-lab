@@ -163,12 +163,12 @@ def build_report(
         "gross_profit" : sum(t.net_pnl for t in winners),
         "gross_loss"   : sum(abs(t.net_pnl) for t in losers),
         "largest_win"  : max((t.net_pnl for t in winners), default=0.0),
-        "largest_loss" : min((t.net_pnl for t in losers),  default=0.0),
+        "largest_loss" : abs(min((t.net_pnl for t in losers), default=0.0)),
         "avg_win"      : (
             sum(t.net_pnl for t in winners) / len(winners) if winners else 0.0
         ),
         "avg_loss"     : (
-            sum(t.net_pnl for t in losers)  / len(losers)  if losers  else 0.0
+            sum(abs(t.net_pnl) for t in losers) / len(losers) if losers else 0.0
         ),
     }
 

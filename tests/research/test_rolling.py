@@ -118,3 +118,21 @@ class TestComputeRollingMetrics:
         for k in ("window", "timestamps", "sharpe", "sortino", "cagr",
                   "drawdown", "win_rate", "profit_factor", "expectancy"):
             assert k in result
+
+    def test_rolling_cagr_nan_for_sub_annual_window(self):
+        """Regression: sub-annual windows produced astronomical CAGR values (exponent ~ 1/0.001).
+        Any window < bars_per_year must now return nan rather than a wildly extrapolated rate."""
+        eq = _eq([100_000.0 + i * 10 for i in range(50)])
+        # window=10 with bars_per_year=8760 → n_years≈0.00114, far below 1-year threshold
+        result = compute_rolling_metrics(eq, [], bars_per_year=8760, window=10)
+        # Every CAGR entry should be nan, not a huge float
+        for val in result["cagr"]:
+            assert math.isnan(val), f"Expected nan for sub-annual CAGR but got {val}"
+
+    def test_rolling_cagr_real_value_for_multi_year_window(self):
+        """CAGR should be a real number when window spans at least one year of bars."""
+        # 400 bars at bars_per_year=252 → window of 300 spans 300/252 ≈ 1.19 years
+        eq = _eq([100_000.0 + i * 5 for i in range(400)])
+        result = compute_rolling_metrics(eq, [], bars_per_year=252, window=300)
+        real_cagrs = [v for v in result["cagr"] if not math.isnan(v)]
+        assert len(real_cagrs) > 0, "Expected at least one non-nan CAGR for year+ window"

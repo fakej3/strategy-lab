@@ -297,6 +297,13 @@ class TestBuildDrawdownCurve:
         dd     = build_drawdown_curve(equity)
         assert dd.iloc[1] == pytest.approx(-0.10, rel=1e-6)
 
+    def test_zero_starting_equity_no_nan_or_inf(self):
+        """Regression: rolling_peak could be 0 at index 0, causing 0/0 → NaN."""
+        equity = pd.Series([0.0, 50.0, 40.0])
+        dd     = build_drawdown_curve(equity)
+        assert not dd.isna().any(), "drawdown must not contain NaN"
+        assert not dd.isin([float("inf"), float("-inf")]).any(), "drawdown must not contain Inf"
+
     def test_max_drawdown_matches_result(self, free):
         bars   = _bars([(100, 110, 90, 100)] * 10)
         result = PortfolioEngine().run(

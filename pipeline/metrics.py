@@ -53,8 +53,8 @@ def calculate_metrics(trades: list[Trade], profit_unit: str) -> Metrics:
 
     risk_reward = avg_win / avg_loss if avg_loss > 0 else math.inf
 
-    largest_win  = max(profits)
-    largest_loss = abs(min(profits))
+    largest_win  = max(winning, default=0.0)
+    largest_loss = abs(min(losing, default=0.0))
 
     max_consecutive_wins, max_consecutive_losses = _consecutive_streaks(profits)
 

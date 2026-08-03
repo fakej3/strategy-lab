@@ -261,7 +261,7 @@ def build_drawdown_curve(equity_curve: pd.Series) -> pd.Series:
         pd.Series indexed identically to equity_curve, named "drawdown".
     """
     rolling_peak = equity_curve.cummax()
-    drawdown     = (equity_curve - rolling_peak) / rolling_peak
+    drawdown     = (equity_curve - rolling_peak) / rolling_peak.clip(lower=1e-10)
     drawdown.name = "drawdown"
     return drawdown
 

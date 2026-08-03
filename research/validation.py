@@ -153,7 +153,7 @@ def validate_bars_extended(bars: pd.DataFrame) -> list[ValidationWarning]:
                 code   = "volume_nan",
                 message= f"{n_nan} bar(s) have NaN volume.",
             ))
-        elif (vol < 0).any():
+        if (vol.dropna() < 0).any():
             raise ValueError(
                 "Negative volume values found in bars. Volume must be ≥ 0."
             )

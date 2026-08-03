@@ -182,7 +182,7 @@ def calculate_research_metrics(
 
     # ── Drawdown stats ────────────────────────────────────────────────────────
     rolling_peak = equity_curve.cummax()
-    dd_curve     = (equity_curve - rolling_peak) / rolling_peak
+    dd_curve     = (equity_curve - rolling_peak) / rolling_peak.clip(lower=1e-10)
 
     max_dd_pct = float(-dd_curve.min()) if len(dd_curve) > 0 else 0.0
     neg_dd     = dd_curve[dd_curve < 0]
@@ -259,7 +259,7 @@ def calculate_research_metrics(
     avg_win  = float(np.mean([t.net_pnl for t in winners])) if winners else 0.0
     avg_loss = float(np.mean([abs(t.net_pnl) for t in losers])) if losers else 0.0
 
-    payoff = avg_win / avg_loss if avg_loss > 0 else 0.0
+    payoff = avg_win / avg_loss if avg_loss > 0 else math.inf
 
     gross_profit = sum(t.net_pnl for t in winners)
     gross_loss   = sum(abs(t.net_pnl) for t in losers)

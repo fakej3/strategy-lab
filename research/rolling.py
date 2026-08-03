@@ -80,10 +80,13 @@ def compute_rolling_metrics(
         # ── Rolling CAGR ──────────────────────────────────────────────────────
         s_eq, e_eq = float(w_eq[0]), float(w_eq[-1])
         if s_eq > 0 and e_eq > 0:
-            n_years  = window / bars_per_year
-            cagr_val = (e_eq / s_eq) ** (1.0 / n_years) - 1 if n_years > 0 else 0.0
+            n_years = window / bars_per_year
+            if n_years >= 1.0:
+                cagr_val = (e_eq / s_eq) ** (1.0 / n_years) - 1
+            else:
+                cagr_val = float("nan")
         else:
-            cagr_val = 0.0
+            cagr_val = float("nan")
         cagr_out.append(round(cagr_val, 4))
 
         # ── Max drawdown in window ─────────────────────────────────────────────
