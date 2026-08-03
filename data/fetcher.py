@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import time
 import zipfile
 from calendar import monthrange
 from datetime import datetime, timezone
@@ -22,12 +23,17 @@ _RAW_COLS = [
 ]
 _KEEP = ["open", "high", "low", "close", "volume"]
 
+_MAX_RETRIES    = 4
+_RETRY_BASE_SEC = 2.0   # wait: 2, 4, 8, 16 seconds
+
 
 class BinanceProvider(MarketDataProvider):
     """Fetches from Binance Vision (bulk archive) with REST API fallback.
 
     Binance Vision hosts complete monthly files going back to 2017 at no cost.
     The REST API covers recent months not yet in the Vision archive.
+
+    Both paths retry on transient failures with exponential backoff.
     """
 
     def __init__(self, session: requests.Session | None = None) -> None:
@@ -41,6 +47,25 @@ class BinanceProvider(MarketDataProvider):
 
     # ── private ───────────────────────────────────────────────────────────────
 
+    def _get_with_retry(self, url: str, **kwargs) -> requests.Response:
+        """GET with exponential backoff on transient errors (5xx / timeout)."""
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                resp = self._s.get(url, **kwargs)
+                if resp.status_code < 500:
+                    return resp          # 2xx, 4xx — caller decides what to do
+                resp.raise_for_status()  # 5xx → triggers retry
+            except (requests.Timeout, requests.ConnectionError,
+                    requests.HTTPError) as exc:
+                last_exc = exc
+                if attempt < _MAX_RETRIES - 1:
+                    delay = _RETRY_BASE_SEC * (2 ** attempt)
+                    time.sleep(delay)
+        raise requests.RequestException(
+            f"Request failed after {_MAX_RETRIES} attempts: {last_exc}"
+        ) from last_exc
+
     def _try_vision(
         self, symbol: str, interval: str, year: int, month: int
     ) -> pd.DataFrame | None:
@@ -48,7 +73,7 @@ class BinanceProvider(MarketDataProvider):
             f"{_VISION_BASE}/{symbol}/{interval}/"
             f"{symbol}-{interval}-{year:04d}-{month:02d}.zip"
         )
-        resp = self._s.get(url, timeout=30)
+        resp = self._get_with_retry(url, timeout=60)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
@@ -61,8 +86,6 @@ class BinanceProvider(MarketDataProvider):
 
     def _fetch_api(self, symbol: str, interval: str, year: int, month: int) -> pd.DataFrame:
         start_ms = int(datetime(year, month, 1, tzinfo=timezone.utc).timestamp() * 1000)
-        last_day = monthrange(year, month)[1]
-        # end_ms: exclusive upper bound — first millisecond of next month
         if month == 12:
             end_ms = int(datetime(year + 1, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
         else:
@@ -72,14 +95,14 @@ class BinanceProvider(MarketDataProvider):
         cursor = start_ms
 
         while cursor < end_ms:
-            resp = self._s.get(
+            resp = self._get_with_retry(
                 _API_BASE,
                 params={
-                    "symbol": symbol,
-                    "interval": interval,
+                    "symbol"   : symbol,
+                    "interval" : interval,
                     "startTime": cursor,
-                    "endTime": end_ms - 1,
-                    "limit": _API_LIMIT,
+                    "endTime"  : end_ms - 1,
+                    "limit"    : _API_LIMIT,
                 },
                 timeout=30,
             )
@@ -90,7 +113,11 @@ class BinanceProvider(MarketDataProvider):
             rows.extend(batch)
             if len(batch) < _API_LIMIT:
                 break
-            cursor = batch[-1][0] + 1  # advance past the last bar's open_time
+            new_cursor = batch[-1][0] + 1
+            if new_cursor <= cursor:
+                # API returned the same window — prevent infinite loop
+                break
+            cursor = new_cursor
 
         if not rows:
             return pd.DataFrame(columns=_KEEP)
@@ -105,4 +132,7 @@ class BinanceProvider(MarketDataProvider):
         df = df.set_index("open_time")
         for col in _KEEP:
             df[col] = df[col].astype(float)
-        return df[_KEEP]
+        df = df[_KEEP]
+        # Drop duplicate timestamps that occasionally appear in source data
+        df = df[~df.index.duplicated(keep="first")]
+        return df

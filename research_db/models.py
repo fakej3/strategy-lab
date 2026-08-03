@@ -56,6 +56,19 @@ class StrategyResult:
 
 
 @dataclass
+class MonitoringEvent:
+    """One instrumentation record — stage timing, memory, download metrics, etc."""
+
+    stage      : str
+    event_type : str
+    created_at : str
+    session_id : str | None   = None
+    value_float: float | None = None
+    value_text : str | None   = None
+    id         : int | None   = None
+
+
+@dataclass
 class JobRecord:
     job_id: str
     job_type: str        # 'backtest' | 'optimization' | 'walkforward' | 'montecarlo'

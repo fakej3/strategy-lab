@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 from .database import Database
-from .models import JobRecord, SessionRecord, StrategyResult
+from .models import JobRecord, MonitoringEvent, SessionRecord, StrategyResult
 
 
 def _safe(v):
@@ -182,6 +182,65 @@ class ResearchStorage:
                 "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
             )
         return [_row_to_job(r) for r in rows]
+
+    # ── Monitoring events ─────────────────────────────────────────────────────
+
+    def log_event(
+        self,
+        stage: str,
+        event_type: str,
+        session_id: str | None  = None,
+        value_float: float | None = None,
+        value_text: str | None  = None,
+    ) -> None:
+        """Record one instrumentation event (non-blocking, never raises)."""
+        from datetime import datetime, timezone
+        try:
+            self.db.execute(
+                """INSERT INTO monitoring_events
+                   (session_id, stage, event_type, value_float, value_text, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (session_id, stage, event_type,
+                 _safe(value_float) if value_float is not None else None,
+                 value_text,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+            self.db.commit()
+        except Exception:
+            pass  # monitoring must never break the main pipeline
+
+    def get_monitoring_events(
+        self,
+        session_id: str | None = None,
+        stage: str | None      = None,
+        limit: int             = 500,
+    ) -> list[MonitoringEvent]:
+        where, params = [], []
+        if session_id:
+            where.append("session_id=?")
+            params.append(session_id)
+        if stage:
+            where.append("stage=?")
+            params.append(stage)
+        clause = "WHERE " + " AND ".join(where) if where else ""
+        params.append(limit)
+        rows = self.db.fetchall(
+            f"SELECT * FROM monitoring_events {clause} "
+            f"ORDER BY created_at DESC LIMIT ?",
+            tuple(params),
+        )
+        return [
+            MonitoringEvent(
+                id          = r["id"],
+                session_id  = r["session_id"],
+                stage       = r["stage"],
+                event_type  = r["event_type"],
+                value_float = r["value_float"],
+                value_text  = r["value_text"],
+                created_at  = r["created_at"],
+            )
+            for r in rows
+        ]
 
     def close(self) -> None:
         self.db.close()

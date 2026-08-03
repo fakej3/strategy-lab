@@ -35,8 +35,7 @@ import strategies as strategies_pkg
 from automation.notifications import Notifier
 from data.api import get_bars
 from engine.strategy import StrategyBase
-from jobs.backtest_job import BARS_PER_YEAR, BacktestJob, BacktestParams
-from jobs.montecarlo_job import run_monte_carlo
+from jobs.backtest_job import BacktestJob, BacktestParams
 from jobs.walkforward_job import WalkForwardJob, WalkForwardParams
 from research_db.models import SessionRecord, StrategyResult
 from research_db.storage import ResearchStorage
@@ -186,15 +185,30 @@ class ResearchPipeline:
 
     def _run_all(self, run: PipelineRun) -> None:
         cfg = self.cfg
+        t0  = time.perf_counter()
 
         for symbol in cfg.symbols:
             for interval in cfg.intervals:
                 self.notify.section(f"Symbol: {symbol}  Interval: {interval}")
 
                 # STEP 1 — fetch data
-                bars = self._step1_fetch(symbol, interval)
+                t_step = time.perf_counter()
+                bars   = self._step1_fetch(symbol, interval)
+                self.storage.log_event(
+                    "step1_fetch", "duration_secs",
+                    session_id  = run.session_id,
+                    value_float = time.perf_counter() - t_step,
+                    value_text  = f"{symbol}/{interval}",
+                )
                 if bars is None or bars.empty:
                     continue
+
+                self.storage.log_event(
+                    "step1_fetch", "bars_count",
+                    session_id  = run.session_id,
+                    value_float = float(len(bars)),
+                    value_text  = f"{symbol}/{interval}",
+                )
 
                 # STEP 2 & 3 — discover strategies + generate combos
                 combos = self._step2_3_combos()
@@ -207,9 +221,21 @@ class ResearchPipeline:
                     f"Discovered {len(combos)} strategy class(es), "
                     f"{total_combos} parameter combination(s)"
                 )
+                self.storage.log_event(
+                    "step2_3_discovery", "combos_count",
+                    session_id  = run.session_id,
+                    value_float = float(total_combos),
+                )
 
                 # STEP 4 — parallel backtests
+                t_step      = time.perf_counter()
                 raw_results = self._step4_run_parallel(bars, combos, symbol, interval)
+                self.storage.log_event(
+                    "step4_backtests", "duration_secs",
+                    session_id  = run.session_id,
+                    value_float = time.perf_counter() - t_step,
+                    value_text  = f"{symbol}/{interval}",
+                )
                 run.n_tested += len(raw_results)
 
                 # STEP 5 — walk-forward + Monte Carlo
@@ -241,6 +267,8 @@ class ResearchPipeline:
                         run.n_rejected += 1
 
                 # STEP 8 — generate reports
+                # Set elapsed before passing to reports so timing is accurate
+                run.elapsed_secs = time.perf_counter() - t0
                 self.notify.step("8", "Generating reports")
                 try:
                     report_paths = self._step8_reports(run, symbol, interval)
@@ -390,12 +418,6 @@ class ResearchPipeline:
         if cfg.fast_mode or (not cfg.run_walk_forward and not cfg.run_monte_carlo):
             return data
 
-        # Reconstruct trades PnL list from equity curve (proxy)
-        # We don't have the actual trades here (only the sampled equity curve),
-        # so WF and MC are run only if we can get actual trade data.
-        # Since we re-run via BacktestJob we have everything we need.
-        # However, to avoid double work, we store WF/MC results alongside backtest.
-
         # Find strategy class
         cls = None
         for entry in combos:
@@ -429,46 +451,26 @@ class ResearchPipeline:
             except Exception:
                 pass  # walk-forward failure never stops the pipeline
 
-        # Monte Carlo — needs actual trade PnL sequence; re-run backtest lightly
+        # Monte Carlo — use trade_pnls from the backtest result (no second run needed).
+        # BacktestJob now includes trade_pnls in its return dict, so we avoid
+        # re-running the entire backtest just to obtain trade PnL values.
         if cfg.run_monte_carlo and not cfg.fast_mode:
             try:
-                bp = BacktestParams(
-                    bars             = bars,
-                    strategy_class   = cls,
-                    params           = params,
-                    symbol           = data["symbol"],
-                    interval         = data["interval"],
-                    start_date       = cfg.start_date,
-                    end_date         = cfg.end_date,
-                    starting_capital = cfg.starting_capital,
-                    fee_rate         = cfg.fee_rate,
-                    slippage_pct     = cfg.slippage_pct,
-                    stop_loss_pct    = cfg.stop_loss_pct,
-                    take_profit_pct  = cfg.take_profit_pct,
-                )
-                # Re-run to get actual trades
-                from engine.models import EngineConfig
-                from portfolio.engine import PortfolioEngine
-                from portfolio.models import PortfolioConfig
-                strategy = cls(**params)
-                eng_cfg  = EngineConfig(
-                    fee_rate        = cfg.fee_rate,
-                    slippage_pct    = cfg.slippage_pct,
-                    stop_loss_pct   = cfg.stop_loss_pct,
-                    take_profit_pct = cfg.take_profit_pct,
-                )
-                port_cfg = PortfolioConfig(starting_capital=cfg.starting_capital)
-                result   = PortfolioEngine(port_cfg).run(bars, strategy, eng_cfg)
-
-                mc = run_monte_carlo(
-                    result.trades,
-                    starting_capital = cfg.starting_capital,
-                    n_simulations    = cfg.mc_simulations,
-                )
-                data["mc_median_return"] = mc.get("median_return")
-                data["mc_pct5_return"]   = mc.get("pct5_return")
-                data["mc_pct95_return"]  = mc.get("pct95_return")
-                data["mc_prob_positive"] = mc.get("prob_positive")
+                trade_pnls = data.get("trade_pnls", [])
+                if trade_pnls:
+                    from jobs.montecarlo_job import MonteCarloJob, MonteCarloParams
+                    mc_job = MonteCarloJob(MonteCarloParams(
+                        pnl_sequence     = trade_pnls,
+                        starting_capital = cfg.starting_capital,
+                        n_simulations    = cfg.mc_simulations,
+                    ))
+                    mc_result = mc_job.run()
+                    if mc_result.success and mc_result.data:
+                        mc = mc_result.data
+                        data["mc_median_return"] = mc.get("median_return")
+                        data["mc_pct5_return"]   = mc.get("pct5_return")
+                        data["mc_pct95_return"]  = mc.get("pct95_return")
+                        data["mc_prob_positive"] = mc.get("prob_positive")
             except Exception:
                 pass
 

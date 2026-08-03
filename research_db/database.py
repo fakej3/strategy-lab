@@ -73,6 +73,19 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+
+CREATE TABLE IF NOT EXISTS monitoring_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT,
+    stage       TEXT    NOT NULL,
+    event_type  TEXT    NOT NULL,
+    value_float REAL,
+    value_text  TEXT,
+    created_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mon_session ON monitoring_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_mon_stage   ON monitoring_events(stage);
 """
 
 

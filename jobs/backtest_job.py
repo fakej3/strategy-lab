@@ -90,6 +90,9 @@ class BacktestJob(BaseJob):
             eq_series = eq_series.iloc[::step]
         eq = [{"equity": round(float(v), 2)} for v in eq_series]
 
+        # Trade PnL list — used by pipeline for MC without a second backtest run
+        trade_pnls = [t.net_pnl for t in result.trades]
+
         return {
             "strategy_name"   : p.strategy_class.__name__,
             "strategy_class"  : p.strategy_class.__name__,
@@ -101,6 +104,7 @@ class BacktestJob(BaseJob):
             "gate_decision"   : gate_decision,
             "gate_score"      : gate_score,
             "total_trades"    : len(result.trades),
+            "trade_pnls"      : trade_pnls,
             "net_profit"      : result.net_profit,
             "total_return"    : result.total_return,
             "max_drawdown_pct": result.max_drawdown_pct,

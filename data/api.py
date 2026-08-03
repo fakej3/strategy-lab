@@ -10,8 +10,10 @@ Usage::
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 
@@ -33,6 +35,8 @@ def get_bars(
     provider: MarketDataProvider | None = None,
     store: BarStore | None = None,
     force_refresh: bool = False,
+    n_workers: int = 4,
+    on_progress: Callable[[str, int, int], None] | None = None,
 ) -> pd.DataFrame:
     """Return OHLCV bars for a symbol/interval over the requested date range.
 
@@ -49,6 +53,10 @@ def get_bars(
         provider: Override the default ``BinanceProvider``.
         store: Override the default ``BarStore`` (uses ``EDGELAB_DATA_DIR``).
         force_refresh: Re-fetch even months that are already cached.
+        n_workers: Thread-pool size for parallel month downloads (default 4).
+            Set to 1 to fetch sequentially.
+        on_progress: Optional callback ``(label, done, total) -> None`` called
+            after each month is resolved (fetched or read from cache).
 
     Returns:
         DataFrame with UTC DatetimeIndex (``name="open_time"``) and float64
@@ -66,37 +74,89 @@ def get_bars(
     if store is None:
         store = BarStore(_DEFAULT_DATA_DIR)
 
-    frames: list[pd.DataFrame] = []
+    months = list(_iter_months(from_date, to_date))
+    total  = len(months)
 
-    for year, month in _iter_months(from_date, to_date):
-        need_fetch = (
-            force_refresh
-            or _is_current_month(year, month)
-            or not store.exists(symbol, interval, year, month)
-        )
-
-        if need_fetch:
-            df = provider.fetch_month(symbol, interval, year, month)
-            if not df.empty:
-                store.write(symbol, interval, year, month, df)
+    # Decide per-month: fetch from network or read from cache
+    fetch_months = []
+    cache_months = []
+    for year, month in months:
+        if force_refresh or _is_current_month(year, month) or not store.exists(symbol, interval, year, month):
+            fetch_months.append((year, month))
         else:
-            df = store.read(symbol, interval, year, month)
+            cache_months.append((year, month))
 
-        if not df.empty:
-            frames.append(df)
+    # Results dict: (year, month) -> DataFrame
+    results: dict[tuple[int, int], pd.DataFrame] = {}
+    done = 0
+
+    # Read cached months (fast, no network)
+    for year, month in cache_months:
+        results[(year, month)] = store.read(symbol, interval, year, month)
+        done += 1
+        if on_progress:
+            on_progress(f"{year}-{month:02d}", done, total)
+
+    # Fetch network months in parallel
+    if fetch_months:
+        workers = min(n_workers, len(fetch_months))
+        if workers <= 1:
+            for year, month in fetch_months:
+                df = _fetch_and_cache(provider, store, symbol, interval, year, month)
+                results[(year, month)] = df
+                done += 1
+                if on_progress:
+                    on_progress(f"{year}-{month:02d}", done, total)
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                future_to_ym = {
+                    pool.submit(
+                        _fetch_and_cache, provider, store, symbol, interval, y, m
+                    ): (y, m)
+                    for y, m in fetch_months
+                }
+                for future in as_completed(future_to_ym):
+                    ym = future_to_ym[future]
+                    try:
+                        results[ym] = future.result()
+                    except Exception:
+                        results[ym] = pd.DataFrame(columns=_EMPTY_COLS)
+                    done += 1
+                    if on_progress:
+                        on_progress(f"{ym[0]}-{ym[1]:02d}", done, total)
+
+    # Assemble frames in chronological order
+    frames = [results[ym] for ym in months if not results.get(ym, pd.DataFrame()).empty]
 
     if not frames:
         return pd.DataFrame(columns=_EMPTY_COLS)
 
     result = pd.concat(frames).sort_index()
+    # Drop any duplicates that survived month-boundary concatenation
+    result = result[~result.index.duplicated(keep="first")]
 
     # Trim to the exact requested date range
     start = pd.Timestamp(from_date, tz="UTC")
-    end = pd.Timestamp(to_date, tz="UTC") + pd.offsets.Day(1)
+    end   = pd.Timestamp(to_date, tz="UTC") + pd.offsets.Day(1)
     return result[(result.index >= start) & (result.index < end)]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _fetch_and_cache(
+    provider: MarketDataProvider,
+    store: BarStore,
+    symbol: str,
+    interval: str,
+    year: int,
+    month: int,
+) -> pd.DataFrame:
+    """Fetch one month from provider, write to store, return the DataFrame."""
+    df = provider.fetch_month(symbol, interval, year, month)
+    if not df.empty:
+        store.write(symbol, interval, year, month, df)
+    return df
+
 
 def _iter_months(from_date: date, to_date: date):
     """Yield (year, month) tuples covering from_date through to_date."""
