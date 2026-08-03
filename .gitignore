@@ -7,3 +7,7 @@ dist/
 build/
 .venv/
 venv/
+logs/
+*.log
+market_data/
+research.db
