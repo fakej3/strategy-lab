@@ -50,7 +50,20 @@ CREATE TABLE IF NOT EXISTS strategy_results (
     mc_pct95_return     REAL,
     mc_prob_positive    REAL,
     equity_curve_json   TEXT,
-    created_at          TEXT    NOT NULL
+    created_at          TEXT    NOT NULL,
+    -- Phase 7 statistical analysis columns
+    degradation_score   REAL,
+    robustness_score    REAL,
+    stability_score     REAL,
+    wf_n_folds          INTEGER,
+    wf_efficiency       REAL,
+    wf_consistency      REAL,
+    regime_json         TEXT,
+    rolling_json        TEXT,
+    degradation_json    TEXT,
+    distribution_json   TEXT,
+    bootstrap_json      TEXT,
+    robustness_json     TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_sr_session    ON strategy_results(session_id);
@@ -87,6 +100,22 @@ CREATE TABLE IF NOT EXISTS monitoring_events (
 CREATE INDEX IF NOT EXISTS idx_mon_session ON monitoring_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_mon_stage   ON monitoring_events(stage);
 """
+
+
+_PHASE7_COLS: list[tuple[str, str]] = [
+    ("degradation_score", "REAL"),
+    ("robustness_score",  "REAL"),
+    ("stability_score",   "REAL"),
+    ("wf_n_folds",        "INTEGER"),
+    ("wf_efficiency",     "REAL"),
+    ("wf_consistency",    "REAL"),
+    ("regime_json",       "TEXT"),
+    ("rolling_json",      "TEXT"),
+    ("degradation_json",  "TEXT"),
+    ("distribution_json", "TEXT"),
+    ("bootstrap_json",    "TEXT"),
+    ("robustness_json",   "TEXT"),
+]
 
 
 class Database:
@@ -128,6 +157,14 @@ class Database:
             stmt = stmt.strip()
             if stmt:
                 conn.execute(stmt)
+        # Add Phase 7 columns to existing databases via ALTER TABLE (idempotent).
+        for col, typedef in _PHASE7_COLS:
+            try:
+                conn.execute(
+                    f"ALTER TABLE strategy_results ADD COLUMN {col} {typedef}"
+                )
+            except Exception:
+                pass  # column already exists — SQLite raises OperationalError
         conn.commit()
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:

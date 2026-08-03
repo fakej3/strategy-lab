@@ -19,6 +19,10 @@ from research.metrics import calculate_research_metrics
 
 from .base import BaseJob
 
+# Lazy imports for analysis modules — called inside execute() to avoid overhead
+# when workers are spawned without needing all features.
+_analysis_imports_done = False
+
 
 # Bars-per-year table (mirrors run.py)
 BARS_PER_YEAR: dict[str, int] = {
@@ -93,6 +97,66 @@ class BacktestJob(BaseJob):
         # Trade PnL list — used by pipeline for MC without a second backtest run
         trade_pnls = [t.net_pnl for t in result.trades]
 
+        # ── Phase 7: Statistical analysis ─────────────────────────────────────
+        regime_json      = None
+        rolling_json     = None
+        degradation_json = None
+        distribution_json = None
+        bootstrap_json   = None
+        degradation_score = None
+
+        if result.trades:
+            try:
+                from research.regime import analyze_per_regime
+                regime_data = analyze_per_regime(
+                    bars=p.bars,
+                    trades=result.trades,
+                    equity_curve=result.equity_curve,
+                )
+                regime_json = json.dumps(regime_data)
+            except Exception:
+                pass
+
+            try:
+                from research.rolling import compute_rolling_metrics
+                rolling_data = compute_rolling_metrics(
+                    equity_curve=result.equity_curve,
+                    trades=result.trades,
+                    bars_per_year=bpy,
+                )
+                rolling_json = json.dumps(rolling_data)
+            except Exception:
+                pass
+
+            try:
+                from research.degradation import analyze_degradation
+                deg_data = analyze_degradation(trades=result.trades)
+                degradation_score = deg_data.get("degradation_score")
+                degradation_json  = json.dumps(deg_data)
+            except Exception:
+                pass
+
+            try:
+                from research.distribution import analyze_distribution
+                dist_data = analyze_distribution(
+                    pnls=trade_pnls,
+                    equity_curve=result.equity_curve,
+                )
+                distribution_json = json.dumps(dist_data)
+            except Exception:
+                pass
+
+            try:
+                from research.bootstrap import bootstrap_confidence_intervals
+                bs_data = bootstrap_confidence_intervals(
+                    pnls=trade_pnls,
+                    starting_capital=p.starting_capital,
+                    n_simulations=200,
+                )
+                bootstrap_json = json.dumps(bs_data)
+            except Exception:
+                pass
+
         return {
             "strategy_name"   : p.strategy_class.__name__,
             "strategy_class"  : p.strategy_class.__name__,
@@ -114,9 +178,16 @@ class BacktestJob(BaseJob):
             "cagr"            : _safe(metrics.cagr),
             "win_rate"        : metrics.win_rate,
             "profit_factor"   : _safe(metrics.profit_factor),
-            "avg_trade_pnl"   : metrics.avg_trade_pnl,
+            "avg_trade_pnl"    : metrics.avg_trade_pnl,
             "equity_curve_json": json.dumps(eq),
-            "starting_capital": p.starting_capital,
+            "starting_capital" : p.starting_capital,
+            # Phase 7
+            "regime_json"      : regime_json,
+            "rolling_json"     : rolling_json,
+            "degradation_json" : degradation_json,
+            "distribution_json": distribution_json,
+            "bootstrap_json"   : bootstrap_json,
+            "degradation_score": degradation_score,
         }
 
 

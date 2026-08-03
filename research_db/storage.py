@@ -69,8 +69,13 @@ class ResearchStorage:
                 sharpe_ratio, sortino_ratio, calmar_ratio, cagr, win_rate,
                 profit_factor, avg_trade_pnl, walk_forward_return,
                 mc_median_return, mc_pct5_return, mc_pct95_return,
-                mc_prob_positive, equity_curve_json, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                mc_prob_positive, equity_curve_json, created_at,
+                degradation_score, robustness_score, stability_score,
+                wf_n_folds, wf_efficiency, wf_consistency,
+                regime_json, rolling_json, degradation_json,
+                distribution_json, bootstrap_json, robustness_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+                       ?,?,?,?,?,?,?,?,?,?,?,?)""",
             (r.session_id, r.strategy_class, r.strategy_name, r.params,
              r.symbol, r.interval, r.start_date, r.end_date,
              r.gate_decision, _safe(r.gate_score),
@@ -81,7 +86,12 @@ class ResearchStorage:
              _safe(r.avg_trade_pnl), _safe(r.walk_forward_return),
              _safe(r.mc_median_return), _safe(r.mc_pct5_return),
              _safe(r.mc_pct95_return), _safe(r.mc_prob_positive),
-             r.equity_curve_json, r.created_at),
+             r.equity_curve_json, r.created_at,
+             _safe(r.degradation_score), _safe(r.robustness_score),
+             _safe(r.stability_score), r.wf_n_folds,
+             _safe(r.wf_efficiency), _safe(r.wf_consistency),
+             r.regime_json, r.rolling_json, r.degradation_json,
+             r.distribution_json, r.bootstrap_json, r.robustness_json),
         )
         self.db.commit()
         return cur.lastrowid
@@ -267,6 +277,10 @@ def _row_to_session(row) -> SessionRecord:
 
 
 def _row_to_result(row) -> StrategyResult:
+    keys = row.keys()
+    def _get(col, default=None):
+        return row[col] if col in keys else default
+
     return StrategyResult(
         id                  = row["id"],
         session_id          = row["session_id"],
@@ -297,6 +311,19 @@ def _row_to_result(row) -> StrategyResult:
         mc_prob_positive    = row["mc_prob_positive"],
         equity_curve_json   = row["equity_curve_json"],
         created_at          = row["created_at"],
+        # Phase 7 columns (may be absent in legacy rows)
+        degradation_score   = _get("degradation_score"),
+        robustness_score    = _get("robustness_score"),
+        stability_score     = _get("stability_score"),
+        wf_n_folds          = _get("wf_n_folds"),
+        wf_efficiency       = _get("wf_efficiency"),
+        wf_consistency      = _get("wf_consistency"),
+        regime_json         = _get("regime_json"),
+        rolling_json        = _get("rolling_json"),
+        degradation_json    = _get("degradation_json"),
+        distribution_json   = _get("distribution_json"),
+        bootstrap_json      = _get("bootstrap_json"),
+        robustness_json     = _get("robustness_json"),
     )
 
 

@@ -39,13 +39,18 @@ def _storage() -> ResearchStorage:
 # ── Shared CSS + layout ───────────────────────────────────────────────────────
 
 _NAV_LINKS = [
-    ("/",            "Overview"),
-    ("/sessions",    "Research Runs"),
-    ("/strategies",  "Strategies"),
-    ("/reports",     "Reports"),
-    ("/jobs",        "Job Queue"),
-    ("/market-data", "Market Data"),
-    ("/settings",    "Settings"),
+    ("/",             "Overview"),
+    ("/sessions",     "Research Runs"),
+    ("/strategies",   "Strategies"),
+    ("/reports",      "Reports"),
+    ("/jobs",         "Job Queue"),
+    ("/market-data",  "Market Data"),
+    ("/robustness",   "Robustness"),
+    ("/regimes",      "Regimes"),
+    ("/rolling",      "Rolling"),
+    ("/bootstrap",    "Bootstrap CI"),
+    ("/degradation",  "Degradation"),
+    ("/settings",     "Settings"),
 ]
 
 _CSS = """
@@ -363,6 +368,258 @@ def market_data() -> HTMLResponse:
     </table></div>"""
 
     return _page("/market-data", "Market Data", body)
+
+
+@app.get("/robustness", response_class=HTMLResponse)
+def robustness_page(limit: int = Query(100, ge=1, le=1000)) -> HTMLResponse:
+    store   = _storage()
+    results = store.get_best_by(metric="sharpe_ratio", limit=limit)
+    store.db.close()
+
+    rows_with_data = [r for r in results if r.robustness_json]
+    if not rows_with_data:
+        return _page("/robustness", "Parameter Robustness",
+                     "<p class='empty'>No robustness data yet. Run a pipeline with run_robustness=True.</p>")
+
+    rows_with_data.sort(key=lambda r: -(r.robustness_score or 0))
+    table_rows = ""
+    for r in rows_with_data:
+        try:
+            d = json.loads(r.robustness_json)
+        except Exception:
+            continue
+        rob  = d.get("robustness_score")
+        stab = d.get("stability_score")
+        rob_cls = "pass" if rob is not None and rob >= 60 else "reject"
+        table_rows += f"""
+        <tr>
+          <td>{r.strategy_class}</td>
+          <td><code>{r.params[:40] if r.params else ''}</code></td>
+          <td class="r"><span class="badge {rob_cls}">{_fmt(rob, 1)}</span></td>
+          <td class="r">{_fmt(stab, 1)}</td>
+          <td class="r">{d.get('n_neighbors', '—')}</td>
+          <td class="r">{d.get('n_profitable_neighbors', '—')}</td>
+          <td class="r">{_fmt(d.get('focal_sharpe'), 3)}</td>
+          <td class="r">{_fmt(d.get('neighbor_sharpe_mean'), 3)}</td>
+          <td class="r">{_fmt(d.get('neighbor_sharpe_std'), 3)}</td>
+          <td>{_badge(r.gate_decision)}</td>
+        </tr>"""
+
+    body = f"""<div class="table-wrap"><table>
+    <thead><tr>
+      <th>Strategy</th><th>Params</th>
+      <th class="r">Robustness</th><th class="r">Stability</th>
+      <th class="r">Neighbors</th><th class="r">Profitable</th>
+      <th class="r">Focal Sh</th><th class="r">Nbr Sh μ</th><th class="r">Nbr Sh σ</th>
+      <th>Gate</th>
+    </tr></thead>
+    <tbody>{table_rows}</tbody>
+    </table></div>"""
+
+    return _page("/robustness", "Parameter Robustness", body)
+
+
+@app.get("/regimes", response_class=HTMLResponse)
+def regimes_page(limit: int = Query(50, ge=1, le=500)) -> HTMLResponse:
+    store   = _storage()
+    results = store.get_best_by(metric="sharpe_ratio", limit=limit)
+    store.db.close()
+
+    rows_with_data = [r for r in results if r.regime_json]
+    if not rows_with_data:
+        return _page("/regimes", "Regime Analysis",
+                     "<p class='empty'>No regime data yet.</p>")
+
+    _REGIMES = ("Bull", "Bear", "Sideways", "HighVol", "LowVol")
+
+    table_rows = ""
+    for r in rows_with_data:
+        try:
+            d = json.loads(r.regime_json)
+        except Exception:
+            continue
+        stats = d.get("regime_stats", {})
+        cells = ""
+        for reg in _REGIMES:
+            s = stats.get(reg, {})
+            n  = s.get("n_trades", 0)
+            wr = s.get("win_rate")
+            cells += f'<td class="r">{n}</td><td class="r">{_fmt(wr, 0, pct=True) if n else "—"}</td>'
+        table_rows += f"<tr><td>{r.strategy_class}</td>{cells}</tr>"
+
+    header_cells = "".join(
+        f'<th class="r">{reg} N</th><th class="r">WR</th>'
+        for reg in _REGIMES
+    )
+
+    body = f"""<div class="table-wrap"><table>
+    <thead><tr><th>Strategy</th>{header_cells}</tr></thead>
+    <tbody>{table_rows}</tbody>
+    </table></div>"""
+
+    return _page("/regimes", "Regime Analysis", body)
+
+
+@app.get("/rolling", response_class=HTMLResponse)
+def rolling_page(limit: int = Query(20, ge=1, le=100)) -> HTMLResponse:
+    store   = _storage()
+    results = store.get_best_by(metric="sharpe_ratio", limit=limit)
+    store.db.close()
+
+    rows_with_data = [r for r in results if r.rolling_json]
+    if not rows_with_data:
+        return _page("/rolling", "Rolling Metrics",
+                     "<p class='empty'>No rolling metrics data yet.</p>")
+
+    # Show summary stats for each strategy's rolling windows
+    table_rows = ""
+    for r in rows_with_data:
+        try:
+            d = json.loads(r.rolling_json)
+        except Exception:
+            continue
+        sharpes = [x for x in d.get("sharpe", []) if x is not None]
+        sorinos = [x for x in d.get("sortino", []) if x is not None]
+        cagrs   = [x for x in d.get("cagr", []) if x is not None]
+        dds     = [x for x in d.get("drawdown", []) if x is not None]
+        window  = d.get("window", "?")
+        n_pts   = len(sharpes)
+
+        def safe_avg(lst: list) -> float | None:
+            return sum(lst) / len(lst) if lst else None
+
+        table_rows += f"""
+        <tr>
+          <td>{r.strategy_class}</td>
+          <td class="r">{window}</td>
+          <td class="r">{n_pts}</td>
+          <td class="r">{_fmt(safe_avg(sharpes), 3)}</td>
+          <td class="r">{_fmt(min(sharpes) if sharpes else None, 3)}</td>
+          <td class="r">{_fmt(max(sharpes) if sharpes else None, 3)}</td>
+          <td class="r">{_fmt(safe_avg(cagrs), 4, pct=True)}</td>
+          <td class="r">{_fmt(max(dds) if dds else None, 2)}</td>
+        </tr>"""
+
+    body = f"""<p style="color:var(--muted);font-size:12px;margin-bottom:16px">
+      Rolling window stats across all window positions for each strategy.</p>
+    <div class="table-wrap"><table>
+    <thead><tr>
+      <th>Strategy</th><th class="r">Window</th><th class="r">Points</th>
+      <th class="r">Avg Sharpe</th><th class="r">Min Sharpe</th><th class="r">Max Sharpe</th>
+      <th class="r">Avg CAGR</th><th class="r">Max DD</th>
+    </tr></thead>
+    <tbody>{table_rows}</tbody>
+    </table></div>"""
+
+    return _page("/rolling", "Rolling Metrics", body)
+
+
+@app.get("/bootstrap", response_class=HTMLResponse)
+def bootstrap_page(limit: int = Query(20, ge=1, le=100)) -> HTMLResponse:
+    store   = _storage()
+    results = store.get_best_by(metric="sharpe_ratio", limit=limit)
+    store.db.close()
+
+    rows_with_data = [r for r in results if r.bootstrap_json]
+    if not rows_with_data:
+        return _page("/bootstrap", "Bootstrap Confidence Intervals",
+                     "<p class='empty'>No bootstrap data yet.</p>")
+
+    _METRICS = [
+        ("total_return",  "Total Return",   True),
+        ("trade_sharpe",  "Trade Sharpe",   False),
+        ("win_rate",      "Win Rate",       True),
+        ("profit_factor", "Profit Factor",  False),
+        ("expectancy",    "Expectancy",     False),
+        ("max_drawdown",  "Max Drawdown",   False),
+    ]
+
+    sections = ""
+    for r in rows_with_data[:5]:  # cap at 5 strategies
+        try:
+            d = json.loads(r.bootstrap_json)
+        except Exception:
+            continue
+        n_sim = d.get("n_simulations", "?")
+        n_tr  = d.get("n_trades", "?")
+        table_rows = ""
+        for key, label, is_pct in _METRICS:
+            ci = d.get(key, {})
+            if not ci or ci.get("pct_50") is None:
+                continue
+            fmt = lambda v: _fmt(v, 2, pct=is_pct) if is_pct else _fmt(v, 4)
+            table_rows += f"""
+            <tr>
+              <td>{label}</td>
+              <td class="r">{fmt(ci.get('pct_5'))}</td>
+              <td class="r">{fmt(ci.get('pct_50'))}</td>
+              <td class="r">{fmt(ci.get('pct_95'))}</td>
+            </tr>"""
+        sections += f"""
+        <h2>{r.strategy_class} · {n_sim} sims · {n_tr} trades</h2>
+        <div class="table-wrap"><table>
+        <thead><tr>
+          <th>Metric</th><th class="r">5th Pct</th>
+          <th class="r">Median</th><th class="r">95th Pct</th>
+        </tr></thead>
+        <tbody>{table_rows}</tbody>
+        </table></div>
+        <div style="margin-bottom:32px"></div>"""
+
+    return _page("/bootstrap", "Bootstrap Confidence Intervals", sections)
+
+
+@app.get("/degradation", response_class=HTMLResponse)
+def degradation_page(limit: int = Query(100, ge=1, le=1000)) -> HTMLResponse:
+    store   = _storage()
+    results = store.get_best_by(metric="sharpe_ratio", limit=limit)
+    store.db.close()
+
+    rows_with_data = [r for r in results if r.degradation_json]
+    if not rows_with_data:
+        return _page("/degradation", "Strategy Degradation",
+                     "<p class='empty'>No degradation data yet.</p>")
+
+    rows_with_data.sort(key=lambda r: -(r.degradation_score or 0))
+
+    table_rows = ""
+    for r in rows_with_data:
+        try:
+            d = json.loads(r.degradation_json)
+        except Exception:
+            continue
+        score = d.get("degradation_score")
+        score_cls = "pass" if score is not None and score >= 70 else "reject"
+        score_str = f"{score:.1f}" if score is not None else "—"
+        table_rows += f"""
+        <tr>
+          <td>{r.strategy_class}</td>
+          <td><code>{r.params[:30] if r.params else ''}</code></td>
+          <td class="r"><span class="badge {score_cls}">{score_str}</span></td>
+          <td class="r">{_fmt(d.get('first_half_sharpe'), 3)}</td>
+          <td class="r">{_fmt(d.get('second_half_sharpe'), 3)}</td>
+          <td class="r">{_fmt(d.get('first_half_wr'), 2, pct=True)}</td>
+          <td class="r">{_fmt(d.get('second_half_wr'), 2, pct=True)}</td>
+          <td class="r">{_fmt(d.get('first_half_pf'), 3)}</td>
+          <td class="r">{_fmt(d.get('second_half_pf'), 3)}</td>
+          <td class="r">{_fmt(d.get('first_third_sharpe'), 3)}</td>
+          <td class="r">{_fmt(d.get('second_third_sharpe'), 3)}</td>
+          <td class="r">{_fmt(d.get('third_third_sharpe'), 3)}</td>
+        </tr>"""
+
+    body = f"""<div class="table-wrap"><table>
+    <thead><tr>
+      <th>Strategy</th><th>Params</th>
+      <th class="r">Score</th>
+      <th class="r">H1 Sh</th><th class="r">H2 Sh</th>
+      <th class="r">H1 WR</th><th class="r">H2 WR</th>
+      <th class="r">H1 PF</th><th class="r">H2 PF</th>
+      <th class="r">T1 Sh</th><th class="r">T2 Sh</th><th class="r">T3 Sh</th>
+    </tr></thead>
+    <tbody>{table_rows}</tbody>
+    </table></div>"""
+
+    return _page("/degradation", "Strategy Degradation", body)
 
 
 @app.get("/settings", response_class=HTMLResponse)

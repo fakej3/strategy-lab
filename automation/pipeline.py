@@ -86,6 +86,10 @@ class PipelineConfig:
     run_monte_carlo: bool  = True
     mc_simulations: int    = 500
 
+    # Robustness analysis
+    run_robustness: bool   = True
+    robustness_steps: int  = 1   # ±steps from focal in param space
+
     # Storage
     db_path: str      = "research.db"
     reports_dir: str  = "reports"
@@ -415,7 +419,11 @@ class ResearchPipeline:
         """Add walk-forward return and MC stats to a backtest result dict."""
         cfg = self.cfg
 
-        if cfg.fast_mode or (not cfg.run_walk_forward and not cfg.run_monte_carlo):
+        if cfg.fast_mode or (
+            not cfg.run_walk_forward
+            and not cfg.run_monte_carlo
+            and not cfg.run_robustness
+        ):
             return data
 
         # Find strategy class
@@ -447,7 +455,25 @@ class ResearchPipeline:
                 )
                 wf_result = WalkForwardJob(wfp).run()
                 if wf_result.success and wf_result.data:
-                    data["walk_forward_return"] = wf_result.data.get("walk_forward_return")
+                    wd = wf_result.data
+                    data["walk_forward_return"] = wd.get("walk_forward_return")
+                    data["wf_n_folds"]          = wd.get("n_folds")
+
+                    # Phase 7 WF enhancements
+                    fold_returns = wd.get("fold_returns") or []
+                    if fold_returns:
+                        import numpy as _np
+                        fr_arr = _np.array(fold_returns, dtype=float)
+                        # Efficiency: mean fold return / abs(max fold return)
+                        max_fold = float(fr_arr.max()) if fr_arr.max() != 0 else 1.0
+                        data["wf_efficiency"] = (
+                            round(float(fr_arr.mean()) / abs(max_fold), 4)
+                            if max_fold != 0 else 0.0
+                        )
+                        # Consistency: % of folds with positive return
+                        data["wf_consistency"] = round(
+                            float((fr_arr > 0).mean()) * 100.0, 2
+                        )
             except Exception:
                 pass  # walk-forward failure never stops the pipeline
 
@@ -471,6 +497,36 @@ class ResearchPipeline:
                         data["mc_pct5_return"]   = mc.get("pct5_return")
                         data["mc_pct95_return"]  = mc.get("pct95_return")
                         data["mc_prob_positive"] = mc.get("prob_positive")
+            except Exception:
+                pass
+
+        # Robustness analysis — needs access to the full bars + param space
+        if cfg.run_robustness and not cfg.fast_mode:
+            try:
+                space = STRATEGY_PARAMETER_SPACES.get(cls.__name__, {})
+                if space and params:
+                    from research.robustness import analyze_robustness
+                    interval = data.get("interval", "1h")
+                    bpy = {"1m": 525_600, "3m": 175_200, "5m": 105_120,
+                           "15m": 35_040, "30m": 17_520, "1h": 8_760,
+                           "2h": 4_380,   "4h": 2_190,   "6h": 1_460,
+                           "8h": 1_095,   "12h": 730,    "1d": 365,
+                           "3d": 121,     "1w": 52}.get(interval, 252)
+                    rob_data = analyze_robustness(
+                        bars            = bars,
+                        strategy_class  = cls,
+                        focal_params    = params,
+                        param_space     = space,
+                        bars_per_year   = bpy,
+                        starting_capital = cfg.starting_capital,
+                        fee_rate        = cfg.fee_rate,
+                        slippage_pct    = cfg.slippage_pct,
+                        stop_loss_pct   = cfg.stop_loss_pct,
+                        take_profit_pct = cfg.take_profit_pct,
+                    )
+                    data["robustness_score"]  = rob_data.get("robustness_score")
+                    data["stability_score"]   = rob_data.get("stability_score")
+                    data["robustness_json"]   = json.dumps(rob_data)
             except Exception:
                 pass
 
@@ -523,6 +579,19 @@ class ResearchPipeline:
             mc_prob_positive    = data.get("mc_prob_positive"),
             equity_curve_json   = data.get("equity_curve_json"),
             created_at          = datetime.now(timezone.utc).isoformat(),
+            # Phase 7
+            degradation_score   = data.get("degradation_score"),
+            robustness_score    = data.get("robustness_score"),
+            stability_score     = data.get("stability_score"),
+            wf_n_folds          = data.get("wf_n_folds"),
+            wf_efficiency       = data.get("wf_efficiency"),
+            wf_consistency      = data.get("wf_consistency"),
+            regime_json         = data.get("regime_json"),
+            rolling_json        = data.get("rolling_json"),
+            degradation_json    = data.get("degradation_json"),
+            distribution_json   = data.get("distribution_json"),
+            bootstrap_json      = data.get("bootstrap_json"),
+            robustness_json     = data.get("robustness_json"),
         )
 
     # ── Step 8: generate reports ──────────────────────────────────────────────

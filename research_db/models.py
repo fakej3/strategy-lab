@@ -53,6 +53,19 @@ class StrategyResult:
     equity_curve_json: str | None     = None  # sampled as JSON array
     created_at: str                   = ""
     id: int | None                    = None
+    # Phase 7 — statistical analysis
+    degradation_score: float | None   = None
+    robustness_score: float | None    = None
+    stability_score: float | None     = None
+    wf_n_folds: int | None            = None
+    wf_efficiency: float | None       = None
+    wf_consistency: float | None      = None
+    regime_json: str | None           = None
+    rolling_json: str | None          = None
+    degradation_json: str | None      = None
+    distribution_json: str | None     = None
+    bootstrap_json: str | None        = None
+    robustness_json: str | None       = None
 
 
 @dataclass

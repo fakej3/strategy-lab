@@ -234,6 +234,233 @@ def _mc_section(results: list[StrategyResult]) -> str:
     </section>"""
 
 
+def _degradation_section(results: list[StrategyResult]) -> str:
+    rows = [r for r in results if r.degradation_json]
+    if not rows:
+        return ""
+
+    table_rows = ""
+    for r in sorted(rows, key=lambda x: -(x.degradation_score or 0)):
+        try:
+            d = json.loads(r.degradation_json)
+        except Exception:
+            continue
+        score = d.get("degradation_score")
+        score_str = f"{score:.1f}" if score is not None else "—"
+        score_cls = "pass" if score is not None and score >= 70 else "reject"
+        table_rows += f"""
+        <tr>
+          <td>{r.strategy_class}</td>
+          <td class="num"><span class="badge {score_cls}">{score_str}</span></td>
+          <td class="num">{_fmt(d.get('first_half_sharpe'), 3)}</td>
+          <td class="num">{_fmt(d.get('second_half_sharpe'), 3)}</td>
+          <td class="num">{_fmt(d.get('first_half_wr'),  2, pct=True)}</td>
+          <td class="num">{_fmt(d.get('second_half_wr'), 2, pct=True)}</td>
+          <td class="num">{_fmt(d.get('first_half_pf'),  3)}</td>
+          <td class="num">{_fmt(d.get('second_half_pf'), 3)}</td>
+        </tr>"""
+
+    if not table_rows:
+        return ""
+
+    return f"""
+    <section>
+      <h2>Strategy Degradation Analysis</h2>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th class="num">Score /100</th>
+            <th class="num">H1 Sharpe</th><th class="num">H2 Sharpe</th>
+            <th class="num">H1 WinRate</th><th class="num">H2 WinRate</th>
+            <th class="num">H1 PF</th><th class="num">H2 PF</th>
+          </tr>
+        </thead>
+        <tbody>{table_rows}</tbody>
+      </table>
+      </div>
+    </section>"""
+
+
+def _robustness_section(results: list[StrategyResult]) -> str:
+    rows = [r for r in results if r.robustness_json]
+    if not rows:
+        return ""
+
+    table_rows = ""
+    for r in sorted(rows, key=lambda x: -(x.robustness_score or 0)):
+        try:
+            d = json.loads(r.robustness_json)
+        except Exception:
+            continue
+        rob  = d.get("robustness_score")
+        stab = d.get("stability_score")
+        rob_cls = "pass" if rob is not None and rob >= 60 else "reject"
+        table_rows += f"""
+        <tr>
+          <td>{r.strategy_class}</td>
+          <td class="num"><span class="badge {rob_cls}">{_fmt(rob, 1)}</span></td>
+          <td class="num">{_fmt(stab, 1)}</td>
+          <td class="num">{d.get('n_neighbors', '—')}</td>
+          <td class="num">{d.get('n_profitable_neighbors', '—')}</td>
+          <td class="num">{_fmt(d.get('focal_sharpe'), 3)}</td>
+          <td class="num">{_fmt(d.get('neighbor_sharpe_mean'), 3)}</td>
+          <td class="num">{_fmt(d.get('neighbor_sharpe_std'), 3)}</td>
+        </tr>"""
+
+    if not table_rows:
+        return ""
+
+    return f"""
+    <section>
+      <h2>Parameter Robustness</h2>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th class="num">Robustness</th>
+            <th class="num">Stability</th>
+            <th class="num">Neighbors</th>
+            <th class="num">Profitable</th>
+            <th class="num">Focal Sharpe</th>
+            <th class="num">Nbr Sharpe μ</th>
+            <th class="num">Nbr Sharpe σ</th>
+          </tr>
+        </thead>
+        <tbody>{table_rows}</tbody>
+      </table>
+      </div>
+    </section>"""
+
+
+def _bootstrap_section(results: list[StrategyResult]) -> str:
+    rows = [r for r in results if r.bootstrap_json]
+    if not rows:
+        return ""
+
+    # Show the single best-Sharpe strategy's CI table, or first available
+    best = sorted(rows, key=lambda x: -(x.sharpe_ratio or -999))[0]
+    try:
+        d = json.loads(best.bootstrap_json)
+    except Exception:
+        return ""
+
+    metrics = [
+        ("total_return",  "Total Return", True),
+        ("trade_sharpe",  "Trade Sharpe", False),
+        ("win_rate",      "Win Rate",     True),
+        ("profit_factor", "Profit Factor",False),
+        ("expectancy",    "Expectancy",   False),
+        ("max_drawdown",  "Max Drawdown", False),
+    ]
+
+    table_rows = ""
+    for key, label, is_pct in metrics:
+        ci = d.get(key, {})
+        if not ci or ci.get("pct_50") is None:
+            continue
+        p5  = ci.get("pct_5")
+        p50 = ci.get("pct_50")
+        p95 = ci.get("pct_95")
+        fmt = lambda v: _fmt(v, 2, pct=is_pct) if is_pct else _fmt(v, 4)
+        table_rows += f"""
+        <tr>
+          <td>{label}</td>
+          <td class="num">{fmt(p5)}</td>
+          <td class="num">{fmt(p50)}</td>
+          <td class="num">{fmt(p95)}</td>
+        </tr>"""
+
+    if not table_rows:
+        return ""
+
+    n_sim = d.get("n_simulations", "?")
+    n_tr  = d.get("n_trades", "?")
+
+    return f"""
+    <section>
+      <h2>Bootstrap Confidence Intervals — {best.strategy_class}</h2>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:16px">
+        {n_sim} simulations · {n_tr} trades (5th / 50th / 95th percentile)
+      </p>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th class="num">5th Pct</th>
+            <th class="num">Median</th>
+            <th class="num">95th Pct</th>
+          </tr>
+        </thead>
+        <tbody>{table_rows}</tbody>
+      </table>
+      </div>
+    </section>"""
+
+
+def _regime_section(results: list[StrategyResult]) -> str:
+    rows = [r for r in results if r.regime_json]
+    if not rows:
+        return ""
+
+    best = sorted(rows, key=lambda x: -(x.sharpe_ratio or -999))[0]
+    try:
+        d = json.loads(best.regime_json)
+    except Exception:
+        return ""
+
+    regime_stats = d.get("regime_stats", {})
+    if not regime_stats:
+        return ""
+
+    table_rows = ""
+    for regime, stats in regime_stats.items():
+        n = stats.get("n_trades", 0)
+        if n == 0:
+            table_rows += f"""
+            <tr>
+              <td>{regime}</td>
+              <td class="num">0</td>
+              <td class="num">—</td><td class="num">—</td>
+              <td class="num">—</td><td class="num">—</td>
+            </tr>"""
+        else:
+            wr = stats.get("win_rate")
+            pf = stats.get("profit_factor")
+            table_rows += f"""
+            <tr>
+              <td>{regime}</td>
+              <td class="num">{n}</td>
+              <td class="num">{_fmt(wr, 2, pct=True)}</td>
+              <td class="num">{_fmt(pf, 3)}</td>
+              <td class="num">{_fmt(stats.get('avg_pnl'), 2)}</td>
+              <td class="num">{_fmt(stats.get('total_pnl'), 2)}</td>
+            </tr>"""
+
+    return f"""
+    <section>
+      <h2>Regime Performance — {best.strategy_class}</h2>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Regime</th>
+            <th class="num">Trades</th>
+            <th class="num">Win Rate</th>
+            <th class="num">Prof Factor</th>
+            <th class="num">Avg PnL</th>
+            <th class="num">Total PnL</th>
+          </tr>
+        </thead>
+        <tbody>{table_rows}</tbody>
+      </table>
+      </div>
+    </section>"""
+
+
 def _wf_section(results: list[StrategyResult]) -> str:
     rows = [r for r in results if r.walk_forward_return is not None]
     if not rows:
@@ -399,12 +626,16 @@ def generate_html_report(
 
     generated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
-    stats  = _stats_grid(session_id, symbol, interval, start_date, end_date,
-                         results, n_tested, elapsed_secs)
-    charts = _chart_section(results)
-    table  = _strategy_table(results)
-    mc     = _mc_section(results)
-    wf     = _wf_section(results)
+    stats       = _stats_grid(session_id, symbol, interval, start_date, end_date,
+                              results, n_tested, elapsed_secs)
+    charts      = _chart_section(results)
+    table       = _strategy_table(results)
+    mc          = _mc_section(results)
+    wf          = _wf_section(results)
+    degradation = _degradation_section(results)
+    robustness  = _robustness_section(results)
+    bootstrap   = _bootstrap_section(results)
+    regime      = _regime_section(results)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -428,6 +659,10 @@ def generate_html_report(
     </section>
     {wf}
     {mc}
+    {degradation}
+    {robustness}
+    {bootstrap}
+    {regime}
   </main>
   <footer>EdgeLab · Session {session_id[:16]}</footer>
 </body>

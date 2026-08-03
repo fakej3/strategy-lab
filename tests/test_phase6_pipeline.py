@@ -76,6 +76,7 @@ class TestMCNodoublRun:
             run_walk_forward=False,
             run_monte_carlo=True,
             mc_simulations=50,
+            run_robustness=False,   # isolate MC test from robustness backtests
             verbose=False,
         )
         pipeline = ResearchPipeline(cfg)
@@ -112,6 +113,7 @@ class TestMCNodoublRun:
             run_walk_forward=False,
             run_monte_carlo=True,
             mc_simulations=50,
+            run_robustness=False,
             verbose=False,
         )
         pipeline = ResearchPipeline(cfg)
