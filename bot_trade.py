@@ -3,11 +3,11 @@
 
 Usage
 -----
-  python bot_trade.py                         # default config
-  python bot_trade.py --capital 50000         # custom capital
+  python bot_trade.py                         # default config (25 USDT)
+  python bot_trade.py --capital 25            # custom capital
   python bot_trade.py --symbols BTCUSDT,ETHUSDT --interval 1h
   python bot_trade.py --dashboard             # also start bot dashboard on :8001
-  BOT_CAPITAL=50000 BOT_SYMBOLS=BTCUSDT python bot_trade.py  # env vars
+  BOT_CAPITAL=25 BOT_SYMBOLS=BTCUSDT python bot_trade.py  # env vars
 
 The bot connects to public Binance WebSocket streams (no API key), executes
 all trades in simulation only, and persists data to bot.db.

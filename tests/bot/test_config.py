@@ -11,7 +11,7 @@ from bot.config import BotConfig, FeedConfig, RiskConfig
 class TestBotConfig:
     def test_default_config_valid(self):
         cfg = BotConfig()
-        assert cfg.paper_capital == 100_000.0
+        assert cfg.paper_capital == 25.0
         assert cfg.fee_rate == 0.001
         assert 0 < cfg.equity_fraction <= 1.0
         assert isinstance(cfg.feed, FeedConfig)
