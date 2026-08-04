@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+{% block title %}Paper Bot{% endblock %}
+
+{% block head %}
+<style>
+  .status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;
+    margin-right:6px;flex-shrink:0}
+  .dot-running{background:#3fb950;box-shadow:0 0 6px #3fb950}
+  .dot-stopped{background:var(--muted)}
+  .pnl-pos{color:#3fb950}
+  .pnl-neg{color:#f85149}
+  .pnl-zero{color:var(--muted)}
+  .log-box{background:var(--surface);border:1px solid var(--border);
+    border-radius:6px;padding:12px;height:280px;overflow-y:auto;
+    font-family:var(--font-mono);font-size:11px;line-height:1.6}
+  .log-box p{margin:0;color:var(--muted)}
+  .log-box p.err{color:#f85149}
+  .log-box p.warn{color:#f0b429}
+  .log-box p.info{color:#4FC3F7}
+  .control-bar{display:flex;align-items:center;gap:12px;margin-bottom:28px;
+    flex-wrap:wrap}
+  .big-status{font-size:16px;font-weight:700;display:flex;align-items:center}
+  .form-inline{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+  .form-inline .form-group{margin:0}
+  .form-inline input,.form-inline select{padding:7px 10px;font-size:13px}
+  #refresh-age{font-size:11px;color:var(--muted)}
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Paper Trading Bot</h1>
+<p class="page-sub">Run and monitor the paper trading bot from this page</p>
+
+{% if error is defined and error %}
+<div class="alert alert-fail">{{ error }}</div>
+{% endif %}
+
+<!-- ── Status bar ────────────────────────────────────────────────────────── -->
+<div class="control-bar">
+  <div class="big-status" id="status-label">
+    {% if status.running %}
+    <span class="status-dot dot-running"></span> Running
+    {% else %}
+    <span class="status-dot dot-stopped"></span> Stopped
+    {% endif %}
+  </div>
+  {% if status.running %}
+  <form method="POST" action="/bot/stop" style="margin:0">
+    <button type="submit" class="btn btn-danger">■ Stop Bot</button>
+  </form>
+  {% else %}
+  <span id="refresh-age"></span>
+  {% endif %}
+</div>
+
+<!-- ── Start form (shown when stopped) ──────────────────────────────────── -->
+<div id="start-panel" {% if status.running %}style="display:none"{% endif %}>
+  <h2>Start Bot</h2>
+  <form method="POST" action="/bot/start">
+    <div class="form-section">
+      <div class="form-grid cols3">
+        <div class="form-group">
+          <label for="capital">Starting Capital (USDT)</label>
+          <input id="capital" name="capital" type="number"
+                 min="1" step="0.01" value="{{ status.capital or 25 }}"
+                 placeholder="e.g. 25">
+          <span class="hint">No minimum — e.g. 20–25 USDT</span>
+        </div>
+        <div class="form-group">
+          <label for="symbols">Symbol</label>
+          <input id="symbols" name="symbols" type="text"
+                 value="{{ (status.symbols or ['BTCUSDT'])|join(',') }}"
+                 placeholder="BTCUSDT">
+        </div>
+        <div class="form-group">
+          <label for="interval">Interval</label>
+          <select id="interval" name="interval">
+            {% set cur_interval = status.interval or '1h' %}
+            {% for iv in ['1m','5m','15m','30m','1h','4h','1d'] %}
+            <option value="{{ iv }}" {% if iv == cur_interval %}selected{% endif %}>{{ iv }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="strategy">Strategy</label>
+          <select id="strategy" name="strategy">
+            {% set cur_strat = status.strategy or 'EMACrossover' %}
+            {% for s in strategies %}
+            <option value="{{ s }}" {% if s == cur_strat %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" style="justify-content:flex-end;padding-top:20px">
+          <div class="checkbox-row">
+            <input type="checkbox" id="recover" name="recover" checked>
+            <label for="recover">Recover open orders on start</label>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <button type="submit" class="btn btn-primary">▶ Start Bot</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- ── Live status tiles ─────────────────────────────────────────────────── -->
+<div id="live-panel" {% if not status.running %}style="display:none"{% endif %}>
+
+  <h2>Overview</h2>
+  <div class="tiles" id="tiles">
+    <div class="tile">
+      <div class="tile-val" id="t-symbol">{{ (status.symbols or ['—'])|join(', ') }}</div>
+      <div class="tile-label">Symbol</div>
+    </div>
+    <div class="tile">
+      <div class="tile-val" id="t-equity">{{ "%.4f"|format(status.equity or 0) }}</div>
+      <div class="tile-label">Equity (USDT)</div>
+    </div>
+    <div class="tile">
+      <div class="tile-val" id="t-cash">{{ "%.4f"|format(status.cash or 0) }}</div>
+      <div class="tile-label">Cash (USDT)</div>
+    </div>
+    <div class="tile">
+      <div class="tile-val {% if (status.unrealized_pnl or 0) > 0 %}pnl-pos{% elif (status.unrealized_pnl or 0) < 0 %}pnl-neg{% else %}pnl-zero{% endif %}"
+           id="t-unrealized">{{ "%+.4f"|format(status.unrealized_pnl or 0) }}</div>
+      <div class="tile-label">Unrealized PnL</div>
+    </div>
+    <div class="tile">
+      <div class="tile-val {% if (status.realized_pnl or 0) > 0 %}pnl-pos{% elif (status.realized_pnl or 0) < 0 %}pnl-neg{% else %}pnl-zero{% endif %}"
+           id="t-realized">{{ "%+.4f"|format(status.realized_pnl or 0) }}</div>
+      <div class="tile-label">Realized PnL</div>
+    </div>
+    <div class="tile">
+      <div class="tile-val" id="t-drawdown">{{ "%.2f"|format((status.drawdown or 0) * 100) }}%</div>
+      <div class="tile-label">Drawdown</div>
+    </div>
+  </div>
+
+  <!-- Open positions -->
+  <h2>Open Position</h2>
+  <div class="table-wrap" id="positions-wrap">
+    {% if status.open_positions %}
+    <table>
+      <thead><tr>
+        <th>Symbol</th><th>Direction</th>
+        <th class="r">Size</th><th class="r">Entry Price</th>
+        <th class="r">Notional</th><th>Opened</th>
+      </tr></thead>
+      <tbody id="positions-body">
+      {% for p in status.open_positions %}
+      <tr>
+        <td>{{ p.symbol }}</td>
+        <td><span class="badge {% if p.direction == 'long' %}badge-pass{% else %}badge-fail{% endif %}">{{ p.direction }}</span></td>
+        <td class="r">{{ "%.5f"|format(p.size) }}</td>
+        <td class="r">{{ "%.2f"|format(p.entry_price) }}</td>
+        <td class="r">{{ "%.4f"|format(p.notional) }}</td>
+        <td class="mono">{{ (p.opened_at or '')[:19] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty" id="positions-empty">No open positions</p>
+    {% endif %}
+  </div>
+
+  <!-- Recent trades -->
+  <h2>Recent Trades</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Symbol</th><th>Side</th>
+        <th class="r">Fill Price</th><th class="r">Qty</th>
+        <th class="r">Fee</th><th>Time</th>
+      </tr></thead>
+      <tbody id="trades-body">
+      {% for t in status.recent_trades %}
+      <tr>
+        <td>{{ t.symbol }}</td>
+        <td><span class="badge {% if t.side == 'BUY' %}badge-pass{% else %}badge-fail{% endif %}">{{ t.side }}</span></td>
+        <td class="r">{{ "%.2f"|format(t.fill_price) }}</td>
+        <td class="r">{{ "%.5f"|format(t.fill_qty) }}</td>
+        <td class="r">{{ "%.6f"|format(t.fee) }}</td>
+        <td class="mono">{{ (t.filled_at or '')[:19] }}</td>
+      </tr>
+      {% endfor %}
+      {% if not status.recent_trades %}
+      <tr><td colspan="6" class="empty">No trades yet</td></tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Live logs -->
+  <h2>Live Logs</h2>
+  <div class="log-box" id="log-box">
+  {% for line in status.log_tail %}
+    <p class="{% if 'ERROR' in line %}err{% elif 'WARNING' in line %}warn{% elif 'INFO' in line %}info{% endif %}">{{ line }}</p>
+  {% endfor %}
+  {% if not status.log_tail %}
+    <p>Waiting for log output…</p>
+  {% endif %}
+  </div>
+
+</div><!-- /live-panel -->
+
+<script>
+(function () {
+  const running = {{ 'true' if status.running else 'false' }};
+  if (!running) return;
+
+  let lastTs = Date.now();
+
+  function fmt(n, d) {
+    return (n === null || n === undefined) ? '—' : Number(n).toFixed(d);
+  }
+  function pnlClass(n) {
+    if (n > 0) return 'pnl-pos';
+    if (n < 0) return 'pnl-neg';
+    return 'pnl-zero';
+  }
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function logClass(line) {
+    if (line.includes('ERROR'))   return 'err';
+    if (line.includes('WARNING')) return 'warn';
+    if (line.includes('INFO'))    return 'info';
+    return '';
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/bot/status');
+      if (!res.ok) return;
+      const s = await res.json();
+      lastTs = Date.now();
+
+      // Status label
+      const label = document.getElementById('status-label');
+      if (label) {
+        label.innerHTML = s.running
+          ? '<span class="status-dot dot-running"></span> Running'
+          : '<span class="status-dot dot-stopped"></span> Stopped';
+      }
+
+      // If bot stopped, reload to show start form
+      if (!s.running) { location.reload(); return; }
+
+      // Tiles
+      document.getElementById('t-symbol').textContent =
+        (s.symbols || ['—']).join(', ');
+      document.getElementById('t-equity').textContent =
+        fmt(s.equity, 4);
+      document.getElementById('t-cash').textContent =
+        fmt(s.cash, 4);
+
+      const unr = document.getElementById('t-unrealized');
+      unr.textContent = (s.unrealized_pnl >= 0 ? '+' : '') + fmt(s.unrealized_pnl, 4);
+      unr.className = 'tile-val ' + pnlClass(s.unrealized_pnl);
+
+      const rl = document.getElementById('t-realized');
+      rl.textContent = (s.realized_pnl >= 0 ? '+' : '') + fmt(s.realized_pnl, 4);
+      rl.className = 'tile-val ' + pnlClass(s.realized_pnl);
+
+      document.getElementById('t-drawdown').textContent =
+        fmt((s.drawdown || 0) * 100, 2) + '%';
+
+      // Positions
+      const pb = document.getElementById('positions-body');
+      const pe = document.getElementById('positions-empty');
+      if (pb) {
+        if (s.open_positions && s.open_positions.length > 0) {
+          pb.innerHTML = s.open_positions.map(p => `
+            <tr>
+              <td>${escHtml(p.symbol)}</td>
+              <td><span class="badge ${p.direction==='long'?'badge-pass':'badge-fail'}">${escHtml(p.direction)}</span></td>
+              <td class="r">${fmt(p.size,5)}</td>
+              <td class="r">${fmt(p.entry_price,2)}</td>
+              <td class="r">${fmt(p.notional,4)}</td>
+              <td class="mono">${escHtml((p.opened_at||'').slice(0,19))}</td>
+            </tr>`).join('');
+          if (pe) pe.style.display = 'none';
+        } else {
+          pb.innerHTML = '';
+          if (pe) pe.style.display = '';
+        }
+      }
+
+      // Recent trades
+      const tb = document.getElementById('trades-body');
+      if (tb && s.recent_trades) {
+        tb.innerHTML = s.recent_trades.length
+          ? s.recent_trades.map(t => `
+              <tr>
+                <td>${escHtml(t.symbol)}</td>
+                <td><span class="badge ${t.side==='BUY'?'badge-pass':'badge-fail'}">${escHtml(t.side)}</span></td>
+                <td class="r">${fmt(t.fill_price,2)}</td>
+                <td class="r">${fmt(t.fill_qty,5)}</td>
+                <td class="r">${fmt(t.fee,6)}</td>
+                <td class="mono">${escHtml((t.filled_at||'').slice(0,19))}</td>
+              </tr>`).join('')
+          : '<tr><td colspan="6" class="empty">No trades yet</td></tr>';
+      }
+
+      // Log box
+      const lb = document.getElementById('log-box');
+      if (lb && s.log_tail && s.log_tail.length > 0) {
+        const wasBottom =
+          lb.scrollHeight - lb.scrollTop - lb.clientHeight < 40;
+        lb.innerHTML = s.log_tail
+          .map(l => `<p class="${logClass(l)}">${escHtml(l)}</p>`)
+          .join('');
+        if (wasBottom) lb.scrollTop = lb.scrollHeight;
+      }
+
+    } catch (e) { /* network error — retry next tick */ }
+
+    // Update "last updated X s ago" badge
+    const age = document.getElementById('refresh-age');
+    if (age) age.textContent = 'updated just now';
+  }
+
+  // Scroll log to bottom on load
+  const lb = document.getElementById('log-box');
+  if (lb) lb.scrollTop = lb.scrollHeight;
+
+  poll();
+  setInterval(poll, 3000);
+})();
+</script>
+{% endblock %}

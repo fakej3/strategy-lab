@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from research_db.storage import ResearchStorage
 from server.auth import AuthUser
 from server.background import job_manager, dict_to_config
+from server.bot_manager import bot_manager
 from server.jobs import get_available_strategies
 from server.notify import notification_manager
 
@@ -240,3 +241,52 @@ def api_stats(_: AuthUser = None) -> JSONResponse:
     stats = store.get_stats()
     store.close()
     return JSONResponse(stats)
+
+
+# ── Paper Trading Bot ─────────────────────────────────────────────────────────
+
+@router.get("/bot/status")
+def api_bot_status(_: AuthUser = None) -> JSONResponse:
+    return JSONResponse(bot_manager.get_status())
+
+
+@router.post("/bot/start")
+async def api_bot_start(request: Request, _: AuthUser) -> JSONResponse:
+    ct = request.headers.get("content-type", "")
+    if "application/json" not in ct:
+        raise HTTPException(status_code=415, detail="Content-Type must be application/json")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    capital  = float(body.get("capital",  25.0))
+    symbols  = body.get("symbols",  ["BTCUSDT"])
+    interval = body.get("interval", "1h")
+    strategy = body.get("strategy", "EMACrossover")
+    db_path  = body.get("db_path",  "bot.db")
+    log_path = body.get("log_path", "logs/bot.log")
+    recover  = bool(body.get("recover",  True))
+
+    if isinstance(symbols, str):
+        symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+
+    if capital <= 0:
+        raise HTTPException(status_code=422, detail="capital must be > 0")
+
+    ok, err = bot_manager.start(
+        capital=capital, symbols=symbols, interval=interval,
+        strategy=strategy, db_path=db_path, log_path=log_path,
+        recover=recover,
+    )
+    if not ok:
+        raise HTTPException(status_code=409, detail=err)
+    return JSONResponse({"started": True})
+
+
+@router.post("/bot/stop")
+def api_bot_stop(_: AuthUser) -> JSONResponse:
+    ok, err = bot_manager.stop()
+    if not ok:
+        raise HTTPException(status_code=409, detail=err)
+    return JSONResponse({"stopped": True})

@@ -26,6 +26,7 @@ from server.auth import (
     authenticate, require_auth,
 )
 from server.background import job_manager, dict_to_config
+from server.bot_manager import bot_manager
 from server.jobs import get_available_strategies
 from server.notify import notification_manager
 from server import api as api_module
@@ -381,6 +382,46 @@ def _register_routes(app: FastAPI) -> None:
             "env_vars":    env_vars,
             "using_default_creds": USING_DEFAULT_CREDS,
         })
+
+    # ── Paper Trading Bot ─────────────────────────────────────────────────────
+
+    @app.get("/bot", response_class=HTMLResponse)
+    def bot_page(request: Request):
+        require_auth(request)
+        from server.jobs import get_available_strategies as _strats
+        return _render(request, "bot.html", {
+            "status":     bot_manager.get_status(),
+            "strategies": _strats(),
+        })
+
+    @app.post("/bot/start")
+    async def bot_start(request: Request):
+        require_auth(request)
+        form = await request.form()
+        capital  = float(form.get("capital",  "25"))
+        raw_syms = str(form.get("symbols",  "BTCUSDT"))
+        symbols  = [s.strip() for s in raw_syms.split(",") if s.strip()]
+        interval = str(form.get("interval", "1h"))
+        strategy = str(form.get("strategy", "EMACrossover"))
+        recover  = "recover" in form
+
+        ok, err = bot_manager.start(
+            capital=capital, symbols=symbols, interval=interval,
+            strategy=strategy, recover=recover,
+        )
+        if not ok:
+            return _render(request, "bot.html", {
+                "status":     bot_manager.get_status(),
+                "strategies": get_available_strategies(),
+                "error":      err,
+            })
+        return RedirectResponse("/bot", status_code=302)
+
+    @app.post("/bot/stop")
+    def bot_stop(request: Request):
+        require_auth(request)
+        bot_manager.stop()
+        return RedirectResponse("/bot", status_code=302)
 
     # ── Logs ──────────────────────────────────────────────────────────────────
 
