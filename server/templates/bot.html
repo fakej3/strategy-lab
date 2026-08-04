@@ -114,6 +114,10 @@
       <div class="tile-label">Symbol</div>
     </div>
     <div class="tile">
+      <div class="tile-val" id="t-interval">{{ status.interval or '—' }}</div>
+      <div class="tile-label">Interval</div>
+    </div>
+    <div class="tile">
       <div class="tile-val" id="t-equity">{{ "%.4f"|format(status.equity or 0) }}</div>
       <div class="tile-label">Equity (USDT)</div>
     </div>
@@ -252,6 +256,8 @@
       // Tiles
       document.getElementById('t-symbol').textContent =
         (s.symbols || ['—']).join(', ');
+      document.getElementById('t-interval').textContent =
+        s.interval || '—';
       document.getElementById('t-equity').textContent =
         fmt(s.equity, 4);
       document.getElementById('t-cash').textContent =
