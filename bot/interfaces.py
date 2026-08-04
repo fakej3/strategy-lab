@@ -54,7 +54,68 @@ class PositionManager(ABC):
 
 
 class ExchangeAdapter(ABC):
-    """Normalises exchange-specific REST/WebSocket APIs."""
+    """Interface for order submission, matching, and lifecycle management.
+
+    ``PaperExchange`` implements this interface.  A future Binance Testnet or
+    live adapter would also implement it, allowing ``OrderManager`` to switch
+    backends without any engine changes.
+    """
+
+    @abstractmethod
+    def submit_order(
+        self,
+        symbol: str,
+        side: str,
+        order_type: str,
+        qty: float,
+        price: float | None = None,
+        stop_price: float | None = None,
+        time_in_force: str = "GTC",
+        reduce_only: bool = False,
+        order_id: str | None = None,
+        current_position_size: float = 0.0,
+    ) -> Any:
+        """Validate and accept (or reject) a new order. Returns the order record."""
+
+    @abstractmethod
+    def cancel_order(self, order_id: str) -> bool:
+        """Cancel an open order. Returns True if cancelled."""
+
+    @abstractmethod
+    def cancel_all(self, symbol: str | None = None) -> int:
+        """Cancel all open orders for *symbol* (or all if None). Returns count."""
+
+    @abstractmethod
+    def process_candle(
+        self,
+        symbol: str,
+        open_: float,
+        high: float,
+        low: float,
+        close: float,
+        candle_ts: str | None = None,
+    ) -> list:
+        """Match all open orders against a closed candle. Returns list of fills."""
+
+    @abstractmethod
+    def get_open_orders(self, symbol: str | None = None) -> list:
+        """Return currently open orders, optionally filtered by symbol."""
+
+    @abstractmethod
+    def get_order(self, order_id: str) -> Any:
+        """Return a single order record by ID, or None if not found."""
+
+    @abstractmethod
+    def get_all_orders(self, symbol: str | None = None, limit: int = 200) -> list:
+        """Return all orders (open + terminal), newest first."""
+
+    @abstractmethod
+    def restore_order(self, order: Any) -> None:
+        """Re-register a previously-accepted open order (used on restart recovery)."""
+
+
+class MarketDataInterface(ABC):
+    """Normalises exchange-specific REST/WebSocket market data APIs."""
 
     @abstractmethod
     def fetch_ohlcv(self, symbol: str, interval: str, limit: int) -> list:
@@ -65,8 +126,8 @@ class ExchangeAdapter(ABC):
         """Return available balances keyed by asset."""
 
 
-class PaperTrading(ExchangeAdapter):
-    """Paper trading adapter — simulates fills without a real exchange."""
+class PaperTrading(MarketDataInterface):
+    """Paper trading market-data adapter placeholder."""
 
     def fetch_ohlcv(self, symbol: str, interval: str, limit: int) -> list:
         raise NotImplementedError("PaperTrading is a placeholder — not yet implemented.")
@@ -75,8 +136,8 @@ class PaperTrading(ExchangeAdapter):
         raise NotImplementedError("PaperTrading is a placeholder — not yet implemented.")
 
 
-class LiveTrading(ExchangeAdapter):
-    """Live trading adapter — connects to a real exchange."""
+class LiveTrading(MarketDataInterface):
+    """Live trading market-data adapter placeholder."""
 
     def fetch_ohlcv(self, symbol: str, interval: str, limit: int) -> list:
         raise NotImplementedError("LiveTrading is a placeholder — not yet implemented.")

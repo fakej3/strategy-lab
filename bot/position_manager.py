@@ -15,6 +15,7 @@ Unrealized PnL is computed on demand from the last known mark price.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -91,6 +92,8 @@ class PositionManager:
     def __init__(self, storage: BotStorage, bus: EventBus) -> None:
         self.storage = storage
         self.bus     = bus
+        # RLock so event handlers invoked while the lock is held can re-enter
+        self._lock   = threading.RLock()
 
         # symbol → open Position (one per symbol at a time)
         self._open: dict[str, Position] = {}
@@ -104,61 +107,65 @@ class PositionManager:
 
         Returns the affected position (newly opened or closed).
         """
-        symbol = fill.symbol
-        existing = self._open.get(symbol)
-
-        if existing is None:
-            # No open position → this fill opens one
-            pos = self._open_position(fill, equity)
-        else:
-            # Existing position → this fill closes it (simplified: all fills close)
-            pos = self._close_position(existing, fill)
-
+        with self._lock:
+            existing = self._open.get(fill.symbol)
+            if existing is None:
+                pos = self._open_position(fill, equity)
+            else:
+                pos = self._close_position(existing, fill)
         return pos
 
     # ── Queries ───────────────────────────────────────────────────────────────
 
     def get_open(self, symbol: str) -> Position | None:
-        return self._open.get(symbol)
+        with self._lock:
+            return self._open.get(symbol)
 
     def get_all_open(self) -> list[Position]:
-        return list(self._open.values())
+        with self._lock:
+            return list(self._open.values())
 
     def get_position(self, position_id: str) -> Position | None:
-        return self._all.get(position_id)
+        with self._lock:
+            return self._all.get(position_id)
 
     def has_open_position(self, symbol: str) -> bool:
-        return symbol in self._open
+        with self._lock:
+            return symbol in self._open
 
     def open_position_count(self) -> int:
-        return len(self._open)
+        with self._lock:
+            return len(self._open)
 
     def total_unrealized_pnl(self, mark_prices: dict[str, float]) -> float:
-        total = 0.0
-        for sym, pos in self._open.items():
-            mp = mark_prices.get(sym)
-            if mp is not None:
-                total += pos.unrealized_pnl(mp)
-        return total
+        with self._lock:
+            total = 0.0
+            for sym, pos in self._open.items():
+                mp = mark_prices.get(sym)
+                if mp is not None:
+                    total += pos.unrealized_pnl(mp)
+            return total
 
     def total_exposure(self) -> float:
         """Total notional (entry_price * size) across all open positions."""
-        return sum(p.notional() for p in self._open.values())
+        with self._lock:
+            return sum(p.notional() for p in self._open.values())
 
     # ── Recovery ─────────────────────────────────────────────────────────────
 
     def recover(self) -> int:
         """Reload open positions from storage on restart."""
-        rows = self.storage.get_open_positions()
-        recovered = 0
-        for row in rows:
-            pos = _row_to_position(row)
-            self._open[pos.symbol] = pos
-            self._all[pos.position_id] = pos
-            recovered += 1
-        if recovered:
-            log.info("Recovered %d open positions from storage", recovered)
-        return recovered
+        with self._lock:
+            rows = self.storage.get_open_positions()
+            recovered = 0
+            for row in rows:
+                pos = _row_to_position(row)
+                self._open[pos.symbol] = pos
+                self._all[pos.position_id] = pos
+                recovered += 1
+            if recovered:
+                log.info("Recovered %d open positions from storage", recovered)
+            return recovered
 
     # ── Private ───────────────────────────────────────────────────────────────
 

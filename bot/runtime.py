@@ -108,6 +108,7 @@ class LiveFeed:
                 delay = self.config.feed.reconnect_delay_s
             except asyncio.CancelledError:
                 log.info("LiveFeed cancelled")
+                self._stop.set()
                 break
             except Exception as exc:
                 attempt += 1
@@ -137,7 +138,7 @@ class LiveFeed:
             url,
             ping_interval=self.config.feed.heartbeat_interval_s,
             ping_timeout=self.config.feed.ping_timeout_s,
-            open_timeout=30,
+            open_timeout=self.config.feed.ws_open_timeout_s,
         ) as ws:
             log.info("WebSocket connected")
             async for raw_msg in ws:
@@ -221,7 +222,7 @@ class LiveFeed:
             f"?symbol={symbol}&interval={interval}&limit={limit}"
         )
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=self.config.feed.rest_timeout_s)) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
 

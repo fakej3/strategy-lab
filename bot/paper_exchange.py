@@ -35,6 +35,7 @@ from typing import Any
 from .events import (
     EventBus, FillEvent, OrderEvent,
 )
+from .interfaces import ExchangeAdapter
 
 log = logging.getLogger("strategy_lab.bot.paper_exchange")
 
@@ -146,7 +147,7 @@ class PaperFill:
 
 # ── Paper exchange ─────────────────────────────────────────────────────────────
 
-class PaperExchange:
+class PaperExchange(ExchangeAdapter):
     """Simulates exchange order matching against closed OHLCV candles.
 
     Usage::
@@ -319,6 +320,11 @@ class PaperExchange:
             orders = [o for o in orders if o.symbol == symbol]
         orders.sort(key=lambda o: o.created_at, reverse=True)
         return orders[:limit]
+
+    def restore_order(self, order: PaperOrder) -> None:
+        """Re-register a previously-accepted open order (used on restart recovery)."""
+        self._all_orders[order.order_id] = order
+        self._open_orders.setdefault(order.symbol, []).append(order)
 
     # ── Fill logic ─────────────────────────────────────────────────────────────
 

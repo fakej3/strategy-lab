@@ -76,16 +76,46 @@ def _build_config(args: argparse.Namespace) -> BotConfig:
     return cfg
 
 
+def _discover_strategies() -> dict[str, type]:
+    """Scan the strategies/ package for StrategyBase subclasses.
+
+    Imports every module under strategies/ and collects classes that inherit
+    from StrategyBase.  New strategies are picked up automatically without
+    modifying this file.
+    """
+    import importlib
+    import pkgutil
+    import strategies as _strat_pkg
+    from engine.strategy import StrategyBase
+
+    log = logging.getLogger("strategy_lab.bot")
+    registry: dict[str, type] = {}
+    for _finder, module_name, _ispkg in pkgutil.iter_modules(_strat_pkg.__path__):
+        try:
+            mod = importlib.import_module(f"strategies.{module_name}")
+        except Exception:
+            log.warning("Failed to import strategies.%s", module_name, exc_info=True)
+            continue
+        for attr in vars(mod).values():
+            if (
+                isinstance(attr, type)
+                and issubclass(attr, StrategyBase)
+                and attr is not StrategyBase
+            ):
+                registry[attr.__name__] = attr
+    return registry
+
+
 def _load_strategy(cfg: BotConfig):
-    """Load strategy by name from strategies package."""
-    name = cfg.strategy_name
-    if name == "EMACrossover":
-        from strategies.ema_crossover import EMACrossover
-        return EMACrossover(**cfg.strategy_params)
-    raise ValueError(
-        f"Unknown strategy: {name!r}. "
-        "Add it to bot_trade.py _load_strategy() or pass a valid --strategy name."
-    )
+    """Load the configured strategy via automatic discovery of StrategyBase subclasses."""
+    registry = _discover_strategies()
+    cls = registry.get(cfg.strategy_name)
+    if cls is None:
+        available = ", ".join(sorted(registry)) or "none found in strategies/"
+        raise ValueError(
+            f"Unknown strategy: {cfg.strategy_name!r}. Available: {available}"
+        )
+    return cls(**cfg.strategy_params)
 
 
 def _start_dashboard(port: int) -> None:
@@ -130,7 +160,7 @@ async def _main(args: argparse.Namespace) -> None:
     storage  = BotStorage(cfg.db_path)
     storage.connect()
 
-    state    = BotState(buffer_size=500)
+    state    = BotState(buffer_size=cfg.buffer_size)
     exchange = PaperExchange(
         fee_rate=cfg.fee_rate,
         maker_fee_rate=cfg.maker_fee_rate,

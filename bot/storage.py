@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -153,6 +154,9 @@ class BotStorage:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
+        # Serialize access: the sqlite3 Connection object is not thread-safe
+        # for concurrent use even with check_same_thread=False.
+        self._lock = threading.RLock()
 
     # ── Connection ──────────────────────────────────────────────────────────
 
@@ -183,148 +187,159 @@ class BotStorage:
     # ── Orders ──────────────────────────────────────────────────────────────
 
     def save_order(self, order: dict[str, Any]) -> None:
-        now = _now()
-        c = self.connect()
-        c.execute("""
-            INSERT OR REPLACE INTO bot_orders
-            (order_id, symbol, side, order_type, status, price, stop_price,
-             qty, filled_qty, avg_fill_price, total_fee, time_in_force,
-             reduce_only, reject_reason, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            order["order_id"], order["symbol"], order["side"], order["order_type"],
-            order["status"], order.get("price"), order.get("stop_price"),
-            order["qty"], order.get("filled_qty", 0.0),
-            order.get("avg_fill_price"), order.get("total_fee", 0.0),
-            order.get("time_in_force", "GTC"),
-            int(order.get("reduce_only", False)),
-            order.get("reject_reason"),
-            order.get("created_at", now), now,
-        ))
-        c.commit()
+        with self._lock:
+            now = _now()
+            c = self.connect()
+            c.execute("""
+                INSERT OR REPLACE INTO bot_orders
+                (order_id, symbol, side, order_type, status, price, stop_price,
+                 qty, filled_qty, avg_fill_price, total_fee, time_in_force,
+                 reduce_only, reject_reason, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                order["order_id"], order["symbol"], order["side"], order["order_type"],
+                order["status"], order.get("price"), order.get("stop_price"),
+                order["qty"], order.get("filled_qty", 0.0),
+                order.get("avg_fill_price"), order.get("total_fee", 0.0),
+                order.get("time_in_force", "GTC"),
+                int(order.get("reduce_only", False)),
+                order.get("reject_reason"),
+                order.get("created_at", now), now,
+            ))
+            c.commit()
 
     def get_open_orders(self, symbol: str | None = None) -> list[dict]:
-        sql = "SELECT * FROM bot_orders WHERE status IN ('NEW','ACCEPTED','PARTIALLY_FILLED')"
-        params: tuple = ()
-        if symbol:
-            sql += " AND symbol = ?"
-            params = (symbol,)
-        return [dict(r) for r in self.connect().execute(sql, params).fetchall()]
+        with self._lock:
+            sql = "SELECT * FROM bot_orders WHERE status IN ('NEW','ACCEPTED','PARTIALLY_FILLED')"
+            params: tuple = ()
+            if symbol:
+                sql += " AND symbol = ?"
+                params = (symbol,)
+            return [dict(r) for r in self.connect().execute(sql, params).fetchall()]
 
     def get_orders(self, symbol: str | None = None, limit: int = 200) -> list[dict]:
-        if symbol:
-            rows = self.connect().execute(
-                "SELECT * FROM bot_orders WHERE symbol=? ORDER BY created_at DESC LIMIT ?",
-                (symbol, limit),
-            ).fetchall()
-        else:
-            rows = self.connect().execute(
-                "SELECT * FROM bot_orders ORDER BY created_at DESC LIMIT ?", (limit,)
-            ).fetchall()
-        return [dict(r) for r in rows]
+        with self._lock:
+            if symbol:
+                rows = self.connect().execute(
+                    "SELECT * FROM bot_orders WHERE symbol=? ORDER BY created_at DESC LIMIT ?",
+                    (symbol, limit),
+                ).fetchall()
+            else:
+                rows = self.connect().execute(
+                    "SELECT * FROM bot_orders ORDER BY created_at DESC LIMIT ?", (limit,)
+                ).fetchall()
+            return [dict(r) for r in rows]
 
     # ── Positions ───────────────────────────────────────────────────────────
 
     def save_position(self, pos: dict[str, Any]) -> None:
-        now = _now()
-        c = self.connect()
-        c.execute("""
-            INSERT OR REPLACE INTO bot_positions
-            (position_id, symbol, direction, status, size,
-             entry_price, avg_entry_price, exit_price, realized_pnl,
-             entry_fee, exit_fee, equity_at_entry,
-             entry_order_id, exit_order_id, opened_at, closed_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            pos["position_id"], pos["symbol"], pos["direction"], pos["status"],
-            pos["size"], pos["entry_price"], pos.get("avg_entry_price", pos["entry_price"]),
-            pos.get("exit_price"), pos.get("realized_pnl", 0.0),
-            pos.get("entry_fee", 0.0), pos.get("exit_fee", 0.0),
-            pos.get("equity_at_entry"),
-            pos.get("entry_order_id"), pos.get("exit_order_id"),
-            pos.get("opened_at", now), pos.get("closed_at"),
-        ))
-        c.commit()
+        with self._lock:
+            now = _now()
+            c = self.connect()
+            c.execute("""
+                INSERT OR REPLACE INTO bot_positions
+                (position_id, symbol, direction, status, size,
+                 entry_price, avg_entry_price, exit_price, realized_pnl,
+                 entry_fee, exit_fee, equity_at_entry,
+                 entry_order_id, exit_order_id, opened_at, closed_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                pos["position_id"], pos["symbol"], pos["direction"], pos["status"],
+                pos["size"], pos["entry_price"], pos.get("avg_entry_price", pos["entry_price"]),
+                pos.get("exit_price"), pos.get("realized_pnl", 0.0),
+                pos.get("entry_fee", 0.0), pos.get("exit_fee", 0.0),
+                pos.get("equity_at_entry"),
+                pos.get("entry_order_id"), pos.get("exit_order_id"),
+                pos.get("opened_at", now), pos.get("closed_at"),
+            ))
+            c.commit()
 
     def get_open_positions(self) -> list[dict]:
-        rows = self.connect().execute(
-            "SELECT * FROM bot_positions WHERE status='open' ORDER BY opened_at DESC"
-        ).fetchall()
-        return [dict(r) for r in rows]
+        with self._lock:
+            rows = self.connect().execute(
+                "SELECT * FROM bot_positions WHERE status='open' ORDER BY opened_at DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def get_positions(self, limit: int = 200, symbol: str | None = None) -> list[dict]:
-        if symbol:
-            rows = self.connect().execute(
-                "SELECT * FROM bot_positions WHERE symbol=? ORDER BY opened_at DESC LIMIT ?",
-                (symbol, limit),
-            ).fetchall()
-        else:
-            rows = self.connect().execute(
-                "SELECT * FROM bot_positions ORDER BY opened_at DESC LIMIT ?", (limit,)
-            ).fetchall()
-        return [dict(r) for r in rows]
+        with self._lock:
+            if symbol:
+                rows = self.connect().execute(
+                    "SELECT * FROM bot_positions WHERE symbol=? ORDER BY opened_at DESC LIMIT ?",
+                    (symbol, limit),
+                ).fetchall()
+            else:
+                rows = self.connect().execute(
+                    "SELECT * FROM bot_positions ORDER BY opened_at DESC LIMIT ?", (limit,)
+                ).fetchall()
+            return [dict(r) for r in rows]
 
     # ── Fills ───────────────────────────────────────────────────────────────
 
     def save_fill(self, fill: dict[str, Any]) -> None:
-        c = self.connect()
-        c.execute("""
-            INSERT INTO bot_fills
-            (order_id, symbol, side, fill_price, fill_qty, fee, is_maker, filled_at)
-            VALUES (?,?,?,?,?,?,?,?)
-        """, (
-            fill["order_id"], fill["symbol"], fill["side"],
-            fill["fill_price"], fill["fill_qty"], fill["fee"],
-            int(fill.get("is_maker", False)), fill.get("filled_at", _now()),
-        ))
-        c.commit()
+        with self._lock:
+            c = self.connect()
+            c.execute("""
+                INSERT INTO bot_fills
+                (order_id, symbol, side, fill_price, fill_qty, fee, is_maker, filled_at)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                fill["order_id"], fill["symbol"], fill["side"],
+                fill["fill_price"], fill["fill_qty"], fill["fee"],
+                int(fill.get("is_maker", False)), fill.get("filled_at", _now()),
+            ))
+            c.commit()
 
     def get_fills(self, symbol: str | None = None, limit: int = 500) -> list[dict]:
-        if symbol:
-            rows = self.connect().execute(
-                "SELECT * FROM bot_fills WHERE symbol=? ORDER BY filled_at DESC LIMIT ?",
-                (symbol, limit),
-            ).fetchall()
-        else:
-            rows = self.connect().execute(
-                "SELECT * FROM bot_fills ORDER BY filled_at DESC LIMIT ?", (limit,)
-            ).fetchall()
-        return [dict(r) for r in rows]
+        with self._lock:
+            if symbol:
+                rows = self.connect().execute(
+                    "SELECT * FROM bot_fills WHERE symbol=? ORDER BY filled_at DESC LIMIT ?",
+                    (symbol, limit),
+                ).fetchall()
+            else:
+                rows = self.connect().execute(
+                    "SELECT * FROM bot_fills ORDER BY filled_at DESC LIMIT ?", (limit,)
+                ).fetchall()
+            return [dict(r) for r in rows]
 
     # ── Daily stats ─────────────────────────────────────────────────────────
 
     def upsert_daily_stats(self, stats: dict[str, Any]) -> None:
-        now = _now()
-        c = self.connect()
-        c.execute("""
-            INSERT OR REPLACE INTO bot_daily_stats
-            (date_utc, n_trades, n_winners, n_losers, gross_profit, gross_loss,
-             net_pnl, total_fees, starting_equity, ending_equity, max_drawdown,
-             win_rate, profit_factor, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (
-            stats["date_utc"],
-            stats.get("n_trades", 0), stats.get("n_winners", 0), stats.get("n_losers", 0),
-            stats.get("gross_profit", 0.0), stats.get("gross_loss", 0.0),
-            stats.get("net_pnl", 0.0), stats.get("total_fees", 0.0),
-            stats.get("starting_equity"), stats.get("ending_equity"),
-            stats.get("max_drawdown", 0.0),
-            stats.get("win_rate"), stats.get("profit_factor"),
-            now,
-        ))
-        c.commit()
+        with self._lock:
+            now = _now()
+            c = self.connect()
+            c.execute("""
+                INSERT OR REPLACE INTO bot_daily_stats
+                (date_utc, n_trades, n_winners, n_losers, gross_profit, gross_loss,
+                 net_pnl, total_fees, starting_equity, ending_equity, max_drawdown,
+                 win_rate, profit_factor, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                stats["date_utc"],
+                stats.get("n_trades", 0), stats.get("n_winners", 0), stats.get("n_losers", 0),
+                stats.get("gross_profit", 0.0), stats.get("gross_loss", 0.0),
+                stats.get("net_pnl", 0.0), stats.get("total_fees", 0.0),
+                stats.get("starting_equity"), stats.get("ending_equity"),
+                stats.get("max_drawdown", 0.0),
+                stats.get("win_rate"), stats.get("profit_factor"),
+                now,
+            ))
+            c.commit()
 
     def get_daily_stats(self, limit: int = 90) -> list[dict]:
-        rows = self.connect().execute(
-            "SELECT * FROM bot_daily_stats ORDER BY date_utc DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [dict(r) for r in rows]
+        with self._lock:
+            rows = self.connect().execute(
+                "SELECT * FROM bot_daily_stats ORDER BY date_utc DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def get_daily_stats_for(self, date_utc: str) -> dict | None:
-        row = self.connect().execute(
-            "SELECT * FROM bot_daily_stats WHERE date_utc=?", (date_utc,)
-        ).fetchone()
-        return dict(row) if row else None
+        with self._lock:
+            row = self.connect().execute(
+                "SELECT * FROM bot_daily_stats WHERE date_utc=?", (date_utc,)
+            ).fetchone()
+            return dict(row) if row else None
 
     # ── Balance history ──────────────────────────────────────────────────────
 
@@ -332,78 +347,86 @@ class BotStorage:
         self, equity: float, cash: float,
         unrealized: float = 0.0, drawdown: float = 0.0,
     ) -> None:
-        c = self.connect()
-        c.execute(
-            "INSERT INTO bot_balance_hist (ts, equity, cash, unrealized, drawdown) VALUES (?,?,?,?,?)",
-            (_now(), equity, cash, unrealized, drawdown),
-        )
-        c.commit()
+        with self._lock:
+            c = self.connect()
+            c.execute(
+                "INSERT INTO bot_balance_hist (ts, equity, cash, unrealized, drawdown) VALUES (?,?,?,?,?)",
+                (_now(), equity, cash, unrealized, drawdown),
+            )
+            c.commit()
 
     def get_balance_history(self, limit: int = 1000) -> list[dict]:
-        rows = self.connect().execute(
-            "SELECT * FROM bot_balance_hist ORDER BY ts DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [dict(r) for r in reversed(rows)]
+        with self._lock:
+            rows = self.connect().execute(
+                "SELECT * FROM bot_balance_hist ORDER BY ts DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in reversed(rows)]
 
     # ── Runtime metrics ──────────────────────────────────────────────────────
 
     def save_runtime_snapshot(self, snap: dict[str, Any]) -> None:
-        c = self.connect()
-        c.execute("""
-            INSERT INTO bot_runtime
-            (ts, uptime_s, candles_total, reconnects, missed_candles,
-             memory_mb, cpu_pct, avg_latency_ms)
-            VALUES (?,?,?,?,?,?,?,?)
-        """, (
-            _now(),
-            snap.get("uptime_s", 0.0), snap.get("candles_total", 0),
-            snap.get("reconnects", 0), snap.get("missed_candles", 0),
-            snap.get("memory_mb"), snap.get("cpu_pct"), snap.get("avg_latency_ms"),
-        ))
-        # Keep only last 1440 rows (24h of 1-min snapshots)
-        c.execute("DELETE FROM bot_runtime WHERE id NOT IN (SELECT id FROM bot_runtime ORDER BY id DESC LIMIT 1440)")
-        c.commit()
+        with self._lock:
+            c = self.connect()
+            c.execute("""
+                INSERT INTO bot_runtime
+                (ts, uptime_s, candles_total, reconnects, missed_candles,
+                 memory_mb, cpu_pct, avg_latency_ms)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                _now(),
+                snap.get("uptime_s", 0.0), snap.get("candles_total", 0),
+                snap.get("reconnects", 0), snap.get("missed_candles", 0),
+                snap.get("memory_mb"), snap.get("cpu_pct"), snap.get("avg_latency_ms"),
+            ))
+            # Keep only last 1440 rows (24h of 1-min snapshots)
+            c.execute("DELETE FROM bot_runtime WHERE id NOT IN (SELECT id FROM bot_runtime ORDER BY id DESC LIMIT 1440)")
+            c.commit()
 
     def get_runtime_history(self, limit: int = 60) -> list[dict]:
-        rows = self.connect().execute(
-            "SELECT * FROM bot_runtime ORDER BY ts DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [dict(r) for r in reversed(rows)]
+        with self._lock:
+            rows = self.connect().execute(
+                "SELECT * FROM bot_runtime ORDER BY ts DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in reversed(rows)]
 
     # ── Errors ───────────────────────────────────────────────────────────────
 
     def log_error(self, source: str, message: str, detail: str = "") -> None:
-        c = self.connect()
-        c.execute(
-            "INSERT INTO bot_errors (ts, source, message, detail) VALUES (?,?,?,?)",
-            (_now(), source, message, detail),
-        )
-        # Keep only last 10000 errors
-        c.execute("DELETE FROM bot_errors WHERE id NOT IN (SELECT id FROM bot_errors ORDER BY id DESC LIMIT 10000)")
-        c.commit()
+        with self._lock:
+            c = self.connect()
+            c.execute(
+                "INSERT INTO bot_errors (ts, source, message, detail) VALUES (?,?,?,?)",
+                (_now(), source, message, detail),
+            )
+            # Keep only last 10000 errors
+            c.execute("DELETE FROM bot_errors WHERE id NOT IN (SELECT id FROM bot_errors ORDER BY id DESC LIMIT 10000)")
+            c.commit()
 
     def get_errors(self, limit: int = 100) -> list[dict]:
-        rows = self.connect().execute(
-            "SELECT * FROM bot_errors ORDER BY ts DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [dict(r) for r in rows]
+        with self._lock:
+            rows = self.connect().execute(
+                "SELECT * FROM bot_errors ORDER BY ts DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     # ── Heartbeat ────────────────────────────────────────────────────────────
 
     def save_heartbeat(self, uptime_s: float, active_symbols: int, candles_recv: int) -> None:
-        c = self.connect()
-        c.execute(
-            "INSERT INTO bot_heartbeat (ts, uptime_s, active_symbols, candles_recv) VALUES (?,?,?,?)",
-            (_now(), uptime_s, active_symbols, candles_recv),
-        )
-        c.execute("DELETE FROM bot_heartbeat WHERE id NOT IN (SELECT id FROM bot_heartbeat ORDER BY id DESC LIMIT 1000)")
-        c.commit()
+        with self._lock:
+            c = self.connect()
+            c.execute(
+                "INSERT INTO bot_heartbeat (ts, uptime_s, active_symbols, candles_recv) VALUES (?,?,?,?)",
+                (_now(), uptime_s, active_symbols, candles_recv),
+            )
+            c.execute("DELETE FROM bot_heartbeat WHERE id NOT IN (SELECT id FROM bot_heartbeat ORDER BY id DESC LIMIT 1000)")
+            c.commit()
 
     def get_last_heartbeat(self) -> dict | None:
-        row = self.connect().execute(
-            "SELECT * FROM bot_heartbeat ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        return dict(row) if row else None
+        with self._lock:
+            row = self.connect().execute(
+                "SELECT * FROM bot_heartbeat ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            return dict(row) if row else None
 
     # ── Private ──────────────────────────────────────────────────────────────
 

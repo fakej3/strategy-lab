@@ -42,9 +42,6 @@ from .storage import BotStorage
 
 log = logging.getLogger("strategy_lab.bot.engine")
 
-# Minimum candle buffer length before generating signals
-_MIN_BUFFER = 60
-
 
 class BotEngine:
     """Stateful pipeline: candle → signal → risk → order → portfolio.
@@ -159,7 +156,7 @@ class BotEngine:
     def _maybe_signal(self, event: CandleEvent) -> None:
         """Run strategy and submit order if signal warrants it."""
         buf_len = self.state.buffer_length(event.symbol, event.interval)
-        if buf_len < _MIN_BUFFER:
+        if buf_len < self.config.min_signal_bars:
             return
 
         df = self.state.get_buffer_df(event.symbol, event.interval)
@@ -259,8 +256,7 @@ class BotEngine:
         notional = equity * self.config.equity_fraction
         notional = min(notional, self.config.risk.max_position_size_usd)
         qty = notional / price
-        # Round to 5 decimal places (BTC precision)
-        return round(qty, 5)
+        return round(qty, self.config.qty_precision)
 
     def _update_daily_stats(self, pnl: float) -> None:
         """Persist daily stats after each trade closes."""

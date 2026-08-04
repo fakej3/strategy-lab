@@ -17,6 +17,7 @@ import uuid
 from typing import Any
 
 from .events import EventBus, FillEvent, OrderEvent
+from .interfaces import ExchangeAdapter
 from .paper_exchange import (
     ORDER_TYPE_LIMIT,
     ORDER_TYPE_MARKET,
@@ -30,7 +31,6 @@ from .paper_exchange import (
     STATUS_FILLED,
     STATUS_REJECTED,
     TIF_GTC,
-    PaperExchange,
     PaperFill,
     PaperOrder,
 )
@@ -49,7 +49,7 @@ class OrderManager:
 
     def __init__(
         self,
-        exchange: PaperExchange,
+        exchange: ExchangeAdapter,
         storage: BotStorage,
         bus: EventBus,
     ) -> None:
@@ -220,8 +220,7 @@ class OrderManager:
             self._all[order.order_id] = order
             self._open[order.order_id] = order
             # Re-register with the exchange so it participates in matching
-            self.exchange._all_orders[order.order_id] = order
-            self.exchange._open_orders.setdefault(order.symbol, []).append(order)
+            self.exchange.restore_order(order)
             recovered += 1
         if recovered:
             log.info("Recovered %d open orders from storage", recovered)

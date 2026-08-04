@@ -91,8 +91,14 @@ class Scheduler:
                     _run(dt.fn, dt.name)
                     dt.last_fired_day = today
 
-            # Sleep in short increments so stop_event is checked frequently
-            self._stop_event.wait(timeout=1.0)
+            # Sleep until the next task is due (or at most 1 s so stop is checked)
+            now = time.monotonic()
+            if self._tasks:
+                next_due = min(t.next_run for t in self._tasks)
+                sleep_s = max(0.0, min(next_due - now, 1.0))
+            else:
+                sleep_s = 1.0
+            self._stop_event.wait(timeout=sleep_s)
 
 
 class _Task:

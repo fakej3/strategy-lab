@@ -23,6 +23,8 @@ class FeedConfig:
     max_reconnect_delay_s: float = 60.0
     heartbeat_interval_s: int = 30
     ping_timeout_s: int       = 20    # websockets ping timeout
+    ws_open_timeout_s: int    = 30    # websockets connection open timeout
+    rest_timeout_s: int       = 30    # aiohttp REST request timeout
 
 
 @dataclass
@@ -60,8 +62,12 @@ class BotConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
 
     # ── Sizing ───────────────────────────────────────────────────────────────
-    # equity_fraction controls how much capital is risked per trade
     equity_fraction: float = 0.10   # 10% of current equity per trade
+    qty_precision: int     = 5      # decimal places for order quantity (BTC = 5)
+
+    # ── Signal ───────────────────────────────────────────────────────────────
+    min_signal_bars: int = 60       # minimum buffer length before signalling
+    buffer_size: int     = 500      # rolling candle buffer per (symbol, interval)
 
     # ── Persistence ──────────────────────────────────────────────────────────
     db_path: str      = "bot.db"
@@ -100,9 +106,14 @@ class BotConfig:
             reports_dir      = os.environ.get("BOT_REPORTS_DIR", "reports/bot"),
             log_path         = os.environ.get("BOT_LOG_PATH", "logs/bot.log"),
             feed             = FeedConfig(
-                symbols   = os.environ.get("BOT_SYMBOLS", "BTCUSDT").split(","),
-                intervals = os.environ.get("BOT_INTERVALS", "1h").split(","),
+                symbols           = os.environ.get("BOT_SYMBOLS", "BTCUSDT").split(","),
+                intervals         = os.environ.get("BOT_INTERVALS", "1h").split(","),
+                ws_open_timeout_s = int(os.environ.get("BOT_WS_OPEN_TIMEOUT", "30")),
+                rest_timeout_s    = int(os.environ.get("BOT_REST_TIMEOUT", "30")),
             ),
+            min_signal_bars  = int(os.environ.get("BOT_MIN_SIGNAL_BARS", "60")),
+            buffer_size      = int(os.environ.get("BOT_BUFFER_SIZE", "500")),
+            qty_precision    = int(os.environ.get("BOT_QTY_PRECISION", "5")),
             risk             = RiskConfig(
                 max_risk_pct          = float(os.environ.get("BOT_MAX_RISK_PCT", "0.01")),
                 max_position_size_usd = float(os.environ.get("BOT_MAX_POSITION_USD", "20")),
