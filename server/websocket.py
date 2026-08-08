@@ -1,4 +1,4 @@
-"""WebSocket endpoint — streams per-job progress events to the browser."""
+"""WebSocket endpoints — streams progress/bot events to the browser."""
 from __future__ import annotations
 
 import asyncio
@@ -7,6 +7,7 @@ import queue
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from server.background import job_manager
+from server.bot_manager import bot_manager
 
 router = APIRouter()
 
@@ -76,6 +77,48 @@ async def ws_job_progress(websocket: WebSocket, job_id: str) -> None:
 
             await asyncio.sleep(0.1)
 
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+@router.websocket("/ws/bot")
+async def ws_bot_events(websocket: WebSocket) -> None:
+    """Stream live bot events (candles, signals, fills, errors) to the browser.
+
+    Message schema (JSON):
+      {"type": "candle",     "symbol": "BTCUSDT", "close": 95000.0, ...}
+      {"type": "signal",     "symbol": "BTCUSDT", "signal": "BUY"}
+      {"type": "fill",       "symbol": "BTCUSDT", "side": "BUY", "fill_price": ...}
+      {"type": "error",      "source": "...", "message": "..."}
+      {"type": "disconnect", "symbol": "...", "reason": "..."}
+      {"type": "reconnect",  "symbol": "...", "attempt": 1}
+      {"type": "ping"}
+    """
+    await websocket.accept()
+    try:
+        ping_counter = 0
+        while True:
+            events = bot_manager.drain_events(max_n=50)
+            for ev in events:
+                try:
+                    await websocket.send_json(ev)
+                except WebSocketDisconnect:
+                    return
+
+            ping_counter += 1
+            if ping_counter >= 150:
+                ping_counter = 0
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except WebSocketDisconnect:
+                    return
+
+            await asyncio.sleep(0.1)
     except WebSocketDisconnect:
         pass
     except Exception:

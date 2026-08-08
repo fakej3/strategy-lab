@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import queue
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,9 +36,11 @@ class BotManager:
         self._config      = None   # BotConfig while running
         self._portfolio   = None   # Portfolio — in-memory cash reads
         self._positions   = None   # PositionManager — in-memory position reads
+        self._state       = None   # BotState — candle buffers and counters
         self._started_at: datetime | None = None
         self._stopped_at: datetime | None = None
         self._error: str  = ""
+        self._event_queue: queue.Queue = queue.Queue(maxsize=500)
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -85,6 +88,13 @@ class BotManager:
             self._started_at = datetime.now(timezone.utc)
             self._stopped_at = None
 
+        # Drain stale events from previous run
+        while not self._event_queue.empty():
+            try:
+                self._event_queue.get_nowait()
+            except queue.Empty:
+                break
+
         self._thread = threading.Thread(
             target=self._run_in_thread,
             daemon=True,
@@ -116,6 +126,60 @@ class BotManager:
         with self._lock:
             return self._running
 
+    def _enqueue(self, ev_dict: dict) -> None:
+        """Enqueue an event for the WebSocket; drop oldest entry if full."""
+        try:
+            self._event_queue.put_nowait(ev_dict)
+        except queue.Full:
+            try:
+                self._event_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._event_queue.put_nowait(ev_dict)
+            except queue.Full:
+                pass
+
+    def drain_events(self, max_n: int = 50) -> list[dict]:
+        """Return up to *max_n* queued bot events without blocking."""
+        events: list[dict] = []
+        for _ in range(max_n):
+            try:
+                events.append(self._event_queue.get_nowait())
+            except queue.Empty:
+                break
+        return events
+
+    def get_candles(self, symbol: str, interval: str, limit: int = 200) -> list[dict]:
+        """Return the most recent OHLCV candles from the live buffer."""
+        with self._lock:
+            state = self._state
+        if state is None:
+            return []
+        key = (symbol, interval)
+        with state._lock:
+            buf = list(state._buffers.get(key, []))
+        buf = buf[-limit:]
+        return [
+            {
+                "time":   c.close_time // 1000,   # Unix seconds for charting
+                "open":   c.open,
+                "high":   c.high,
+                "low":    c.low,
+                "close":  c.close,
+                "volume": c.volume,
+            }
+            for c in buf
+        ]
+
+    def get_counters(self) -> dict:
+        """Return runtime counters from BotState."""
+        with self._lock:
+            state = self._state
+        if state is None:
+            return {}
+        return state.counters()
+
     def get_status(self) -> dict[str, Any]:
         """Return a status dict suitable for JSON serialisation."""
         with self._lock:
@@ -126,6 +190,7 @@ class BotManager:
             error       = self._error
             portfolio   = self._portfolio
             positions_m = self._positions
+            state       = self._state
 
         result: dict[str, Any] = {
             "running":         running,
@@ -146,6 +211,7 @@ class BotManager:
             "open_positions":  [],
             "recent_trades":   [],
             "log_tail":        [],
+            "mark_prices":     {},
         }
 
         # In-memory cash (always current, no DB round-trip)
@@ -169,6 +235,13 @@ class BotManager:
                     }
                     for p in positions_m.get_all_open()
                 ]
+            except Exception:
+                pass
+
+        # Live mark prices from BotState
+        if state:
+            try:
+                result["mark_prices"] = state.all_mark_prices()
             except Exception:
                 pass
 
@@ -234,6 +307,7 @@ class BotManager:
                 self._task      = None
                 self._portfolio = None
                 self._positions = None
+                self._state     = None
 
     async def _run_bot(self) -> None:
         """Core bot coroutine — mirrors bot_trade._main() without argparse."""
@@ -241,7 +315,10 @@ class BotManager:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
         from bot.engine import BotEngine
-        from bot.events import DailyResetEvent, EventBus
+        from bot.events import (
+            CandleEvent, DailyResetEvent, DisconnectEvent, ErrorEvent,
+            EventBus, FillEvent, ReconnectEvent, SignalEvent,
+        )
         from bot.monitor import Monitor
         from bot.order_manager import OrderManager
         from bot.paper_exchange import PaperExchange
@@ -257,7 +334,7 @@ class BotManager:
 
         cfg = self._config
 
-        # Wire up a file handler for the bot logger so the UI can tail it
+        # Wire up a file handler so the UI can tail the bot log
         bot_log_root = logging.getLogger("strategy_lab.bot")
         file_handler: logging.FileHandler | None = None
         try:
@@ -309,6 +386,24 @@ class BotManager:
             with self._lock:
                 self._portfolio = portfolio
                 self._positions = positions
+                self._state     = state
+
+            # Bridge bot EventBus → WebSocket event queue
+            def _enq(ev_type: str):
+                def _h(ev):
+                    d: dict = {'type': ev_type, 'ts': ev.ts.isoformat()}
+                    for fname in type(ev).__dataclass_fields__:
+                        if fname != 'ts':
+                            d[fname] = getattr(ev, fname)
+                    self._enqueue(d)
+                return _h
+
+            bus.subscribe(CandleEvent,     _enq('candle'))
+            bus.subscribe(SignalEvent,     _enq('signal'))
+            bus.subscribe(FillEvent,       _enq('fill'))
+            bus.subscribe(ErrorEvent,      _enq('error'))
+            bus.subscribe(DisconnectEvent, _enq('disconnect'))
+            bus.subscribe(ReconnectEvent,  _enq('reconnect'))
 
             # Recovery
             if cfg.recover_on_restart:

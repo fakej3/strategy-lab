@@ -290,3 +290,21 @@ def api_bot_stop(_: AuthUser) -> JSONResponse:
     if not ok:
         raise HTTPException(status_code=409, detail=err)
     return JSONResponse({"stopped": True})
+
+
+@router.get("/bot/candles")
+def api_bot_candles(
+    symbol:   str = "BTCUSDT",
+    interval: str = "1h",
+    limit:    int = 200,
+    _: AuthUser = None,
+) -> JSONResponse:
+    candles = bot_manager.get_candles(
+        symbol=symbol, interval=interval, limit=min(limit, 500)
+    )
+    return JSONResponse(candles)
+
+
+@router.get("/bot/counters")
+def api_bot_counters(_: AuthUser = None) -> JSONResponse:
+    return JSONResponse(bot_manager.get_counters())
