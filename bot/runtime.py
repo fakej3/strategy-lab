@@ -170,8 +170,11 @@ class LiveFeed:
         if last_ct is not None:
             interval_ms = _INTERVAL_MS.get(interval, 0)
             if interval_ms > 0:
-                expected_open = last_ct + 1
-                if open_time > expected_open + interval_ms:
+                expected_open = last_ct + 1   # ms timestamp of the next expected candle open
+                # Use >= so that EXACTLY ONE missed candle is detected.
+                # When open_time == expected_open + interval_ms one candle was
+                # skipped; the previous > check incorrectly returned False.
+                if open_time >= expected_open + interval_ms:
                     missed = round((open_time - expected_open) / interval_ms)
                     log.warning(
                         "Missed %d candles for %s %s", missed, symbol, interval
@@ -233,6 +236,8 @@ class LiveFeed:
             # Skip the last (open) candle — it may not be closed yet
             if close_time > int(time.time() * 1000) - 1000:
                 continue
+            # is_history=True tells the engine to warm the buffer WITHOUT
+            # submitting any orders from these historical candles.
             event = CandleEvent(
                 symbol=symbol,
                 interval=interval,
@@ -243,6 +248,7 @@ class LiveFeed:
                 close=float(row[4]),
                 volume=float(row[5]),
                 close_time=close_time,
+                is_history=True,
             )
             self.bus.emit(event)
             self._last_close_time[(symbol, interval)] = close_time

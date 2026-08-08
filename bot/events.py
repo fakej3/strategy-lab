@@ -31,7 +31,12 @@ class BotEvent:
 
 @dataclass(frozen=True)
 class CandleEvent(BotEvent):
-    """A closed OHLCV candle has arrived from the feed."""
+    """A closed OHLCV candle has arrived from the feed.
+
+    ``is_history`` is ``True`` for REST-backfilled candles used only to warm
+    strategy buffers.  The engine must NOT submit orders from history candles —
+    they are stale data injected before live streaming begins.
+    """
     symbol:     str   = ""
     interval:   str   = ""
     open_time:  int   = 0    # Unix ms
@@ -41,6 +46,7 @@ class CandleEvent(BotEvent):
     close:      float = 0.0
     volume:     float = 0.0
     close_time: int   = 0    # Unix ms
+    is_history: bool  = False  # True for backfill candles; never triggers orders
 
 
 @dataclass(frozen=True)

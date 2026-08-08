@@ -75,6 +75,17 @@ class BotEngine:
 
         self._starting_equity = config.paper_capital
 
+        # max_risk_pct is a RISK LIMIT checked by RiskEngine, NOT a sizing
+        # input.  Order size is always computed from equity_fraction.  A proper
+        # risk-per-trade sizer needs stop-loss distance at submission time,
+        # which is not yet available in this pipeline.
+        log.info(
+            "Sizing: equity_fraction=%.2f%% — max_risk_pct=%.2f%% is a post-sizing "
+            "risk limit enforced by RiskEngine, not used for qty calculation.",
+            config.equity_fraction * 100,
+            config.risk.max_risk_pct * 100,
+        )
+
         # Subscribe to events
         bus.subscribe(CandleEvent, self._on_candle)
         bus.subscribe(FillEvent,  self._on_fill)
@@ -96,7 +107,14 @@ class BotEngine:
                 volume=event.volume,
                 close_time=event.close_time,
             )
+            # Always push to buffer — history candles warm the strategy.
             self.state.push_candle(candle)
+
+            # History (backfill) candles must NEVER trigger order submission or
+            # order matching.  They exist only to warm the indicator buffer
+            # before live trading begins.
+            if event.is_history:
+                return
 
             # 1. Match any pending orders against this candle
             ts = event.ts.isoformat() if event.ts else None
@@ -174,18 +192,28 @@ class BotEngine:
 
         last_signal = signals.iloc[-1]
 
+        # Normalize to a plain string regardless of whether the strategy
+        # returned a Signal enum (dtype=object Series) or a raw string (inferred
+        # string dtype Series).  In Python 3.11+ str(Signal.BUY) produces
+        # "Signal.BUY", not "BUY", so we must use .value on enum members.
+        signal_str: str = (
+            last_signal.value                          # Signal enum member
+            if hasattr(last_signal, "value")
+            else str(last_signal)                      # plain string fallback
+        )
+
         # Emit signal event regardless of action
         self.bus.emit(SignalEvent(
             symbol=event.symbol,
             interval=event.interval,
-            signal=str(last_signal),
+            signal=signal_str,
         ))
 
         has_position = self.positions.has_open_position(event.symbol)
 
-        if str(last_signal) == "BUY" and not has_position:
+        if signal_str == "BUY" and not has_position:
             self._submit_entry(event.symbol, event.close)
-        elif str(last_signal) in ("EXIT", "SELL") and has_position:
+        elif signal_str in ("EXIT", "SELL") and has_position:
             self._submit_exit(event.symbol, event.close)
 
     def _submit_entry(self, symbol: str, close_price: float) -> None:

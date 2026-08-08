@@ -201,5 +201,10 @@ def _to_lab_trades(trades: list[dict]) -> list[Any]:
                 holding_period=1,
             ))
         except Exception:
-            pass
+            # Log at DEBUG — a malformed trade dict is skipped from metrics
+            # but must not silently corrupt results without any trace.
+            import logging as _log
+            _log.getLogger("strategy_lab.bot.metrics").debug(
+                "Skipping malformed trade record at index %d: %s", i, t, exc_info=True
+            )
     return result

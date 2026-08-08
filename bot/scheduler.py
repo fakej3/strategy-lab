@@ -72,7 +72,11 @@ class Scheduler:
         for task in self._tasks:
             task.next_run = now + task.interval_s
 
-        # Prime daily tasks
+        # Prime daily tasks so they do NOT fire immediately on startup.
+        # Setting last_fired_day = today means the task is treated as "already
+        # run today", even if it hasn't.  This is intentional SKIP-ON-MISS
+        # behaviour: if the process was down during the scheduled hour, the
+        # task is skipped for that day rather than fired late on restart.
         for dt in self._daily:
             dt.last_fired_day = _today_utc()
 
@@ -82,6 +86,12 @@ class Scheduler:
             for task in self._tasks:
                 if now >= task.next_run:
                     _run(task.fn, task.name)
+                    # Completion-relative scheduling (A): next_run = now + interval.
+                    # This accumulates slight drift when tasks take non-zero time,
+                    # but all scheduled tasks here (monitor tick, equity snapshot)
+                    # are very fast (<< 1 s), so drift is negligible.  If tasks
+                    # become expensive, switch to cadence-preserving (B):
+                    #   task.next_run += task.interval_s
                     task.next_run = now + task.interval_s
 
             today = _today_utc()

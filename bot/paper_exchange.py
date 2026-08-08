@@ -30,6 +30,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from .events import (
@@ -62,14 +63,28 @@ TIF_GTC = "GTC"
 TIF_IOC = "IOC"
 TIF_FOK = "FOK"
 
-# Minimum notional (USDT) per order — mirrors Binance default
-MIN_NOTIONAL = 10.0
-# Minimum quantity (BTC) — mirrors Binance default for BTCUSDT
-MIN_QTY = 0.00001
-# Quantity step size
-QTY_STEP = 0.00001
-# Price tick size
-TICK_SIZE = 0.01
+@dataclass
+class SymbolRules:
+    """Per-symbol exchange filter rules.
+
+    These values are currently hard-coded to Binance BTCUSDT defaults.
+    Future work: fetch from Binance exchangeInfo endpoint and populate a
+    registry keyed by symbol so each symbol gets the correct values.
+    """
+    min_notional: float = 10.0    # USDT minimum order notional
+    min_qty:      float = 0.00001  # base currency minimum quantity
+    qty_step:     float = 0.00001  # base currency step size (LOT_SIZE filter)
+    tick_size:    float = 0.01     # quote currency price precision
+
+
+# Default rules (BTCUSDT).  Retrieved via PaperExchange.get_symbol_rules().
+_DEFAULT_RULES = SymbolRules()
+
+# Module-level aliases kept for backward compatibility with tests/imports.
+MIN_NOTIONAL = _DEFAULT_RULES.min_notional
+MIN_QTY      = _DEFAULT_RULES.min_qty
+QTY_STEP     = _DEFAULT_RULES.qty_step
+TICK_SIZE    = _DEFAULT_RULES.tick_size
 
 
 # ── Order record ───────────────────────────────────────────────────────────────
@@ -180,6 +195,18 @@ class PaperExchange(ExchangeAdapter):
         # all orders ever seen, by order_id
         self._all_orders:  dict[str, PaperOrder] = {}
 
+        # Per-symbol exchange rules.  Default BTCUSDT rules are used unless
+        # overridden via register_symbol_rules().
+        self._symbol_rules: dict[str, SymbolRules] = {}
+
+    def get_symbol_rules(self, symbol: str) -> SymbolRules:
+        """Return exchange filter rules for *symbol*, falling back to defaults."""
+        return self._symbol_rules.get(symbol, _DEFAULT_RULES)
+
+    def register_symbol_rules(self, symbol: str, rules: SymbolRules) -> None:
+        """Override per-symbol exchange rules (e.g. loaded from exchangeInfo)."""
+        self._symbol_rules[symbol] = rules
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def submit_order(
@@ -289,12 +316,32 @@ class PaperExchange(ExchangeAdapter):
           5. STOP_LIMIT  → triggers like STOP_MARKET, then limit check.
           6. TAKE_PROFIT → long: triggers when high >= stop_price;
                            short: triggers when low <= stop_price.
+
+        OCO / same-candle SL-TP policy
+        --------------------------------
+        When BOTH a stop-loss (STOP_MARKET/STOP_LIMIT) and a take-profit
+        (TAKE_PROFIT) order would trigger on the same candle, stop-loss is
+        filled first (conservative/worst-case assumption).  After any
+        reduce_only order fills, all remaining reduce_only orders for the
+        same symbol are cancelled (OCO behaviour).
         """
         fills: list[PaperFill] = []
         ts = candle_ts or _now()
-        open_orders = list(self._open_orders.get(symbol, []))
+
+        # Sort orders so protective stop orders are evaluated before take-profit
+        # orders.  This implements the conservative "stop-first" same-candle
+        # policy: if both SL and TP would trigger, SL wins.
+        _SL_TYPES = (ORDER_TYPE_STOP_MARKET, ORDER_TYPE_STOP_LIMIT)
+        open_orders = sorted(
+            self._open_orders.get(symbol, []),
+            key=lambda o: (0 if o.order_type in _SL_TYPES else 1),
+        )
 
         for order in open_orders:
+            # Skip orders that were already cancelled (e.g. by OCO logic below)
+            if order.status not in (STATUS_NEW, STATUS_ACCEPTED, STATUS_PARTIALLY_FILLED):
+                continue
+
             fill = self._try_fill(order, open_, high, low, close, ts)
             if fill:
                 fills.append(fill)
@@ -304,7 +351,28 @@ class PaperExchange(ExchangeAdapter):
                     if o.order_id != order.order_id
                 ]
 
+                # OCO: when a reduce_only order fills, cancel all remaining
+                # reduce_only orders for the same symbol so the opposing
+                # protective order does not also execute.
+                if order.reduce_only:
+                    self._cancel_reduce_only_orders(symbol)
+
         return fills
+
+    def _cancel_reduce_only_orders(self, symbol: str) -> None:
+        """Cancel all remaining reduce_only open orders for *symbol* (OCO)."""
+        for order in list(self._open_orders.get(symbol, [])):
+            if order.reduce_only and order.status in (
+                STATUS_NEW, STATUS_ACCEPTED, STATUS_PARTIALLY_FILLED
+            ):
+                order.status = STATUS_CANCELLED
+                order.updated_at = _now()
+                self._emit_order_event(order, "cancelled by OCO after sibling fill")
+        # Remove cancelled orders from the open list
+        self._open_orders[symbol] = [
+            o for o in self._open_orders.get(symbol, [])
+            if o.status not in (STATUS_CANCELLED, STATUS_REJECTED, STATUS_FILLED)
+        ]
 
     def get_open_orders(self, symbol: str | None = None) -> list[PaperOrder]:
         if symbol:
@@ -361,14 +429,38 @@ class PaperExchange(ExchangeAdapter):
 
     def _fill_market(
         self, order: PaperOrder, open_: float, ts: str
-    ) -> PaperFill:
-        """Market order — fills at open with taker slippage."""
+    ) -> PaperFill | None:
+        """Market order — fills at open with taker slippage.
+
+        Returns None if the fill notional is below the minimum (e.g. price
+        moved significantly between order submission and next candle open).
+        """
         if order.side == SIDE_BUY:
             fill_price = open_ * (1.0 + self.slippage_pct)
         else:
             fill_price = open_ * (1.0 - self.slippage_pct)
 
         fill_price = _round_tick(fill_price)
+
+        # Validate minimum notional at fill time using the actual fill price.
+        # MARKET orders cannot be checked at submission (no price known yet).
+        rules = self.get_symbol_rules(order.symbol)
+        notional = fill_price * order.qty
+        if notional < rules.min_notional:
+            reject = (
+                f"market fill notional {notional:.4f} below minimum "
+                f"{rules.min_notional} (fill_price={fill_price:.2f})"
+            )
+            order.status = STATUS_REJECTED
+            order.reject_reason = reject
+            order.updated_at = ts
+            self._emit_order_event(order, reject)
+            log.warning(
+                "Market order %s rejected at fill time: %s (symbol=%s qty=%.5f)",
+                order.order_id[:8], reject, order.symbol, order.qty,
+            )
+            return None
+
         return self._record_fill(order, fill_price, order.qty, is_maker=False, ts=ts)
 
     def _fill_limit(
@@ -492,6 +584,34 @@ class PaperExchange(ExchangeAdapter):
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
+    # ── State transition guard ─────────────────────────────────────────────────
+
+    # Valid order status transitions.  Terminal states (FILLED, REJECTED,
+    # CANCELLED, EXPIRED) have no outgoing edges.
+    _VALID_TRANSITIONS: dict[str, set[str]] = {
+        STATUS_NEW:              {STATUS_ACCEPTED, STATUS_REJECTED},
+        STATUS_ACCEPTED:         {STATUS_FILLED, STATUS_CANCELLED, STATUS_PARTIALLY_FILLED},
+        STATUS_PARTIALLY_FILLED: {STATUS_FILLED, STATUS_CANCELLED},
+        STATUS_FILLED:           set(),   # terminal
+        STATUS_REJECTED:         set(),   # terminal
+        STATUS_CANCELLED:        set(),   # terminal
+        STATUS_EXPIRED:          set(),   # terminal
+    }
+
+    def _validate_transition(self, order: PaperOrder, new_status: str) -> bool:
+        """Log and return False if *new_status* is not reachable from current status.
+
+        Returns True if the transition is valid.
+        """
+        allowed = self._VALID_TRANSITIONS.get(order.status, set())
+        if new_status not in allowed:
+            log.warning(
+                "Invalid order state transition %s → %s for order %s (symbol=%s)",
+                order.status, new_status, order.order_id[:8], order.symbol,
+            )
+            return False
+        return True
+
     def _record_fill(
         self,
         order: PaperOrder,
@@ -501,6 +621,8 @@ class PaperExchange(ExchangeAdapter):
         ts: str,
     ) -> PaperFill:
         """Update order state and create a PaperFill record."""
+        self._validate_transition(order, STATUS_FILLED)
+
         fee_rate = self.maker_fee_rate if is_maker else self.fee_rate
         fee = fill_price * fill_qty * fee_rate
 
@@ -543,13 +665,26 @@ class PaperExchange(ExchangeAdapter):
 
     def _validate(self, order: PaperOrder, current_position_size: float) -> str:
         """Return a rejection reason string, or empty string if valid."""
-        if order.qty < MIN_QTY:
-            return f"qty {order.qty} below minimum {MIN_QTY}"
+        rules = self.get_symbol_rules(order.symbol)
 
-        # Estimate notional using price (limit) or stop_price or qty alone
+        if order.qty < rules.min_qty:
+            return f"qty {order.qty} below minimum {rules.min_qty}"
+
+        # Reject quantities that are not exact multiples of the step size.
+        # Use Decimal arithmetic to avoid floating-point rounding errors.
+        if not _qty_step_valid(order.qty, rules.qty_step):
+            return (
+                f"qty {order.qty} is not a valid multiple of step {rules.qty_step}"
+            )
+
+        # Estimate notional for non-market orders (price is known at submission).
+        # MARKET orders are checked at fill time when the real fill price is known.
         ref_price = order.price or order.stop_price
-        if ref_price is not None and order.qty * ref_price < MIN_NOTIONAL:
-            return f"notional {order.qty * ref_price:.2f} below minimum {MIN_NOTIONAL}"
+        if ref_price is not None and order.qty * ref_price < rules.min_notional:
+            return (
+                f"notional {order.qty * ref_price:.2f} below minimum "
+                f"{rules.min_notional}"
+            )
 
         if order.order_type in (ORDER_TYPE_LIMIT, ORDER_TYPE_STOP_LIMIT):
             if order.price is None:
@@ -596,3 +731,22 @@ def _now() -> str:
 def _round_tick(price: float, tick: float = TICK_SIZE) -> float:
     """Round *price* to nearest tick size."""
     return round(round(price / tick) * tick, 10)
+
+
+def _qty_step_valid(qty: float, step: float) -> bool:
+    """Return True iff *qty* is an exact non-zero multiple of *step*.
+
+    Uses ``Decimal`` arithmetic to avoid floating-point rounding artifacts.
+    For example: qty=0.00003, step=0.00001 → True (3 × step).
+                 qty=0.0000137, step=0.00001 → False (not a whole multiple).
+    """
+    if qty <= 0 or step <= 0:
+        return False
+    try:
+        qty_d  = Decimal(str(qty))
+        step_d = Decimal(str(step))
+        remainder = qty_d % step_d
+        return remainder == Decimal("0")
+    except Exception:
+        # Malformed input — fail safe (reject)
+        return False

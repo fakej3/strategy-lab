@@ -45,7 +45,11 @@ def storage(tmp_path):
 
 @pytest.fixture
 def components(storage):
-    cfg  = BotConfig()
+    # Use paper_capital=1000 so that the default equity_fraction (10%) produces
+    # a notional of 100 USDT, which is well above the 10 USDT MIN_NOTIONAL.
+    # With paper_capital=25 the notional would be 2.5 USDT — correctly rejected
+    # by the at-fill notional check introduced in Phase 4.
+    cfg  = BotConfig(paper_capital=1000.0)
     bus  = EventBus()
     ex   = PaperExchange(fee_rate=cfg.fee_rate, slippage_pct=0.0, bus=bus)
     om   = OrderManager(exchange=ex, storage=storage, bus=bus)
