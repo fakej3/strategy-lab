@@ -391,6 +391,9 @@ class BotManager:
             # Bridge bot EventBus → WebSocket event queue
             def _enq(ev_type: str):
                 def _h(ev):
+                    # Skip backfill candles — browser fetches history via REST
+                    if ev_type == 'candle' and getattr(ev, 'is_history', False):
+                        return
                     d: dict = {'type': ev_type, 'ts': ev.ts.isoformat()}
                     for fname in type(ev).__dataclass_fields__:
                         if fname != 'ts':

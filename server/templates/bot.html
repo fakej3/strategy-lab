@@ -470,9 +470,9 @@
         {{ "%.2f"|format((status.drawdown or 0) * 100) }}%
       </div>
     </div>
-    <!-- Trades -->
+    <!-- Trades (recent — API returns up to 20 most recent fills) -->
     <div class="perf-cell">
-      <div class="perf-cell-label">Trades</div>
+      <div class="perf-cell-label">Recent Fills</div>
       <div class="perf-cell-val" id="perf-trades">
         {{ status.recent_trades|length if status.recent_trades else 0 }}
       </div>
@@ -946,8 +946,6 @@ async function pollStatus() {
 
   /* Perf strip */
   const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  const setClass = (id, cls) => { const el = document.getElementById(id); if (el) el.className = 'perf-cell-val ' + cls; };
-
   setTxt('status-config',
     (s.symbols || [SYMBOL]).join(', ') + ' · ' + (s.interval||'') + ' · ' + (s.strategy||''));
   setTxt('perf-equity',   fmt(s.equity, 4));

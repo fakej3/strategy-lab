@@ -100,6 +100,13 @@ async def ws_bot_events(websocket: WebSocket) -> None:
       {"type": "ping"}
     """
     await websocket.accept()
+
+    # Enforce authentication — same session cookie as REST endpoints
+    user = websocket.session.get("user") if hasattr(websocket, "session") else None
+    if not user:
+        await websocket.close(code=1008)
+        return
+
     try:
         ping_counter = 0
         while True:
