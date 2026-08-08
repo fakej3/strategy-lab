@@ -61,7 +61,10 @@ from .state import BotState
 
 log = logging.getLogger("strategy_lab.bot.runtime")
 
-# Interval → milliseconds mapping for missed-candle detection
+# Interval → milliseconds mapping for missed-candle detection.
+# Covers every interval supported by Binance klines (and the bars_per_year
+# table in jobs/backtest_job.py).  Adding a new interval here is all that is
+# needed to enable missed-candle detection for it.
 _INTERVAL_MS: dict[str, int] = {
     "1m":  60_000,
     "3m":  3 * 60_000,
@@ -71,7 +74,12 @@ _INTERVAL_MS: dict[str, int] = {
     "1h":  60 * 60_000,
     "2h":  2 * 60 * 60_000,
     "4h":  4 * 60 * 60_000,
+    "6h":  6 * 60 * 60_000,
+    "8h":  8 * 60 * 60_000,
+    "12h": 12 * 60 * 60_000,
     "1d":  24 * 60 * 60_000,
+    "3d":  3 * 24 * 60 * 60_000,
+    "1w":  7 * 24 * 60 * 60_000,
 }
 
 

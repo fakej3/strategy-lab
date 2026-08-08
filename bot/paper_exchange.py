@@ -440,11 +440,10 @@ class PaperExchange(ExchangeAdapter):
         else:
             fill_price = open_ * (1.0 - self.slippage_pct)
 
-        fill_price = _round_tick(fill_price)
-
         # Validate minimum notional at fill time using the actual fill price.
         # MARKET orders cannot be checked at submission (no price known yet).
         rules = self.get_symbol_rules(order.symbol)
+        fill_price = _round_tick(fill_price, rules.tick_size)
         notional = fill_price * order.qty
         if notional < rules.min_notional:
             reject = (
@@ -471,6 +470,8 @@ class PaperExchange(ExchangeAdapter):
         if price is None:
             return None
 
+        rules = self.get_symbol_rules(order.symbol)
+
         if order.side == SIDE_BUY:
             # Fills when bar_low dips to or below limit price.
             # If bar opens below limit (gap-down), fill at open (better price).
@@ -483,7 +484,7 @@ class PaperExchange(ExchangeAdapter):
                 return None
             fill_price = max(price, open_)
 
-        fill_price = _round_tick(fill_price)
+        fill_price = _round_tick(fill_price, rules.tick_size)
 
         if order.time_in_force == TIF_IOC:
             # IOC: fill or cancel immediately; no partial fills in paper mode
@@ -520,7 +521,8 @@ class PaperExchange(ExchangeAdapter):
         else:
             fill_price = raw * (1.0 - self.slippage_pct)
 
-        fill_price = _round_tick(fill_price)
+        rules = self.get_symbol_rules(order.symbol)
+        fill_price = _round_tick(fill_price, rules.tick_size)
         return self._record_fill(order, fill_price, order.qty, is_maker=False, ts=ts)
 
     def _fill_stop_limit(
@@ -548,7 +550,8 @@ class PaperExchange(ExchangeAdapter):
                 return None
             fill_price = max(price, raw_trigger)
 
-        fill_price = _round_tick(fill_price)
+        rules = self.get_symbol_rules(order.symbol)
+        fill_price = _round_tick(fill_price, rules.tick_size)
         return self._record_fill(order, fill_price, order.qty, is_maker=True, ts=ts)
 
     def _fill_take_profit(
@@ -562,6 +565,8 @@ class PaperExchange(ExchangeAdapter):
         stop = order.stop_price
         if stop is None:
             return None
+
+        rules = self.get_symbol_rules(order.symbol)
 
         if order.side == SIDE_SELL:
             # Long TP: sell when price rises to target
@@ -579,7 +584,7 @@ class PaperExchange(ExchangeAdapter):
             fill_price = raw * (1.0 + self.slippage_pct)
             is_maker = open_ > stop
 
-        fill_price = _round_tick(fill_price)
+        fill_price = _round_tick(fill_price, rules.tick_size)
         return self._record_fill(order, fill_price, order.qty, is_maker=is_maker, ts=ts)
 
     # ── Internal helpers ───────────────────────────────────────────────────────
