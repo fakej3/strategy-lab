@@ -70,13 +70,26 @@ class BotState:
             self._candles_total += 1
 
     def get_buffer_df(self, symbol: str, interval: str) -> pd.DataFrame:
-        """Return the candle buffer as a pandas DataFrame (copy)."""
+        """Return the candle buffer as a pandas DataFrame (copy).
+
+        Sorts ascending by open_time and deduplicates (last-write-wins per
+        open_time) so a post-reconnect re-backfill never delivers a corrupt
+        or duplicated DataFrame to the strategy.
+        """
         key = (symbol, interval)
         with self._lock:
             buf = list(self._buffers.get(key, []))
 
         if not buf:
             return pd.DataFrame()
+
+        # Sort ascending; deduplicate keeping the last occurrence of each open_time
+        # so that a re-backfill after reconnect overwrites stale entries.
+        buf.sort(key=lambda c: c.open_time)
+        seen: dict[int, CandleRow] = {}
+        for c in buf:
+            seen[c.open_time] = c
+        buf = list(seen.values())
 
         rows = [
             {

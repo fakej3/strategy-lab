@@ -64,8 +64,17 @@ class BotEngine:
         bus: EventBus,
     ) -> None:
         self.config    = config
-        self.strategy  = strategy
+        self.strategy  = strategy   # original value; may be a dict or single instance
         self.state     = state
+
+        # Support both a single strategy instance (applied to all symbol/interval pairs)
+        # and a dict of {(symbol, interval): strategy_instance} for per-pair isolation.
+        if isinstance(strategy, dict):
+            self._strategy_map: dict[tuple[str, str], Any] = strategy
+            self._strategy_default: Any = None
+        else:
+            self._strategy_map = {}
+            self._strategy_default = strategy
         self.orders    = orders
         self.positions = positions
         self.portfolio = portfolio
@@ -171,6 +180,12 @@ class BotEngine:
 
     # ── Signal generation ─────────────────────────────────────────────────────
 
+    def _get_strategy(self, symbol: str, interval: str) -> Any | None:
+        """Return the strategy for (symbol, interval), or the global default."""
+        if self._strategy_map:
+            return self._strategy_map.get((symbol, interval))
+        return self._strategy_default
+
     def _maybe_signal(self, event: CandleEvent) -> None:
         """Run strategy and submit order if signal warrants it."""
         buf_len = self.state.buffer_length(event.symbol, event.interval)
@@ -181,8 +196,13 @@ class BotEngine:
         if df.empty:
             return
 
+        strategy = self._get_strategy(event.symbol, event.interval)
+        if strategy is None:
+            log.warning("No strategy configured for %s %s", event.symbol, event.interval)
+            return
+
         try:
-            signals = self.strategy.generate_signals(df)
+            signals = strategy.generate_signals(df)
         except Exception:
             log.exception("Strategy error for %s %s", event.symbol, event.interval)
             return

@@ -394,10 +394,16 @@ class BotManager:
                 fee_rate         = cfg.fee_rate,
             )
             risk     = RiskEngine(config=cfg.risk, bus=bus)
-            strategy = _load_strategy(cfg)
+            # Create an independent strategy instance for every (symbol, interval)
+            # pair so that stateful strategies never cross-contaminate buffers.
+            strategy_map = {
+                (sym, iv): _load_strategy(cfg)
+                for sym in cfg.feed.symbols
+                for iv in cfg.feed.intervals
+            }
             engine   = BotEngine(
                 config    = cfg,
-                strategy  = strategy,
+                strategy  = strategy_map,
                 state     = state,
                 orders    = orders,
                 positions = positions,
