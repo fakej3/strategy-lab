@@ -1273,7 +1273,10 @@ class EventFeed {
   _cls(ev) {
     const base = 'event-item';
     if (ev.type === 'signal') return base + (ev.signal === 'BUY' ? ' ev-buy' : ' ev-sell');
-    const m = { fill:'ev-fill', error:'ev-error', disconnect:'ev-disc', reconnect:'ev-reconn' };
+    const m = {
+      fill:'ev-fill', error:'ev-error', disconnect:'ev-disc',
+      reconnect:'ev-reconn', rejected:'ev-error', risk_rejected:'ev-error',
+    };
     return base + (m[ev.type] ? ' ' + m[ev.type] : '');
   }
 
@@ -1284,16 +1287,20 @@ class EventFeed {
         return `${t}<span class="ev-type">CANDLE</span><span class="ev-body">${esc(ev.symbol)} ${esc(ev.interval)} ${fmt(ev.close,2)}</span>`;
       case 'signal': {
         const buy = ev.signal === 'BUY';
-        return `${t}<span class="ev-type ${buy?'buy':'sell'}">${esc(ev.signal)}</span><span class="ev-body">${esc(ev.symbol)}</span>`;
+        return `${t}<span class="ev-type ${buy?'buy':'sell'}">SIG ${esc(ev.signal)}</span><span class="ev-body">${esc(ev.symbol)}</span>`;
       }
       case 'fill':
-        return `${t}<span class="ev-type fill">${esc(ev.side)}</span><span class="ev-body">${esc(ev.symbol)} ${fmt(ev.fill_qty,5)} @ ${fmt(ev.fill_price,2)}</span>`;
+        return `${t}<span class="ev-type fill">FILLED ${esc(ev.side)}</span><span class="ev-body">${esc(ev.symbol)} ${fmt(ev.fill_qty,5)} @ ${fmt(ev.fill_price,2)}</span>`;
       case 'error':
         return `${t}<span class="ev-type err">ERR</span><span class="ev-body">${esc(ev.source)}: ${esc(ev.message)}</span>`;
       case 'disconnect':
         return `${t}<span class="ev-type disc">DISC</span><span class="ev-body">${esc(ev.symbol)} ${esc(ev.reason)}</span>`;
       case 'reconnect':
         return `${t}<span class="ev-type">RECONN</span><span class="ev-body">${esc(ev.symbol)} +${esc(ev.backfilled)} candles</span>`;
+      case 'rejected':
+        return `${t}<span class="ev-type err">REJECTED</span><span class="ev-body">${esc(ev.symbol)} ${esc(ev.side)}: ${esc(ev.detail)}</span>`;
+      case 'risk_rejected':
+        return `${t}<span class="ev-type err">RISK BLOCK</span><span class="ev-body">${esc(ev.symbol)} ${esc(ev.side)}: ${esc(ev.reason)}</span>`;
       default:
         return `${t}<span class="ev-type">${esc(ev.type)}</span><span class="ev-body"></span>`;
     }
@@ -1405,7 +1412,7 @@ function showToast(signal, symbol) {
   if (old) old.remove();
   const d = document.createElement('div');
   d.className = 'signal-toast ' + (signal === 'BUY' ? 'buy' : 'sell');
-  d.textContent = signal + '  ' + symbol;
+  d.textContent = 'SIGNAL ' + signal + '  ' + symbol;
   document.body.appendChild(d);
   setTimeout(() => { if (d.parentNode) d.remove(); }, 3200);
 }

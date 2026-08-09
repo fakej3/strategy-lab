@@ -398,7 +398,7 @@ def _register_routes(app: FastAPI) -> None:
     async def bot_start(request: Request):
         require_auth(request)
         form = await request.form()
-        capital  = float(form.get("capital",  "25"))
+        capital  = float(form.get("capital",  "200"))
         raw_syms = str(form.get("symbols",  "BTCUSDT"))
         symbols  = [s.strip() for s in raw_syms.split(",") if s.strip()]
         # Support both "intervals" (text field, comma-sep) and legacy "interval" (select)

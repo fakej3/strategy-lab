@@ -343,7 +343,8 @@ class BotManager:
         from bot.engine import BotEngine
         from bot.events import (
             CandleEvent, DailyResetEvent, DisconnectEvent, ErrorEvent,
-            EventBus, FillEvent, ReconnectEvent, SignalEvent,
+            EventBus, FillEvent, OrderEvent, ReconnectEvent,
+            RiskRejectionEvent, SignalEvent,
         )
         from bot.monitor import Monitor
         from bot.order_manager import OrderManager
@@ -359,6 +360,26 @@ class BotManager:
         from bot_trade import _load_strategy
 
         cfg = self._config
+
+        from bot.paper_exchange import MIN_NOTIONAL
+        min_equity_needed = MIN_NOTIONAL / cfg.equity_fraction
+        log.info(
+            "Bot starting: capital=%.2f equity_fraction=%.2f "
+            "max_position_usd=%.2f min_notional=%.2f "
+            "min_capital_for_fill=%.2f symbols=%s intervals=%s strategy=%s",
+            cfg.paper_capital, cfg.equity_fraction,
+            cfg.risk.max_position_size_usd, MIN_NOTIONAL,
+            min_equity_needed, cfg.feed.symbols,
+            cfg.feed.intervals, cfg.strategy_name,
+        )
+        if cfg.paper_capital < min_equity_needed:
+            log.warning(
+                "CAPITAL TOO SMALL: paper_capital=%.2f < minimum %.2f USDT "
+                "(min_notional=%.2f / equity_fraction=%.2f). "
+                "All market orders will be rejected at fill time with no fills.",
+                cfg.paper_capital, min_equity_needed,
+                MIN_NOTIONAL, cfg.equity_fraction,
+            )
 
         # Wire up a file handler so the UI can tail the bot log
         bot_log_root = logging.getLogger("strategy_lab.bot")
@@ -433,12 +454,24 @@ class BotManager:
                     self._enqueue(d)
                 return _h
 
-            bus.subscribe(CandleEvent,     _enq('candle'))
-            bus.subscribe(SignalEvent,     _enq('signal'))
-            bus.subscribe(FillEvent,       _enq('fill'))
-            bus.subscribe(ErrorEvent,      _enq('error'))
-            bus.subscribe(DisconnectEvent, _enq('disconnect'))
-            bus.subscribe(ReconnectEvent,  _enq('reconnect'))
+            bus.subscribe(CandleEvent,        _enq('candle'))
+            bus.subscribe(SignalEvent,        _enq('signal'))
+            bus.subscribe(FillEvent,          _enq('fill'))
+            bus.subscribe(ErrorEvent,         _enq('error'))
+            bus.subscribe(DisconnectEvent,    _enq('disconnect'))
+            bus.subscribe(ReconnectEvent,     _enq('reconnect'))
+            bus.subscribe(RiskRejectionEvent, _enq('risk_rejected'))
+
+            def _on_order_event(ev: OrderEvent) -> None:
+                if ev.status == 'REJECTED':
+                    self._enqueue({
+                        'type':   'rejected',
+                        'ts':     ev.ts.isoformat(),
+                        'symbol': ev.symbol,
+                        'side':   ev.side,
+                        'detail': ev.detail,
+                    })
+            bus.subscribe(OrderEvent, _on_order_event)
 
             # Recovery
             if cfg.recover_on_restart:

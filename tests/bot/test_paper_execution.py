@@ -814,3 +814,163 @@ class TestMultiSymbolGlobalPositionLimit:
         assert count <= 3, f"Position count {count} must not exceed max_open_positions=3"
         # At least one must be open (first BUY definitely goes through)
         assert count >= 1, "At least one position must be open"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 7 — Regression tests: min_notional rejection + BotManager event bridge
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestMinNotionalRejectionRegression:
+    """Regression guard: orders that would fail min_notional must be rejected at
+    fill time with a visible OrderEvent(REJECTED), not silently discarded."""
+
+    def test_capital_25_market_order_rejected_at_fill(self):
+        """capital=25 @ BTC~65000: notional≈2.6 < min_notional=10 → rejected, OrderEvent emitted."""
+        from bot.events import OrderEvent
+
+        bus = EventBus()
+        order_events: list = []
+        bus.subscribe(OrderEvent, order_events.append)
+
+        ex = PaperExchange(fee_rate=0.001, slippage_pct=0.0005, bus=bus)
+
+        # Reproduce the live failure: capital=25, equity_fraction=0.10, BTC≈65000
+        capital = 25.0
+        equity_fraction = 0.10
+        price = 65_000.0
+        qty = round(capital * equity_fraction / price, 5)   # 0.00004 BTC
+
+        order = ex.submit_order("BTCUSDT", "BUY", "MARKET", qty)
+        assert order.status == "ACCEPTED", "MARKET order must be ACCEPTED at submission"
+
+        fills = ex.process_candle(
+            "BTCUSDT", open_=price, high=price * 1.01, low=price * 0.99, close=price
+        )
+        assert fills == [], "Fill must not occur when notional < min_notional"
+        assert order.status == "REJECTED"
+        assert "notional" in order.reject_reason.lower() or "minimum" in order.reject_reason.lower()
+
+        rejected_events = [e for e in order_events if e.status == "REJECTED"]
+        assert len(rejected_events) == 1, "OrderEvent(REJECTED) must be emitted for UI visibility"
+        assert rejected_events[0].symbol == "BTCUSDT"
+
+    def test_capital_200_market_order_fills_successfully(self):
+        """capital=200 @ BTC~65000: notional≈20 >= min_notional=10 → fill + FillEvent."""
+        bus = EventBus()
+        fills_received: list = []
+        bus.subscribe(FillEvent, fills_received.append)
+
+        ex = PaperExchange(fee_rate=0.001, slippage_pct=0.0, bus=bus)
+
+        capital = 200.0
+        equity_fraction = 0.10
+        price = 65_000.0
+        qty = round(capital * equity_fraction / price, 5)   # 0.00031 BTC, notional≈20.2
+
+        order = ex.submit_order("BTCUSDT", "BUY", "MARKET", qty)
+        assert order.status == "ACCEPTED"
+
+        paper_fills = ex.process_candle(
+            "BTCUSDT", open_=price, high=price * 1.01, low=price * 0.99, close=price
+        )
+        assert len(paper_fills) == 1, "Fill must succeed with capital=200"
+        assert paper_fills[0].symbol == "BTCUSDT"
+        assert len(fills_received) == 1, "FillEvent must be emitted on successful fill"
+
+    def test_notional_exactly_at_minimum_fills(self):
+        """Notional exactly equal to min_notional must fill (boundary: >= not >)."""
+        from bot.paper_exchange import MIN_NOTIONAL
+
+        bus = EventBus()
+        ex = PaperExchange(fee_rate=0.001, slippage_pct=0.0, bus=bus)
+
+        price = 10_000.0
+        qty = round(MIN_NOTIONAL / price, 5)   # exactly 0.001 BTC → notional=10.0
+
+        order = ex.submit_order("BTCUSDT", "BUY", "MARKET", qty)
+        assert order.status == "ACCEPTED"
+
+        fills = ex.process_candle(
+            "BTCUSDT", open_=price, high=price, low=price, close=price
+        )
+        assert len(fills) == 1, "Notional exactly at minimum must fill, not reject"
+
+    def test_default_config_capital_above_effective_minimum(self):
+        """Default BotConfig capital must exceed min_notional / equity_fraction."""
+        from bot.paper_exchange import MIN_NOTIONAL
+
+        cfg = BotConfig()
+        min_capital_needed = MIN_NOTIONAL / cfg.equity_fraction
+        assert cfg.paper_capital >= min_capital_needed, (
+            f"Default capital {cfg.paper_capital} USDT is below effective minimum "
+            f"{min_capital_needed:.2f} USDT "
+            f"(min_notional={MIN_NOTIONAL} / equity_fraction={cfg.equity_fraction}). "
+            "All market orders will be silently rejected at fill time."
+        )
+
+
+class TestBotManagerRejectionBridge:
+    """BotManager.drain_events must surface 'rejected' and 'risk_rejected' event types."""
+
+    def test_drain_rejected_event(self):
+        """Enqueuing a 'rejected' event must be returned by drain_events."""
+        from server.bot_manager import BotManager
+
+        bm = BotManager()
+        bm._enqueue({
+            "type": "rejected",
+            "ts": "2025-01-01T00:00:00",
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "detail": "market fill notional 2.6081 below minimum 10.0",
+        })
+        events = bm.drain_events()
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["type"] == "rejected"
+        assert ev["symbol"] == "BTCUSDT"
+        assert "notional" in ev["detail"]
+
+    def test_drain_risk_rejected_event(self):
+        """Enqueuing a 'risk_rejected' event must be returned by drain_events."""
+        from server.bot_manager import BotManager
+
+        bm = BotManager()
+        bm._enqueue({
+            "type": "risk_rejected",
+            "ts": "2025-01-01T00:00:00",
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "reason": "max_open_positions=1 already reached",
+        })
+        events = bm.drain_events()
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["type"] == "risk_rejected"
+        assert ev["symbol"] == "BTCUSDT"
+
+    def test_drain_returns_empty_after_consumed(self):
+        """drain_events must return empty list once queue is drained."""
+        from server.bot_manager import BotManager
+
+        bm = BotManager()
+        bm._enqueue({"type": "rejected", "symbol": "BTCUSDT"})
+        _ = bm.drain_events()
+        events = bm.drain_events()
+        assert events == [], "Second drain must be empty — events must not re-appear"
+
+    def test_signal_event_not_confused_with_fill(self):
+        """A 'signal' event in drain_events has type='signal', not 'fill' or 'rejected'."""
+        from server.bot_manager import BotManager
+
+        bm = BotManager()
+        bm._enqueue({"type": "signal", "symbol": "BTCUSDT", "signal": "BUY"})
+        bm._enqueue({"type": "fill",   "symbol": "BTCUSDT", "side": "BUY", "fill_price": 65000.0})
+        events = bm.drain_events()
+        types = [e["type"] for e in events]
+        assert "signal" in types
+        assert "fill" in types
+        assert types.index("signal") < types.index("fill"), "Signal appears before fill in order"
+        # Verify neither is conflated
+        sig = next(e for e in events if e["type"] == "signal")
+        assert "fill_price" not in sig, "Signal event must not carry fill_price"
