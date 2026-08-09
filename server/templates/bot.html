@@ -626,6 +626,30 @@ main  { padding:0 !important; max-width:none !important;
 @keyframes toast-in  { from { opacity:0; transform:translateX(12px); } to { opacity:1; transform:none; } }
 @keyframes toast-out { to { opacity:0; } }
 
+/* ── Symbol switcher tabs (multi-symbol mode) ─────────────────── */
+.sym-tabs {
+  display: flex;
+  align-items: stretch;
+  border-right: 1px solid var(--border);
+}
+.sym-tab-btn {
+  padding: 0 10px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  cursor: pointer;
+  height: 100%;
+  transition: color .1s, border-color .1s;
+  white-space: nowrap;
+}
+.sym-tab-btn:hover  { color: var(--text2); }
+.sym-tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+
 /* ══════════════════════════════════════════════════════════════════
    RESPONSIVE (collapse right rail below 900px)
 ══════════════════════════════════════════════════════════════════ */
@@ -775,7 +799,8 @@ main  { padding:0 !important; max-width:none !important;
 
     {# Chart panel #}
     <div class="chart-panel">
-      <div class="chart-hdr">
+      {# chart-hdr-inner: JS inserts .sym-tabs here when multiple symbols active #}
+      <div class="chart-hdr" id="chart-hdr-inner">
         <span class="ch-sym" id="ch-sym">{{ (status.symbols or ['BTCUSDT'])[0] }}</span>
         <span class="ch-iv" id="ch-iv">{{ status.interval or '1h' }}</span>
         <span class="ch-price" id="ch-price">—</span>
@@ -942,7 +967,8 @@ main  { padding:0 !important; max-width:none !important;
 'use strict';
 
 const IS_RUNNING = {{ 'true' if status.running else 'false' }};
-const SYMBOL     = {{ (status.symbols or ['BTCUSDT'])|tojson }}[0] || 'BTCUSDT';
+const SYMBOLS    = {{ (status.symbols or ['BTCUSDT'])|tojson }};
+const SYMBOL     = SYMBOLS[0] || 'BTCUSDT';
 const INTERVAL   = {{ (status.interval or '1h')|tojson }};
 
 /* ── Utilities ────────────────────────────────────────────────── */
@@ -1039,9 +1065,14 @@ class CandleChart {
     }
 
     const bodyW  = W - m.left - m.right;
+    // maxSl: target number of visible candle slots — determines candle width.
+    // Always dividing by maxSl (not vis.length) prevents the candle-width from
+    // exploding when the buffer has only a few candles (bot just started).
+    // Available candles right-align inside the fixed slot grid.
     const maxSl  = Math.max(20, Math.floor(bodyW / 8));
     const vis    = candles.slice(-maxSl);
-    const slotW  = bodyW / vis.length;
+    const slotW  = bodyW / maxSl;           // fixed width regardless of count
+    const startI = maxSl - vis.length;      // right-align: skip empty left slots
     const priceH = H - m.top - m.bottom - m.volH;
 
     let lo = Infinity, hi = -Infinity;
@@ -1054,7 +1085,7 @@ class CandleChart {
     for (const c of vis) maxV = Math.max(maxV, c.volume || 0);
 
     const py = price => m.top + priceH * (1 - (price - lo) / pr);
-    const cx = i     => m.left + (i + 0.5) * slotW;
+    const cx = i     => m.left + (startI + i + 0.5) * slotW;
 
     /* Grid */
     ctx.strokeStyle = '#161d28';
@@ -1131,6 +1162,9 @@ class CandleChart {
     }
   }
 }
+
+// Expose for testing / console debugging outside IS_RUNNING guard
+window.CandleChart = CandleChart;
 
 /* ══════════════════════════════════════════════════════════════
    EVENT FEED
@@ -1218,11 +1252,15 @@ if (!IS_RUNNING) return;
    INIT (running state only)
 ══════════════════════════════════════════════════════════════ */
 const chart = new CandleChart(document.getElementById('chart'));
+window.chart = chart;   // expose for debugging / tests
 const feed  = new EventFeed(document.getElementById('event-feed'));
 
 /* Scroll log to bottom on load */
 const lb = document.getElementById('log-box');
 if (lb) lb.scrollTop = lb.scrollHeight;
+
+/* Active symbol for the chart (can be changed via symbol switcher) */
+let activeSymbol = SYMBOL;
 
 /* Strategy signal state — updated from WS */
 let lastSignal = null;
@@ -1243,7 +1281,7 @@ function updateSignalPanel(sig, sym) {
       card.className = 'signal-card ' + (isLong ? 'long' : 'short');
       const dir = el('sc-dir');
       if (dir) { dir.textContent = isLong ? 'LONG' : 'SHORT'; dir.className = 'sc-dir ' + (isLong ? 'long' : 'short'); }
-      setText('sc-sym', sym || SYMBOL);
+      setText('sc-sym', sym || activeSymbol);
     }
     setText('sr-status', isLong ? 'ENTERED' : 'EXITING');
   } else {
@@ -1253,12 +1291,47 @@ function updateSignalPanel(sig, sym) {
   }
 }
 
-/* ── Load initial candles ─────────────────────────────────── */
-fetch('/api/bot/candles?symbol=' + encodeURIComponent(SYMBOL) +
-      '&interval=' + encodeURIComponent(INTERVAL) + '&limit=200')
-  .then(r => r.ok ? r.json() : [])
-  .then(data => { if (Array.isArray(data) && data.length) chart.setData(data); })
-  .catch(() => {});
+/* ── Symbol switcher (multi-symbol support) ───────────────── */
+// Render symbol tab buttons when more than one symbol is configured.
+// Each button loads candles for that symbol into the shared chart.
+(function initSymbolSwitcher() {
+  if (SYMBOLS.length <= 1) return;
+  const hdr = document.getElementById('chart-hdr-inner');
+  if (!hdr) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'sym-tabs';
+  SYMBOLS.forEach((sym, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'sym-tab-btn' + (i === 0 ? ' active' : '');
+    btn.textContent = sym;
+    btn.dataset.sym = sym;
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.sym-tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeSymbol = sym;
+      chart.setData([]);
+      loadCandles(sym);
+    });
+    wrap.appendChild(btn);
+  });
+  hdr.prepend(wrap);
+})();
+
+/* ── Load candles via REST ────────────────────────────────── */
+// Uses open_time-based `time` field — must match get_candles() in bot_manager.py
+function loadCandles(sym) {
+  fetch('/api/bot/candles?symbol=' + encodeURIComponent(sym) +
+        '&interval=' + encodeURIComponent(INTERVAL) + '&limit=200')
+    .then(r => r.ok ? r.json() : [])
+    .then(data => {
+      if (Array.isArray(data) && data.length && sym === activeSymbol) {
+        chart.setData(data);
+      }
+    })
+    .catch(() => {});
+}
+
+loadCandles(activeSymbol);
 
 /* ── WebSocket ────────────────────────────────────────────── */
 let ws = null;
@@ -1282,20 +1355,25 @@ function connectWS() {
     try { ev = JSON.parse(data); } catch { return; }
     if (ev.type === 'ping') return;
 
-    /* Update chart on live candle */
-    if (ev.type === 'candle' && !ev.is_history) {
+    /* Update chart on live candle — only for the currently displayed symbol.
+       time uses open_time (matches the REST endpoint) for correct deduplication. */
+    if (ev.type === 'candle' && !ev.is_history && ev.symbol === activeSymbol) {
       chart.updateCandle({
-        time: Math.floor(ev.close_time / 1000),
-        open: ev.open, high: ev.high, low: ev.low,
-        close: ev.close, volume: ev.volume,
+        time:   Math.floor(ev.open_time / 1000),  // open_time matches REST
+        open:   ev.open,
+        high:   ev.high,
+        low:    ev.low,
+        close:  ev.close,
+        volume: ev.volume,
       });
-      /* Update price display */
-      if (ev.symbol === SYMBOL) {
-        const p = fmt(ev.close, 2);
-        setText('tm-price', p);
-        setText('ch-price', p);
-        setText('sr-price', p);
-      }
+    }
+
+    /* Price display — update for any symbol whose mark price changed */
+    if (ev.type === 'candle' && !ev.is_history && ev.symbol === activeSymbol) {
+      const p = fmt(ev.close, 2);
+      setText('tm-price', p);
+      setText('ch-price', p);
+      setText('sr-price', p);
     }
 
     /* Signal events */
@@ -1304,7 +1382,7 @@ function connectWS() {
       updateSignalPanel(ev.signal, ev.symbol);
     }
 
-    /* Feed (skip history candles) */
+    /* Event feed — all non-history events */
     if (ev.type !== 'candle' || !ev.is_history) {
       feed.add(ev);
     }

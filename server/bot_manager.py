@@ -151,7 +151,14 @@ class BotManager:
         return events
 
     def get_candles(self, symbol: str, interval: str, limit: int = 200) -> list[dict]:
-        """Return the most recent OHLCV candles from the live buffer."""
+        """Return the most recent OHLCV candles from the live buffer.
+
+        ``time`` is ``open_time // 1000`` (Unix seconds at candle open), which
+        is the canonical x-axis key used by both the REST endpoint and the live
+        WebSocket feed so the frontend can deduplicate updates without drift.
+        Candles are guaranteed to be in ascending open_time order (the buffer
+        always appends, but we sort defensively to handle any edge cases).
+        """
         with self._lock:
             state = self._state
         if state is None:
@@ -159,10 +166,18 @@ class BotManager:
         key = (symbol, interval)
         with state._lock:
             buf = list(state._buffers.get(key, []))
+        # Sort ascending by open_time — defensive guard against any out-of-order
+        # entries that could reach the buffer (e.g., during reconnect races).
+        buf.sort(key=lambda c: c.open_time)
+        # Deduplicate: keep last entry for each open_time
+        seen: dict[int, object] = {}
+        for c in buf:
+            seen[c.open_time] = c
+        buf = list(seen.values())
         buf = buf[-limit:]
         return [
             {
-                "time":   c.close_time // 1000,   # Unix seconds for charting
+                "time":   c.open_time // 1000,  # Unix seconds at candle open
                 "open":   c.open,
                 "high":   c.high,
                 "low":    c.low,
