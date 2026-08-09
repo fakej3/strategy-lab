@@ -11,4 +11,5 @@ logs/
 *.log
 market_data/
 research.db
+bot.db
 server/.secret_key
