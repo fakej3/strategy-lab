@@ -12,4 +12,6 @@ logs/
 market_data/
 research.db
 bot.db
+*.db-shm
+*.db-wal
 server/.secret_key
