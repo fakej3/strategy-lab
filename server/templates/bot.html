@@ -344,6 +344,106 @@ main  { padding:0 !important; max-width:none !important;
   margin-top: 1px;
 }
 
+/* ── Market Watch panel ───────────────────────────────────────────── */
+.mktwatch-panel {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  max-height: 45%;
+}
+.mktwatch-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.mktwatch-scroll::-webkit-scrollbar { width: 3px; }
+.mktwatch-scroll::-webkit-scrollbar-track { background: transparent; }
+.mktwatch-scroll::-webkit-scrollbar-thumb { background: var(--border2); }
+.mw-hdr-row {
+  display: grid;
+  grid-template-columns: 1fr 30px 66px 42px 34px 50px;
+  gap: 0 3px;
+  padding: 3px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.mw-th {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mw-th.r { text-align: right; }
+.mwrow {
+  display: grid;
+  grid-template-columns: 1fr 30px 66px 42px 34px 50px;
+  gap: 0 3px;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.03);
+  cursor: pointer;
+  align-items: center;
+  transition: background .08s;
+}
+.mwrow:hover { background: rgba(255,255,255,.04); }
+.mwrow.active {
+  background: rgba(22,139,228,.07);
+  border-left: 2px solid var(--accent);
+  padding-left: 8px;
+}
+.mw-sym {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mw-tf {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+}
+.mw-price {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.mw-sig {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  text-align: center;
+  white-space: nowrap;
+}
+.mw-sig.long  { color: var(--green); }
+.mw-sig.short { color: var(--red); }
+.mw-pos {
+  font-size: 9px;
+  text-align: center;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mw-pos.long  { color: var(--green); }
+.mw-pos.short { color: var(--red); }
+.mw-upd {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
 /* Events / feed panel */
 .feed-panel {
   flex: 1;
@@ -814,38 +914,19 @@ main  { padding:0 !important; max-width:none !important;
     {# Right rail #}
     <div class="right-rail">
 
-      {# Strategy panel #}
-      <div class="strat-panel">
-        <div class="rail-hdr">Strategy</div>
-        <div class="strat-name-row">
-          <div class="strat-name" id="strat-name">{{ status.strategy or '—' }}</div>
-        </div>
-        <div class="strat-rows">
-          <div class="sr">
-            <span class="sk">Status</span>
-            <span class="sv" id="sr-status">WATCHING</span>
+      {# Market Watch panel — one row per symbol×timeframe; click to focus chart #}
+      <div class="mktwatch-panel">
+        <div class="rail-hdr">Market Watch</div>
+        <div class="mktwatch-scroll">
+          <div class="mw-hdr-row">
+            <span class="mw-th">Symbol</span>
+            <span class="mw-th">TF</span>
+            <span class="mw-th r">Price</span>
+            <span class="mw-th">Signal</span>
+            <span class="mw-th">Pos</span>
+            <span class="mw-th r">Updated</span>
           </div>
-          <div class="sr">
-            <span class="sk">Signal</span>
-            <span class="sv" id="sr-signal">—</span>
-          </div>
-          <div class="sr">
-            <span class="sk">Price</span>
-            <span class="sv mono" id="sr-price">—</span>
-          </div>
-          <div class="sr">
-            <span class="sk">Positions</span>
-            <span class="sv" id="sr-positions">{{ status.open_positions|length if status.open_positions else 0 }}</span>
-          </div>
-          <div class="sr">
-            <span class="sk">Fills</span>
-            <span class="sv" id="sr-fills">{{ status.recent_trades|length if status.recent_trades else 0 }}</span>
-          </div>
-        </div>
-        <div class="signal-card" id="signal-card" style="display:none">
-          <div class="sc-label">Active Signal</div>
-          <div class="sc-dir" id="sc-dir">—</div>
-          <div class="sc-sym" id="sc-sym">—</div>
+          <div id="mktwatch-rows"></div>
         </div>
       </div>
 
@@ -1221,6 +1302,103 @@ class EventFeed {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   MARKET WATCH
+══════════════════════════════════════════════════════════════ */
+class MarketWatch {
+  constructor(container, symbols, interval, onSelect) {
+    this._el = container;
+    this._rows = {};
+    this._active = symbols.length ? symbols[0] + ':' + interval : null;
+    this._iv = interval;
+    this._onSelect = onSelect;
+    // Event delegation — rows are re-rendered via innerHTML so direct listeners won't survive
+    this._el.addEventListener('click', e => {
+      const row = e.target.closest('.mwrow');
+      if (row && row.dataset.key) this._select(row.dataset.key);
+    });
+    symbols.forEach(sym => this._addRow(sym, interval));
+  }
+
+  _key(sym, iv) { return sym + ':' + iv; }
+
+  _addRow(sym, iv) {
+    const key = this._key(sym, iv);
+    const div = document.createElement('div');
+    div.className = 'mwrow';
+    div.dataset.key = key;
+    this._el.appendChild(div);
+    this._rows[key] = { el: div, data: { sym, iv, price: null, signal: null, pos: null, updTs: null } };
+    this._render(key);
+  }
+
+  _render(key) {
+    const { el, data } = this._rows[key];
+    el.className = 'mwrow' + (key === this._active ? ' active' : '');
+    const priceTxt = data.price != null ? Number(data.price).toFixed(2) : '—';
+    const sigCls   = data.signal === 'BUY' ? 'long' : data.signal === 'SELL' ? 'short' : '';
+    const sigTxt   = data.signal === 'BUY' ? 'LONG' : data.signal === 'SELL' ? 'SHORT' : '—';
+    const posCls   = data.pos === 'long' ? 'long' : data.pos === 'short' ? 'short' : '';
+    const posTxt   = data.pos ? data.pos.toUpperCase() : '—';
+    let updTxt = '—';
+    if (data.updTs) {
+      try { updTxt = new Date(data.updTs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }); } catch { updTxt = '—'; }
+    }
+    el.innerHTML =
+      `<span class="mw-sym">${esc(data.sym)}</span>` +
+      `<span class="mw-tf">${esc(data.iv)}</span>` +
+      `<span class="mw-price">${priceTxt}</span>` +
+      `<span class="mw-sig ${sigCls}">${sigTxt}</span>` +
+      `<span class="mw-pos ${posCls}">${posTxt}</span>` +
+      `<span class="mw-upd">${updTxt}</span>`;
+  }
+
+  _select(key) {
+    if (key === this._active) return;
+    const prev = this._active;
+    this._active = key;
+    if (prev && this._rows[prev]) this._render(prev);
+    if (this._rows[key]) {
+      this._render(key);
+      const { data } = this._rows[key];
+      if (this._onSelect) this._onSelect(data.sym, data.iv);
+    }
+  }
+
+  onCandle(ev) {
+    const key = this._key(ev.symbol, ev.interval || this._iv);
+    const row = this._rows[key];
+    if (!row) return;
+    row.data.price = ev.close;
+    row.data.updTs = ev.ts || null;
+    this._render(key);
+  }
+
+  onSignal(ev) {
+    const key = this._key(ev.symbol, ev.interval || this._iv);
+    const row = this._rows[key];
+    if (!row) return;
+    row.data.signal = (ev.signal && ev.signal !== 'HOLD') ? ev.signal : null;
+    this._render(key);
+  }
+
+  onStatus(s) {
+    const posMap = {};
+    (s.open_positions || []).forEach(p => { posMap[p.symbol] = p.direction; });
+    const markPx = s.mark_prices || {};
+    Object.keys(this._rows).forEach(key => {
+      const { data } = this._rows[key];
+      const newPos   = posMap[data.sym] || null;
+      const newPrice = (data.price == null && markPx[data.sym] != null) ? markPx[data.sym] : data.price;
+      if (newPos !== data.pos || newPrice !== data.price) {
+        data.pos   = newPos;
+        data.price = newPrice;
+        this._render(key);
+      }
+    });
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
    SIGNAL TOAST
 ══════════════════════════════════════════════════════════════ */
 function showToast(signal, symbol) {
@@ -1291,31 +1469,19 @@ function updateSignalPanel(sig, sym) {
   }
 }
 
-/* ── Symbol switcher (multi-symbol support) ───────────────── */
-// Render symbol tab buttons when more than one symbol is configured.
-// Each button loads candles for that symbol into the shared chart.
-(function initSymbolSwitcher() {
-  if (SYMBOLS.length <= 1) return;
-  const hdr = document.getElementById('chart-hdr-inner');
-  if (!hdr) return;
-  const wrap = document.createElement('div');
-  wrap.className = 'sym-tabs';
-  SYMBOLS.forEach((sym, i) => {
-    const btn = document.createElement('button');
-    btn.className = 'sym-tab-btn' + (i === 0 ? ' active' : '');
-    btn.textContent = sym;
-    btn.dataset.sym = sym;
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.sym-tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeSymbol = sym;
-      chart.setData([]);
-      loadCandles(sym);
-    });
-    wrap.appendChild(btn);
-  });
-  hdr.prepend(wrap);
-})();
+/* ── Market Watch (replaces symbol switcher) ───────────────── */
+const mktwatch = new MarketWatch(
+  document.getElementById('mktwatch-rows'),
+  SYMBOLS,
+  INTERVAL,
+  (sym) => {
+    activeSymbol = sym;
+    setText('ch-sym', sym);
+    setText('ch-iv', INTERVAL);
+    chart.setData([]);
+    loadCandles(sym);
+  }
+);
 
 /* ── Load candles via REST ────────────────────────────────── */
 // Uses open_time-based `time` field — must match get_candles() in bot_manager.py
@@ -1357,29 +1523,30 @@ function connectWS() {
 
     /* Update chart on live candle — only for the currently displayed symbol.
        time uses open_time (matches the REST endpoint) for correct deduplication. */
-    if (ev.type === 'candle' && !ev.is_history && ev.symbol === activeSymbol) {
-      chart.updateCandle({
-        time:   Math.floor(ev.open_time / 1000),  // open_time matches REST
-        open:   ev.open,
-        high:   ev.high,
-        low:    ev.low,
-        close:  ev.close,
-        volume: ev.volume,
-      });
-    }
-
-    /* Price display — update for any symbol whose mark price changed */
-    if (ev.type === 'candle' && !ev.is_history && ev.symbol === activeSymbol) {
-      const p = fmt(ev.close, 2);
-      setText('tm-price', p);
-      setText('ch-price', p);
-      setText('sr-price', p);
+    if (ev.type === 'candle' && !ev.is_history) {
+      mktwatch.onCandle(ev);
+      if (ev.symbol === activeSymbol) {
+        chart.updateCandle({
+          time:   Math.floor(ev.open_time / 1000),  // open_time matches REST
+          open:   ev.open,
+          high:   ev.high,
+          low:    ev.low,
+          close:  ev.close,
+          volume: ev.volume,
+        });
+        const p = fmt(ev.close, 2);
+        setText('tm-price', p);
+        setText('ch-price', p);
+      }
     }
 
     /* Signal events */
-    if (ev.type === 'signal' && ev.signal !== 'HOLD') {
-      showToast(ev.signal, ev.symbol);
-      updateSignalPanel(ev.signal, ev.symbol);
+    if (ev.type === 'signal') {
+      mktwatch.onSignal(ev);
+      if (ev.signal !== 'HOLD') {
+        showToast(ev.signal, ev.symbol);
+        updateSignalPanel(ev.signal, ev.symbol);
+      }
     }
 
     /* Event feed — all non-history events */
@@ -1401,6 +1568,9 @@ async function pollStatus() {
   } catch { return; }
 
   if (!s.running) { location.reload(); return; }
+
+  /* Market watch — update positions and mark prices */
+  mktwatch.onStatus(s);
 
   /* Tbar metrics */
   setText('tm-equity', fmt(s.equity, 4));
