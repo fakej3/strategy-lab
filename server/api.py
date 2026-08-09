@@ -260,22 +260,29 @@ async def api_bot_start(request: Request, _: AuthUser) -> JSONResponse:
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    capital  = float(body.get("capital",  25.0))
-    symbols  = body.get("symbols",  ["BTCUSDT"])
-    interval = body.get("interval", "1h")
-    strategy = body.get("strategy", "EMACrossover")
-    db_path  = body.get("db_path",  "bot.db")
-    log_path = body.get("log_path", "logs/bot.log")
-    recover  = bool(body.get("recover",  True))
+    capital   = float(body.get("capital",  25.0))
+    symbols   = body.get("symbols",   ["BTCUSDT"])
+    interval  = body.get("interval",  None)
+    intervals = body.get("intervals", None)
+    strategy  = body.get("strategy",  "EMACrossover")
+    db_path   = body.get("db_path",   "bot.db")
+    log_path  = body.get("log_path",  "logs/bot.log")
+    recover   = bool(body.get("recover",  True))
 
     if isinstance(symbols, str):
         symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+    if isinstance(intervals, str):
+        intervals = [iv.strip() for iv in intervals.split(",") if iv.strip()]
+    if not intervals and interval:
+        intervals = [interval]
+    if not intervals:
+        intervals = ["1h"]
 
     if capital <= 0:
         raise HTTPException(status_code=422, detail="capital must be > 0")
 
     ok, err = bot_manager.start(
-        capital=capital, symbols=symbols, interval=interval,
+        capital=capital, symbols=symbols, intervals=intervals,
         strategy=strategy, db_path=db_path, log_path=log_path,
         recover=recover,
     )

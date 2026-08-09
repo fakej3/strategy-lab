@@ -803,13 +803,11 @@ main  { padding:0 !important; max-width:none !important;
             <span class="hint">Comma-separated</span>
           </div>
           <div class="form-group">
-            <label for="interval">Interval</label>
-            <select id="interval" name="interval">
-              {% set cur_iv = status.interval or '1h' %}
-              {% for iv in ['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w'] %}
-              <option value="{{ iv }}" {% if iv == cur_iv %}selected{% endif %}>{{ iv }}</option>
-              {% endfor %}
-            </select>
+            <label for="intervals">Interval(s)</label>
+            <input id="intervals" name="intervals" type="text"
+                   value="{{ (status.intervals or ['1h'])|join(',') }}"
+                   placeholder="1h">
+            <span class="hint">Comma-separated, e.g. 1m,5m,15m</span>
           </div>
           <div class="form-group">
             <label for="strategy">Strategy</label>
@@ -850,7 +848,7 @@ main  { padding:0 !important; max-width:none !important;
 
     <div class="tbar-instrument">
       <span class="tbar-sym" id="tbar-sym">
-        {{ (status.symbols or ['BTCUSDT'])|join(', ') }} · {{ status.interval or '—' }}
+        {{ (status.symbols or ['BTCUSDT'])|join(', ') }} · {{ (status.intervals or [status.interval or '—'])|join(',') }}
       </span>
       <div class="tbar-mode">
         <span class="tbar-dot running" id="tbar-dot"></span>
@@ -902,7 +900,7 @@ main  { padding:0 !important; max-width:none !important;
       {# chart-hdr-inner: JS inserts .sym-tabs here when multiple symbols active #}
       <div class="chart-hdr" id="chart-hdr-inner">
         <span class="ch-sym" id="ch-sym">{{ (status.symbols or ['BTCUSDT'])[0] }}</span>
-        <span class="ch-iv" id="ch-iv">{{ status.interval or '1h' }}</span>
+        <span class="ch-iv" id="ch-iv">{{ (status.intervals or ['1h'])[0] }}</span>
         <span class="ch-price" id="ch-price">—</span>
         <span class="ch-meta-right">PAPER · LIVE OHLCV</span>
       </div>
@@ -1050,7 +1048,8 @@ main  { padding:0 !important; max-width:none !important;
 const IS_RUNNING = {{ 'true' if status.running else 'false' }};
 const SYMBOLS    = {{ (status.symbols or ['BTCUSDT'])|tojson }};
 const SYMBOL     = SYMBOLS[0] || 'BTCUSDT';
-const INTERVAL   = {{ (status.interval or '1h')|tojson }};
+const INTERVALS  = {{ (status.intervals or [status.interval or '1h'])|tojson }};
+const INTERVAL   = INTERVALS[0] || '1h';
 
 /* ── Utilities ────────────────────────────────────────────────── */
 function esc(s) {
@@ -1305,18 +1304,18 @@ class EventFeed {
    MARKET WATCH
 ══════════════════════════════════════════════════════════════ */
 class MarketWatch {
-  constructor(container, symbols, interval, onSelect) {
+  constructor(container, symbols, intervals, onSelect) {
     this._el = container;
     this._rows = {};
-    this._active = symbols.length ? symbols[0] + ':' + interval : null;
-    this._iv = interval;
+    const ivArr = Array.isArray(intervals) ? intervals : [intervals];
+    this._active = (symbols.length && ivArr.length) ? symbols[0] + ':' + ivArr[0] : null;
     this._onSelect = onSelect;
     // Event delegation — rows are re-rendered via innerHTML so direct listeners won't survive
     this._el.addEventListener('click', e => {
       const row = e.target.closest('.mwrow');
       if (row && row.dataset.key) this._select(row.dataset.key);
     });
-    symbols.forEach(sym => this._addRow(sym, interval));
+    symbols.forEach(sym => ivArr.forEach(iv => this._addRow(sym, iv)));
   }
 
   _key(sym, iv) { return sym + ':' + iv; }
@@ -1365,7 +1364,7 @@ class MarketWatch {
   }
 
   onCandle(ev) {
-    const key = this._key(ev.symbol, ev.interval || this._iv);
+    const key = this._key(ev.symbol, ev.interval);
     const row = this._rows[key];
     if (!row) return;
     row.data.price = ev.close;
@@ -1374,7 +1373,7 @@ class MarketWatch {
   }
 
   onSignal(ev) {
-    const key = this._key(ev.symbol, ev.interval || this._iv);
+    const key = this._key(ev.symbol, ev.interval);
     const row = this._rows[key];
     if (!row) return;
     row.data.signal = (ev.signal && ev.signal !== 'HOLD') ? ev.signal : null;
@@ -1437,8 +1436,9 @@ const feed  = new EventFeed(document.getElementById('event-feed'));
 const lb = document.getElementById('log-box');
 if (lb) lb.scrollTop = lb.scrollHeight;
 
-/* Active symbol for the chart (can be changed via symbol switcher) */
-let activeSymbol = SYMBOL;
+/* Active symbol/interval for the chart (changed via Market Watch row click) */
+let activeSymbol   = SYMBOL;
+let activeInterval = INTERVAL;
 
 /* Strategy signal state — updated from WS */
 let lastSignal = null;
@@ -1473,24 +1473,26 @@ function updateSignalPanel(sig, sym) {
 const mktwatch = new MarketWatch(
   document.getElementById('mktwatch-rows'),
   SYMBOLS,
-  INTERVAL,
-  (sym) => {
+  INTERVALS,
+  (sym, iv) => {
     activeSymbol = sym;
+    activeInterval = iv;
     setText('ch-sym', sym);
-    setText('ch-iv', INTERVAL);
+    setText('ch-iv', iv);
     chart.setData([]);
-    loadCandles(sym);
+    loadCandles(sym, iv);
   }
 );
 
 /* ── Load candles via REST ────────────────────────────────── */
 // Uses open_time-based `time` field — must match get_candles() in bot_manager.py
-function loadCandles(sym) {
+function loadCandles(sym, iv) {
+  iv = iv || activeInterval;
   fetch('/api/bot/candles?symbol=' + encodeURIComponent(sym) +
-        '&interval=' + encodeURIComponent(INTERVAL) + '&limit=200')
+        '&interval=' + encodeURIComponent(iv) + '&limit=200')
     .then(r => r.ok ? r.json() : [])
     .then(data => {
-      if (Array.isArray(data) && data.length && sym === activeSymbol) {
+      if (Array.isArray(data) && data.length && sym === activeSymbol && iv === activeInterval) {
         chart.setData(data);
       }
     })
@@ -1521,11 +1523,10 @@ function connectWS() {
     try { ev = JSON.parse(data); } catch { return; }
     if (ev.type === 'ping') return;
 
-    /* Update chart on live candle — only for the currently displayed symbol.
-       time uses open_time (matches the REST endpoint) for correct deduplication. */
+    /* Update chart on live candle — only for the currently focused (sym, interval). */
     if (ev.type === 'candle' && !ev.is_history) {
       mktwatch.onCandle(ev);
-      if (ev.symbol === activeSymbol) {
+      if (ev.symbol === activeSymbol && ev.interval === activeInterval) {
         chart.updateCandle({
           time:   Math.floor(ev.open_time / 1000),  // open_time matches REST
           open:   ev.open,
@@ -1540,10 +1541,10 @@ function connectWS() {
       }
     }
 
-    /* Signal events */
+    /* Signal events — update panel only for the focused (sym, interval) */
     if (ev.type === 'signal') {
       mktwatch.onSignal(ev);
-      if (ev.signal !== 'HOLD') {
+      if (ev.signal !== 'HOLD' && ev.symbol === activeSymbol && ev.interval === activeInterval) {
         showToast(ev.signal, ev.symbol);
         updateSignalPanel(ev.signal, ev.symbol);
       }
@@ -1589,8 +1590,8 @@ async function pollStatus() {
   setText('tm-drawdown', fmt((s.drawdown || 0) * 100, 2) + '%');
 
   /* Mark price from status */
-  if (s.mark_prices && s.mark_prices[SYMBOL] != null) {
-    const p = fmt(s.mark_prices[SYMBOL], 2);
+  if (s.mark_prices && s.mark_prices[activeSymbol] != null) {
+    const p = fmt(s.mark_prices[activeSymbol], 2);
     setText('tm-price', p);
     setText('ch-price', p);
     setText('sr-price', p);
@@ -1622,7 +1623,7 @@ async function pollStatus() {
     } else {
       pb.innerHTML = `<div class="tab-empty">
         <div class="tab-empty-title">No Open Position</div>
-        <div class="tab-empty-desc">Strategy is flat. Monitoring ${esc(SYMBOL)} for a valid setup.</div>
+        <div class="tab-empty-desc">Strategy is flat. Monitoring ${esc(SYMBOLS.join(', '))} for a valid setup.</div>
       </div>`;
     }
   }

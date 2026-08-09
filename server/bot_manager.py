@@ -48,14 +48,24 @@ class BotManager:
         self,
         capital: float,
         symbols: list[str],
-        interval: str,
-        strategy: str,
+        interval: str | None = None,
+        intervals: list[str] | None = None,
+        strategy: str = "EMACrossover",
         db_path: str = "bot.db",
         log_path: str = "logs/bot.log",
         recover: bool = True,
     ) -> tuple[bool, str]:
-        """Build a BotConfig and start the bot. Returns (success, error_message)."""
+        """Build a BotConfig and start the bot. Returns (success, error_message).
+
+        Accepts either ``intervals`` (list) or the legacy ``interval`` (single
+        string).  ``intervals`` takes precedence when both are supplied.
+        """
         from bot.config import BotConfig, FeedConfig, RiskConfig
+
+        resolved_intervals: list[str] = (
+            intervals if intervals
+            else ([interval] if interval else ["1h"])
+        )
 
         try:
             cfg = BotConfig(
@@ -64,7 +74,7 @@ class BotManager:
                 strategy_params  = {"fast": 20, "slow": 50},
                 feed             = FeedConfig(
                     symbols   = symbols,
-                    intervals = [interval],
+                    intervals = resolved_intervals,
                 ),
                 risk = RiskConfig(
                     max_position_size_usd = min(capital * 0.8, 20.0),
@@ -213,6 +223,7 @@ class BotManager:
             "stopped_at":      stopped_at.isoformat()  if stopped_at  else None,
             "error":           error,
             "symbols":         cfg.feed.symbols          if cfg else [],
+            "intervals":       cfg.feed.intervals        if cfg else [],
             "interval":        (cfg.feed.intervals[0]
                                 if cfg and cfg.feed.intervals else "—"),
             "strategy":        cfg.strategy_name          if cfg else "",

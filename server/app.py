@@ -401,12 +401,14 @@ def _register_routes(app: FastAPI) -> None:
         capital  = float(form.get("capital",  "25"))
         raw_syms = str(form.get("symbols",  "BTCUSDT"))
         symbols  = [s.strip() for s in raw_syms.split(",") if s.strip()]
-        interval = str(form.get("interval", "1h"))
-        strategy = str(form.get("strategy", "EMACrossover"))
-        recover  = "recover" in form
+        # Support both "intervals" (text field, comma-sep) and legacy "interval" (select)
+        raw_ivs   = str(form.get("intervals", form.get("interval", "1h")))
+        intervals = [iv.strip() for iv in raw_ivs.split(",") if iv.strip()] or ["1h"]
+        strategy  = str(form.get("strategy", "EMACrossover"))
+        recover   = "recover" in form
 
         ok, err = bot_manager.start(
-            capital=capital, symbols=symbols, interval=interval,
+            capital=capital, symbols=symbols, intervals=intervals,
             strategy=strategy, recover=recover,
         )
         if not ok:
