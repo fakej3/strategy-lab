@@ -4,156 +4,221 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}EdgeLab{% endblock %} — EdgeLab</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230e1318'/><polyline points='4,24 10,16 16,20 22,10 28,14' fill='none' stroke='%2336b9e8' stroke-width='2.5' stroke-linejoin='round' stroke-linecap='round'/></svg>">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
-      --bg:#0d1117;--surface:#161b22;--surface2:#1c2230;
-      --border:#30363d;--text:#e6edf3;--muted:#8b949e;
-      --accent:#4FC3F7;--accent2:#79c0ff;
-      --pass-bg:#1a2e1a;--pass-fg:#3fb950;
-      --warn-bg:#2e2200;--warn-fg:#f0b429;
-      --fail-bg:#2e1a1a;--fail-fg:#f85149;
-      --font-mono:'Courier New',Courier,monospace;
+      /* Surfaces */
+      --bg:       #0a0d12;
+      --surface:  #0e1318;
+      --surface2: #131920;
+      --surface3: #181f28;
+      /* Borders */
+      --border:   #202731;
+      --border2:  #252d38;
+      /* Text */
+      --text:     #e6eaf0;
+      --text2:    #8b95a5;
+      --muted:    #596372;
+      /* Accent */
+      --accent:   #36b9e8;
+      --accent2:  #5bcaed;
+      /* Semantic — trading colors */
+      --green:    #18c784;
+      --red:      #ea3943;
+      --amber:    #f0b90b;
+      /* Semantic backgrounds */
+      --pass-bg:  rgba(24,199,132,.1);
+      --pass-fg:  #18c784;
+      --warn-bg:  rgba(240,185,11,.09);
+      --warn-fg:  #f0b90b;
+      --fail-bg:  rgba(234,57,67,.1);
+      --fail-fg:  #ea3943;
+      /* Typography */
+      --font-mono:'SFMono-Regular','SF Mono','Consolas','Liberation Mono',monospace;
     }
-    body{background:var(--bg);color:var(--text);
+
+    body{
+      background:var(--bg);color:var(--text);
       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-      font-size:14px;line-height:1.6;display:flex;min-height:100vh}
+      font-size:13px;line-height:1.55;
+      display:flex;min-height:100vh;
+    }
 
-    /* Sidebar nav */
-    nav{width:200px;flex-shrink:0;background:var(--surface);
-      border-right:1px solid var(--border);padding:0;position:sticky;
-      top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column}
-    .nav-logo{padding:20px;font-size:18px;font-weight:800;color:var(--accent);
-      border-bottom:1px solid var(--border);letter-spacing:-0.5px}
-    .nav-logo span{color:var(--muted);font-weight:400;font-size:11px;
-      display:block;margin-top:2px;letter-spacing:0}
-    nav a{display:flex;align-items:center;gap:8px;padding:9px 20px;
-      color:var(--muted);text-decoration:none;font-size:13px;
-      border-left:3px solid transparent;transition:all .15s}
-    nav a:hover{color:var(--text);background:rgba(255,255,255,.04);
-      border-left-color:var(--border)}
-    nav a.active{color:var(--text);background:rgba(79,195,247,.08);
-      border-left-color:var(--accent)}
-    .nav-icon{width:16px;text-align:center;font-size:13px}
-    .nav-section{padding:12px 20px 4px;font-size:10px;color:var(--border);
-      text-transform:uppercase;letter-spacing:.08em}
-    .nav-bottom{margin-top:auto;border-top:1px solid var(--border);padding:12px 0}
+    /* ── Sidebar nav ──────────────────────────────────────────────── */
+    nav{
+      width:164px;flex-shrink:0;
+      background:var(--surface);
+      border-right:1px solid var(--border);
+      position:sticky;top:0;height:100vh;
+      overflow-y:auto;display:flex;flex-direction:column;
+    }
+    .nav-logo{
+      padding:16px 14px 14px;
+      border-bottom:1px solid var(--border);
+    }
+    .nav-logo-name{
+      font-size:13px;font-weight:700;letter-spacing:.04em;
+      color:var(--text);font-family:var(--font-mono);
+    }
+    .nav-logo-sub{
+      font-size:10px;color:var(--muted);margin-top:2px;
+      letter-spacing:.02em;
+    }
 
-    /* Notification dot */
-    .notif-dot{width:6px;height:6px;border-radius:50%;background:var(--fail-fg);
-      margin-left:auto;flex-shrink:0}
+    .nav-section{
+      padding:12px 14px 3px;
+      font-size:9px;font-weight:700;
+      text-transform:uppercase;letter-spacing:.1em;
+      color:var(--muted);
+    }
+    nav a{
+      display:block;padding:7px 14px;
+      color:var(--text2);text-decoration:none;font-size:12px;
+      border-left:2px solid transparent;
+      transition:color .12s,background .12s,border-color .12s;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    }
+    nav a:hover{
+      color:var(--text);background:rgba(255,255,255,.03);
+    }
+    nav a.active{
+      color:var(--text);background:rgba(54,185,232,.07);
+      border-left-color:var(--accent);
+    }
+    .nav-bottom{margin-top:auto;border-top:1px solid var(--border);padding:8px 0}
+    .nav-notif{
+      display:inline-block;width:5px;height:5px;
+      border-radius:50%;background:var(--fail-fg);
+      vertical-align:middle;margin-left:4px;
+    }
 
-    /* Main content */
-    main{flex:1;padding:32px 40px;min-width:0;max-width:1280px}
-    h1{font-size:20px;font-weight:700;margin-bottom:6px}
-    .page-sub{color:var(--muted);font-size:13px;margin-bottom:28px}
-    h2{font-size:12px;font-weight:600;text-transform:uppercase;
-      letter-spacing:.06em;color:var(--muted);
-      border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;
-      margin-top:32px}
+    /* ── Main content ─────────────────────────────────────────────── */
+    main{flex:1;padding:28px 36px;min-width:0;max-width:1280px}
+    h1{font-size:18px;font-weight:700;margin-bottom:4px;letter-spacing:-.3px}
+    .page-sub{color:var(--muted);font-size:12px;margin-bottom:24px}
+    h2{
+      font-size:10px;font-weight:700;text-transform:uppercase;
+      letter-spacing:.08em;color:var(--muted);
+      border-bottom:1px solid var(--border);
+      padding-bottom:6px;margin-bottom:14px;margin-top:28px;
+    }
     h2:first-child{margin-top:0}
 
-    /* Tiles / stat grid */
-    .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
-      gap:16px;margin-bottom:32px}
-    .tile{background:var(--surface);border:1px solid var(--border);
-      border-radius:8px;padding:18px 16px}
-    .tile-val{font-size:28px;font-weight:700;color:var(--accent);
-      font-variant-numeric:tabular-nums;line-height:1}
-    .tile-label{font-size:11px;color:var(--muted);text-transform:uppercase;
-      letter-spacing:.05em;margin-top:6px}
-    .tile-sub{font-size:11px;color:var(--border);margin-top:2px}
+    /* ── Tiles ────────────────────────────────────────────────────── */
+    .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+      gap:12px;margin-bottom:24px}
+    .tile{
+      background:var(--surface);border:1px solid var(--border);
+      padding:14px 14px;
+    }
+    .tile-val{
+      font-size:22px;font-weight:700;color:var(--accent);
+      font-variant-numeric:tabular-nums;line-height:1;
+      font-family:var(--font-mono);
+    }
+    .tile-label{
+      font-size:10px;color:var(--muted);text-transform:uppercase;
+      letter-spacing:.07em;margin-top:5px;
+    }
+    .tile-sub{font-size:10px;color:var(--border2);margin-top:2px}
 
-    /* Tables */
+    /* ── Tables ───────────────────────────────────────────────────── */
     .table-wrap{overflow-x:auto}
-    table{width:100%;border-collapse:collapse;font-size:13px;
-      font-variant-numeric:tabular-nums}
-    th{background:var(--surface);color:var(--muted);text-align:left;
-      padding:8px 12px;border-bottom:1px solid var(--border);
-      font-size:11px;text-transform:uppercase;letter-spacing:.04em;
-      white-space:nowrap;font-weight:600}
-    td{padding:8px 12px;border-bottom:1px solid var(--border);
-      vertical-align:middle}
-    tr:hover td{background:rgba(255,255,255,.025)}
+    table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+    th{
+      background:var(--surface);color:var(--muted);
+      text-align:left;padding:7px 10px;
+      border-bottom:1px solid var(--border);
+      font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+      white-space:nowrap;font-weight:600;
+    }
+    td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+    tr:hover td{background:rgba(255,255,255,.02)}
     td.r,th.r{text-align:right}
-    td.mono{font-family:var(--font-mono);font-size:11px;color:var(--muted)}
-    .empty{color:var(--muted);font-style:italic;padding:24px 0;text-align:center}
+    td.mono{font-family:var(--font-mono);font-size:11px;color:var(--text2)}
+    .empty{color:var(--muted);font-size:12px;padding:18px 0;text-align:center}
 
-    /* Badges */
-    .badge{display:inline-block;padding:2px 8px;border-radius:4px;
-      font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+    /* ── Badges ───────────────────────────────────────────────────── */
+    .badge{
+      display:inline-block;padding:1px 6px;font-size:10px;
+      font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+    }
     .badge-pass{background:var(--pass-bg);color:var(--pass-fg)}
     .badge-warn{background:var(--warn-bg);color:var(--warn-fg)}
     .badge-fail{background:var(--fail-bg);color:var(--fail-fg)}
-    .badge-blue{background:#162240;color:var(--accent2)}
-    .badge-muted{background:var(--surface2);color:var(--muted)}
+    .badge-blue{background:rgba(54,185,232,.12);color:var(--accent2)}
+    .badge-muted{background:var(--surface2);color:var(--text2)}
 
-    /* Buttons */
-    .btn{display:inline-block;padding:7px 16px;border-radius:6px;font-size:13px;
+    /* ── Buttons ──────────────────────────────────────────────────── */
+    .btn{
+      display:inline-block;padding:6px 14px;font-size:12px;
       font-weight:600;text-decoration:none;border:none;cursor:pointer;
-      transition:opacity .15s}
-    .btn:hover{opacity:.85}
-    .btn-primary{background:var(--accent);color:#0d1117}
-    .btn-secondary{background:var(--surface2);color:var(--text);
-      border:1px solid var(--border)}
-    .btn-danger{background:var(--fail-bg);color:var(--fail-fg);
-      border:1px solid var(--fail-fg)}
-    .btn-sm{padding:4px 10px;font-size:12px}
+      transition:opacity .12s;letter-spacing:.02em;
+    }
+    .btn:hover{opacity:.82}
+    .btn-primary{background:var(--accent);color:#0a0d12}
+    .btn-secondary{
+      background:var(--surface2);color:var(--text);
+      border:1px solid var(--border2);
+    }
+    .btn-danger{background:var(--fail-bg);color:var(--fail-fg);border:1px solid rgba(234,57,67,.3)}
+    .btn-sm{padding:3px 9px;font-size:11px}
 
-    /* Forms */
-    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    /* ── Forms ────────────────────────────────────────────────────── */
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
     .form-grid.cols3{grid-template-columns:1fr 1fr 1fr}
-    .form-group{display:flex;flex-direction:column;gap:6px}
-    .form-group label{font-size:12px;color:var(--muted);font-weight:600;
-      text-transform:uppercase;letter-spacing:.04em}
+    .form-group{display:flex;flex-direction:column;gap:5px}
+    .form-group label{
+      font-size:10px;color:var(--muted);font-weight:600;
+      text-transform:uppercase;letter-spacing:.07em;
+    }
     .form-group input,.form-group select,.form-group textarea{
-      background:var(--surface2);border:1px solid var(--border);
-      color:var(--text);padding:8px 12px;border-radius:6px;
-      font-size:13px;outline:none;font-family:inherit}
+      background:var(--surface2);border:1px solid var(--border2);
+      color:var(--text);padding:7px 10px;
+      font-size:12px;outline:none;font-family:inherit;
+    }
     .form-group input:focus,.form-group select:focus{
-      border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,195,247,.12)}
-    .form-group .hint{font-size:11px;color:var(--muted)}
-    .form-section{background:var(--surface);border:1px solid var(--border);
-      border-radius:8px;padding:20px;margin-bottom:20px}
-    .form-section-title{font-size:13px;font-weight:700;margin-bottom:16px;
-      color:var(--text)}
-    .checkbox-row{display:flex;align-items:center;gap:10px}
-    .checkbox-row input[type=checkbox]{width:16px;height:16px;
-      accent-color:var(--accent);cursor:pointer}
-    .checkbox-row label{font-size:13px;color:var(--text);cursor:pointer;
-      font-weight:500}
+      border-color:var(--accent);box-shadow:0 0 0 2px rgba(54,185,232,.1);
+    }
+    .form-group .hint{font-size:10px;color:var(--muted)}
+    .form-section{
+      background:var(--surface);border:1px solid var(--border);
+      padding:18px;margin-bottom:16px;
+    }
+    .form-section-title{font-size:12px;font-weight:700;margin-bottom:14px;color:var(--text)}
+    .checkbox-row{display:flex;align-items:center;gap:8px}
+    .checkbox-row input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
+    .checkbox-row label{font-size:12px;color:var(--text);cursor:pointer}
     .full-width{grid-column:1/-1}
 
-    /* Progress bar */
-    .progress-bar-wrap{background:var(--surface2);border-radius:4px;
-      height:8px;overflow:hidden;margin:8px 0}
-    .progress-bar{height:100%;background:var(--accent);border-radius:4px;
-      transition:width .3s ease}
+    /* ── Progress ─────────────────────────────────────────────────── */
+    .progress-bar-wrap{background:var(--surface2);height:4px;overflow:hidden;margin:6px 0}
+    .progress-bar{height:100%;background:var(--accent);transition:width .3s}
 
-    /* Code / log */
-    pre,code{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
-    .log-box{background:var(--surface);border:1px solid var(--border);
-      border-radius:6px;padding:16px;max-height:400px;overflow-y:auto;
-      font-family:var(--font-mono);font-size:12px;line-height:1.7}
-    .log-line-ok{color:#3fb950}
-    .log-line-warn{color:#f0b429}
-    .log-line-error{color:#f85149}
+    /* ── Code / log ───────────────────────────────────────────────── */
+    pre,code{font-family:var(--font-mono);font-size:11px;color:var(--text2)}
+    .log-box{
+      background:var(--surface);border:1px solid var(--border);
+      padding:12px 14px;max-height:380px;overflow-y:auto;
+      font-family:var(--font-mono);font-size:11px;line-height:1.65;
+    }
+    .log-line-ok{color:var(--pass-fg)}
+    .log-line-warn{color:var(--warn-fg)}
+    .log-line-error{color:var(--fail-fg)}
     .log-line-step{color:var(--accent);font-weight:600}
-    .log-line-info{color:var(--muted)}
+    .log-line-info{color:var(--text2)}
 
-    /* Alerts */
-    .alert{padding:12px 16px;border-radius:6px;font-size:13px;margin-bottom:16px}
-    .alert-warn{background:var(--warn-bg);color:var(--warn-fg);
-      border:1px solid var(--warn-fg)}
-    .alert-fail{background:var(--fail-bg);color:var(--fail-fg);
-      border:1px solid var(--fail-fg)}
-    .alert-pass{background:var(--pass-bg);color:var(--pass-fg);
-      border:1px solid var(--pass-fg)}
+    /* ── Alerts ───────────────────────────────────────────────────── */
+    .alert{padding:10px 14px;font-size:12px;margin-bottom:14px;border-left:3px solid}
+    .alert-warn{background:var(--warn-bg);color:var(--warn-fg);border-color:var(--warn-fg)}
+    .alert-fail{background:var(--fail-bg);color:var(--fail-fg);border-color:var(--fail-fg)}
+    .alert-pass{background:var(--pass-bg);color:var(--pass-fg);border-color:var(--pass-fg)}
 
-    /* Responsive */
+    /* ── Responsive ───────────────────────────────────────────────── */
     @media(max-width:768px){
       nav{display:none}
-      main{padding:20px}
+      main{padding:16px}
       .form-grid,.form-grid.cols3{grid-template-columns:1fr}
     }
   </style>
@@ -162,53 +227,32 @@
 <body>
   <nav>
     <div class="nav-logo">
-      EdgeLab
-      <span>Research Engine</span>
+      <div class="nav-logo-name">EDGELAB</div>
+      <div class="nav-logo-sub">Research Engine</div>
     </div>
 
     <div class="nav-section">Research</div>
-    <a href="/"         class="{% if request.url.path == '/' %}active{% endif %}">
-      <span class="nav-icon">◈</span> Dashboard
-    </a>
-    <a href="/research" class="{% if request.url.path == '/research' %}active{% endif %}">
-      <span class="nav-icon">▶</span> New Run
-    </a>
+    <a href="/"         class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
+    <a href="/research" class="{% if request.url.path == '/research' %}active{% endif %}">New Run</a>
     <a href="/jobs"     class="{% if '/jobs' in request.url.path %}active{% endif %}">
-      <span class="nav-icon">⚙</span> Running Jobs
-      {% if notifications|length > 0 %}<span class="notif-dot"></span>{% endif %}
+      Running Jobs{% if notifications|length > 0 %}<span class="nav-notif"></span>{% endif %}
     </a>
 
     <div class="nav-section">Results</div>
-    <a href="/reports"    class="{% if request.url.path == '/reports' %}active{% endif %}">
-      <span class="nav-icon">📄</span> Reports
-    </a>
-    <a href="/history"    class="{% if request.url.path == '/history' %}active{% endif %}">
-      <span class="nav-icon">🕐</span> History
-    </a>
-    <a href="/strategies" class="{% if request.url.path == '/strategies' %}active{% endif %}">
-      <span class="nav-icon">📊</span> Strategies
-    </a>
+    <a href="/reports"    class="{% if request.url.path == '/reports' %}active{% endif %}">Reports</a>
+    <a href="/history"    class="{% if request.url.path == '/history' %}active{% endif %}">History</a>
+    <a href="/strategies" class="{% if request.url.path == '/strategies' %}active{% endif %}">Strategies</a>
 
     <div class="nav-section">Trading</div>
-    <a href="/bot" class="{% if request.url.path == '/bot' %}active{% endif %}">
-      <span class="nav-icon">🤖</span> Paper Bot
-    </a>
+    <a href="/bot" class="{% if request.url.path == '/bot' %}active{% endif %}">Paper Bot</a>
 
     <div class="nav-section">Automation</div>
-    <a href="/scheduler"  class="{% if request.url.path == '/scheduler' %}active{% endif %}">
-      <span class="nav-icon">🗓</span> Scheduler
-    </a>
+    <a href="/scheduler" class="{% if request.url.path == '/scheduler' %}active{% endif %}">Scheduler</a>
 
     <div class="nav-bottom">
-      <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}">
-        <span class="nav-icon">⚙</span> Settings
-      </a>
-      <a href="/logs"     class="{% if request.url.path == '/logs' %}active{% endif %}">
-        <span class="nav-icon">📋</span> Logs
-      </a>
-      <a href="/logout">
-        <span class="nav-icon">⇥</span> Sign out
-      </a>
+      <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}">Settings</a>
+      <a href="/logs"     class="{% if request.url.path == '/logs' %}active{% endif %}">Logs</a>
+      <a href="/logout">Sign out</a>
     </div>
   </nav>
 
