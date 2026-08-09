@@ -392,7 +392,7 @@
           <select id="strategy" name="strategy">
             {% set cur_strat = status.strategy or 'EMACrossover' %}
             {% for s in strategies %}
-            <option value="{{ s }}" {% if s == cur_strat %}selected{% endif %}>{{ s }}</option>
+            <option value="{{ s.name }}" {% if s.name == cur_strat %}selected{% endif %}>{{ s.name }}</option>
             {% endfor %}
           </select>
         </div>

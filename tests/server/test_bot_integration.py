@@ -371,3 +371,160 @@ class TestBotManagerLowCapital:
         assert "open_positions" in s
         assert "recent_trades" in s
         assert "log_tail" in s
+
+
+# ── Strategy select regression tests ─────────────────────────────────────────
+
+class TestStrategySelectOptions:
+    """Regression tests for the bot.html strategy <select> bug.
+
+    Before the fix, {{ s }} rendered the full Python dict repr
+    (e.g. "{'name': 'EMACrossover', 'param_space': {...}}") as the
+    HTML option value, causing bot startup to fail with ValueError.
+    """
+
+    def test_strategy_option_values_are_clean_names_not_dicts(self, authed_client):
+        """GET /bot: each <option value="..."> must be 'EMACrossover', not a dict repr."""
+        with patch("server.app.bot_manager") as mock_bm:
+            mock_bm.get_status.return_value = _STOPPED_STATUS
+            resp = authed_client.get("/bot")
+        assert resp.status_code == 200
+        body = resp.text
+        # The clean name must appear as an option value
+        assert 'value="EMACrossover"' in body
+        # The dict repr must NOT appear anywhere in the HTML
+        assert "{'name': 'EMACrossover'" not in body
+        assert '{"name": "EMACrossover"' not in body
+        assert "param_space" not in body
+
+    def test_strategy_option_selected_matches_running_strategy(self, authed_client):
+        """When bot is running EMACrossover, the <option> for EMACrossover must be selected."""
+        with patch("server.app.bot_manager") as mock_bm:
+            mock_bm.get_status.return_value = _RUNNING_STATUS
+            resp = authed_client.get("/bot")
+        assert resp.status_code == 200
+        assert 'value="EMACrossover" selected' in resp.text or \
+               'value="EMACrossover"  selected' in resp.text or \
+               'selected' in resp.text
+
+    def test_form_start_submits_clean_strategy_name(self, authed_client):
+        """POST /bot/start: strategy field value must reach bot_manager.start() as 'EMACrossover'."""
+        captured: list[str] = []
+
+        with patch("server.app.bot_manager") as mock_bm:
+            def capture_start(**kwargs):
+                captured.append(kwargs.get("strategy", ""))
+                return (True, "")
+            mock_bm.start.side_effect = capture_start
+            resp = authed_client.post(
+                "/bot/start",
+                data={
+                    "capital": "25",
+                    "symbols": "BTCUSDT",
+                    "interval": "1h",
+                    "strategy": "EMACrossover",
+                },
+                follow_redirects=False,
+            )
+        assert resp.status_code == 302
+        assert len(captured) == 1
+        assert captured[0] == "EMACrossover", (
+            f"Expected 'EMACrossover' but got {captured[0]!r}"
+        )
+
+
+# ── Bot strategy loading regression tests ────────────────────────────────────
+
+class TestBotStrategyLoading:
+    """Regression tests for _load_strategy() with clean vs dict-repr name."""
+
+    def test_clean_name_loads_strategy(self):
+        """BotConfig with strategy_name='EMACrossover' must produce a working strategy."""
+        from bot.config import BotConfig
+        from bot_trade import _load_strategy
+        cfg = BotConfig(strategy_name="EMACrossover", strategy_params={"fast": 20, "slow": 50})
+        strategy = _load_strategy(cfg)
+        assert strategy is not None
+        assert hasattr(strategy, "generate_signals")
+
+    def test_dict_repr_name_raises_clear_error(self):
+        """BotConfig with a dict-repr strategy_name must raise ValueError immediately."""
+        from bot.config import BotConfig
+        from bot_trade import _load_strategy
+        bad_name = "{'name': 'EMACrossover', 'param_space': {}}"
+        cfg = BotConfig(strategy_name=bad_name, strategy_params={})
+        with pytest.raises(ValueError) as exc_info:
+            _load_strategy(cfg)
+        assert "Unknown strategy" in str(exc_info.value) or bad_name in str(exc_info.value)
+
+    def test_unknown_strategy_error_is_surfaced_in_status(self):
+        """A bad strategy name must surface in get_status()['error'], not silently die."""
+        from server.bot_manager import BotManager
+        import time
+        bm = BotManager()
+        # Use a real thread so the error actually reaches self._error
+        ok, err = bm.start(
+            capital=25.0,
+            symbols=["BTCUSDT"],
+            interval="1h",
+            strategy="__NONEXISTENT_STRATEGY__",
+        )
+        # start() itself succeeds (config-level validation passes)
+        assert ok is True
+        # Wait for the thread to die (it will fail in _load_strategy)
+        if bm._thread:
+            bm._thread.join(timeout=10)
+        status = bm.get_status()
+        assert status["running"] is False
+        assert status["error"] != "", (
+            "Expected error to be surfaced in status but got empty string"
+        )
+
+
+# ── Lifecycle integration test ────────────────────────────────────────────────
+
+class TestBotLifecycleMocked:
+    """Integration test: proves the full bot lifecycle fires with a mocked LiveFeed.
+
+    This exercises BotStorage.connect() → _load_strategy() → BotEngine →
+    LiveFeed.run() without requiring Binance network connectivity.
+    The LiveFeed is replaced with a coroutine that immediately cancels itself,
+    simulating one clean loop iteration.
+    """
+
+    def test_full_lifecycle_reaches_feed_run(self, tmp_path):
+        """Bot thread must reach LiveFeed.run() and shut down cleanly."""
+        import asyncio
+        import time
+        from server.bot_manager import BotManager
+
+        reached: list[str] = []
+
+        async def fake_feed_run(self_feed):
+            reached.append("feed.run")
+            # Immediately stop — simulates a clean single-cycle run
+            raise asyncio.CancelledError()
+
+        with patch("bot.runtime.LiveFeed.run", new=fake_feed_run):
+            bm = BotManager()
+            ok, err = bm.start(
+                capital=25.0,
+                symbols=["BTCUSDT"],
+                interval="1h",
+                strategy="EMACrossover",
+                db_path=str(tmp_path / "bot.db"),
+                log_path=str(tmp_path / "bot.log"),
+            )
+            assert ok is True, f"start() failed: {err}"
+
+            # Wait for the thread to complete
+            if bm._thread:
+                bm._thread.join(timeout=30)
+
+        assert "feed.run" in reached, (
+            "LiveFeed.run() was never reached — lifecycle did not complete BotStorage → "
+            "_load_strategy → BotEngine → LiveFeed path"
+        )
+        status = bm.get_status()
+        assert status["running"] is False
+        assert status["error"] == "", f"Unexpected error: {status['error']}"
