@@ -260,7 +260,7 @@ async def api_bot_start(request: Request, _: AuthUser) -> JSONResponse:
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    capital   = float(body.get("capital",  25.0))
+    capital   = float(body.get("capital",  200.0))
     symbols   = body.get("symbols",   ["BTCUSDT"])
     interval  = body.get("interval",  None)
     intervals = body.get("intervals", None)

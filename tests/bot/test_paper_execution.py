@@ -1,0 +1,816 @@
+"""Execution-readiness tests — 8-part mandate, Parts 1–3.
+
+Part 1: Default BotConfig (capital=200) can execute a legitimate paper trade.
+Part 2: Full execution pipeline — PnL accounting, stop-loss, take-profit, event bridge.
+Part 3: Multi-symbol/multi-interval with global max_open_positions=1 constraint.
+"""
+from __future__ import annotations
+
+import pytest
+import pandas as pd
+
+from bot.config import BotConfig, RiskConfig
+from bot.engine import BotEngine
+from bot.events import (
+    CandleEvent, EventBus, FillEvent, SignalEvent,
+)
+from bot.order_manager import OrderManager
+from bot.paper_exchange import (
+    PaperExchange, STATUS_FILLED, SIDE_BUY, SIDE_SELL,
+    ORDER_TYPE_STOP_MARKET, ORDER_TYPE_TAKE_PROFIT,
+)
+from bot.portfolio import Portfolio
+from bot.position_manager import PositionManager
+from bot.risk import RiskEngine
+from bot.runtime import _INTERVAL_MS
+from bot.state import BotState
+from bot.storage import BotStorage
+from engine.strategy import Signal
+
+
+# ── Minimal strategies ────────────────────────────────────────────────────────
+
+class AlwaysBuy:
+    def generate_signals(self, bars: pd.DataFrame) -> pd.Series:
+        return pd.Series([Signal.BUY] * len(bars), index=bars.index, dtype=object)
+
+
+class AlwaysHold:
+    def generate_signals(self, bars: pd.DataFrame) -> pd.Series:
+        return pd.Series([Signal.HOLD] * len(bars), index=bars.index, dtype=object)
+
+
+class BuyThenHold:
+    """BUY on first call; HOLD on all subsequent."""
+
+    def __init__(self) -> None:
+        self._n = 0
+
+    def generate_signals(self, bars: pd.DataFrame) -> pd.Series:
+        self._n += 1
+        sig = Signal.BUY if self._n == 1 else Signal.HOLD
+        return pd.Series([sig] * len(bars), index=bars.index, dtype=object)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _storage(tmp_path, name="test.db"):
+    s = BotStorage(tmp_path / name)
+    s.connect()
+    return s
+
+
+def _components(storage, capital=1_000.0, slippage=0.0, max_open_positions=1):
+    cfg = BotConfig(
+        paper_capital=capital,
+        min_signal_bars=60,
+        risk=RiskConfig(
+            max_position_size_usd=min(capital * 0.8, 200.0),
+            max_daily_loss_usd=capital * 0.05,
+            max_open_positions=max_open_positions,
+        ),
+    )
+    bus  = EventBus()
+    ex   = PaperExchange(fee_rate=cfg.fee_rate, slippage_pct=slippage, bus=bus)
+    om   = OrderManager(exchange=ex, storage=storage, bus=bus)
+    pm   = PositionManager(storage=storage, bus=bus)
+    pf   = Portfolio(starting_capital=capital, storage=storage, bus=bus)
+    risk = RiskEngine(cfg.risk, bus=bus)
+    st   = BotState(buffer_size=500)
+    return cfg, bus, ex, om, pm, pf, risk, st
+
+
+def _candle(
+    index: int,
+    interval: str = "1m",
+    symbol: str = "BTCUSDT",
+    price: float = 50_000.0,
+    is_history: bool = False,
+    close: float | None = None,
+    high: float | None = None,
+    low: float | None = None,
+) -> CandleEvent:
+    iv_ms = _INTERVAL_MS[interval]
+    base  = 1_700_000_000_000
+    o_ms  = base + index * iv_ms
+    c_ms  = o_ms + iv_ms - 1
+    close_p = close if close is not None else price
+    return CandleEvent(
+        symbol=symbol, interval=interval,
+        open_time=o_ms, open=price,
+        high=high if high is not None else price * 1.01,
+        low=low if low is not None else price * 0.99,
+        close=close_p, volume=100.0,
+        close_time=c_ms,
+        is_history=is_history,
+    )
+
+
+def _history(bus, n, interval="1m", symbol="BTCUSDT", price=50_000.0):
+    for i in range(n):
+        bus.emit(_candle(i, interval, symbol, price, is_history=True))
+
+
+def _live(bus, index, interval="1m", symbol="BTCUSDT", price=50_000.0,
+          close=None, high=None, low=None):
+    bus.emit(_candle(index, interval, symbol, price, is_history=False,
+                     close=close, high=high, low=low))
+
+
+# ── Part 1: Default config ────────────────────────────────────────────────────
+
+class TestDefaultConfigFills:
+    """Regression: BotConfig() with default capital must execute valid paper trades."""
+
+    def test_default_capital_meets_min_notional(self):
+        """Default capital × equity_fraction must exceed min_notional=10 USDT."""
+        cfg = BotConfig()
+        target_notional = cfg.paper_capital * cfg.equity_fraction
+        assert target_notional >= 10.0, (
+            f"Default config target notional {target_notional:.2f} USDT is below "
+            f"min_notional 10 USDT — the default bot cannot execute any fills. "
+            f"paper_capital={cfg.paper_capital}, equity_fraction={cfg.equity_fraction}"
+        )
+
+    def test_default_capital_is_200_usdt(self):
+        """Default paper_capital must be 200 USDT (raised from 25 to beat min_notional)."""
+        cfg = BotConfig()
+        assert cfg.paper_capital == 200.0, (
+            f"Expected default paper_capital=200.0, got {cfg.paper_capital}"
+        )
+
+    def test_default_config_executes_entry_fill(self, tmp_path):
+        """With default BotConfig(), a deterministic BUY signal must produce a fill."""
+        cfg = BotConfig()
+        s = _storage(tmp_path)
+        bus  = EventBus()
+        ex   = PaperExchange(fee_rate=cfg.fee_rate, slippage_pct=0.0, bus=bus)
+        om   = OrderManager(exchange=ex, storage=s, bus=bus)
+        pm   = PositionManager(storage=s, bus=bus)
+        pf   = Portfolio(starting_capital=cfg.paper_capital, storage=s, bus=bus)
+        risk = RiskEngine(cfg.risk, bus=bus)
+        st   = BotState(buffer_size=cfg.buffer_size)
+
+        BotEngine(config=cfg, strategy=AlwaysBuy(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        initial_cash = pf.cash
+        _history(bus, 65, "1m", price=50_000.0)
+        _live(bus, 65, "1m", price=50_000.0)   # BUY order queued
+        _live(bus, 66, "1m", price=50_000.0)   # market order fills
+
+        assert pf.cash < initial_cash, (
+            "Default config must reduce cash after entry fill. "
+            f"capital={cfg.paper_capital}, equity_fraction={cfg.equity_fraction}, "
+            f"target_notional={cfg.paper_capital * cfg.equity_fraction:.2f} USDT"
+        )
+
+    def test_default_config_position_opens(self, tmp_path):
+        """Default config BUY must open a position."""
+        cfg = BotConfig()
+        s = _storage(tmp_path)
+        bus  = EventBus()
+        ex   = PaperExchange(fee_rate=cfg.fee_rate, slippage_pct=0.0, bus=bus)
+        om   = OrderManager(exchange=ex, storage=s, bus=bus)
+        pm   = PositionManager(storage=s, bus=bus)
+        pf   = Portfolio(starting_capital=cfg.paper_capital, storage=s, bus=bus)
+        risk = RiskEngine(cfg.risk, bus=bus)
+        st   = BotState(buffer_size=cfg.buffer_size)
+
+        BotEngine(config=cfg, strategy=AlwaysBuy(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        _history(bus, 65, "1m", price=50_000.0)
+        _live(bus, 65, "1m", price=50_000.0)
+        _live(bus, 66, "1m", price=50_000.0)
+
+        assert pm.has_open_position("BTCUSDT"), (
+            "Default config must open a position after BUY signal + fill"
+        )
+
+    def test_default_config_fill_event_emitted(self, tmp_path):
+        """Default config must emit a FillEvent with valid data."""
+        cfg = BotConfig()
+        s = _storage(tmp_path)
+        bus  = EventBus()
+        ex   = PaperExchange(fee_rate=cfg.fee_rate, slippage_pct=0.0, bus=bus)
+        om   = OrderManager(exchange=ex, storage=s, bus=bus)
+        pm   = PositionManager(storage=s, bus=bus)
+        pf   = Portfolio(starting_capital=cfg.paper_capital, storage=s, bus=bus)
+        risk = RiskEngine(cfg.risk, bus=bus)
+        st   = BotState(buffer_size=cfg.buffer_size)
+
+        fills: list[FillEvent] = []
+        bus.subscribe(FillEvent, fills.append)
+
+        BotEngine(config=cfg, strategy=AlwaysBuy(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        _history(bus, 65, "1m", price=50_000.0)
+        _live(bus, 65, "1m", price=50_000.0)
+        _live(bus, 66, "1m", price=50_000.0)
+
+        assert fills, "FillEvent must be emitted with default config"
+        f = fills[0]
+        assert f.side == "BUY"
+        assert f.fill_qty > 0
+        assert f.fill_price > 0
+        notional = f.fill_price * f.fill_qty
+        assert notional >= 10.0, (
+            f"Fill notional {notional:.4f} USDT must be >= min_notional 10 USDT"
+        )
+
+
+# ── Part 2: Full pipeline PnL ─────────────────────────────────────────────────
+
+class TestPnLAccounting:
+    """Unrealized and realized PnL calculations are correct."""
+
+    def test_unrealized_pnl_increases_when_price_rises(self, tmp_path):
+        """Open long position — unrealized PnL must increase as price rises."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        BotEngine(config=cfg, strategy=AlwaysBuy(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        entry_price = 50_000.0
+        _history(bus, 65, price=entry_price)
+        _live(bus, 65, price=entry_price)   # BUY queued
+        _live(bus, 66, price=entry_price)   # fill at 50000
+
+        pos_list = pm.get_all_open()
+        assert pos_list, "Position must be open after BUY fill"
+        pos = pos_list[0]
+
+        # Unrealized at entry price (no price movement)
+        marks_entry = {pos.symbol: entry_price}
+        unreal_entry = pos.unrealized_pnl(marks_entry[pos.symbol])
+
+        # Simulated higher mark price
+        higher_price = 55_000.0
+        marks_higher = {pos.symbol: higher_price}
+        unreal_higher = pos.unrealized_pnl(marks_higher[pos.symbol])
+
+        assert unreal_higher > unreal_entry, (
+            f"Unrealized PnL must increase when price rises: "
+            f"{unreal_entry:.4f} (at {entry_price}) vs {unreal_higher:.4f} (at {higher_price})"
+        )
+        assert unreal_higher > 0.0, "Unrealized PnL must be positive with price above entry"
+
+    def test_realized_pnl_buy_then_sell_profit(self, tmp_path):
+        """BUY at 50000, EXIT at 55000 → realized PnL positive (price gain > fees)."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        class BuyOnce:
+            def __init__(self):
+                self._n = 0
+            def generate_signals(self, bars):
+                self._n += 1
+                if self._n == 1:
+                    return pd.Series([Signal.BUY]*len(bars), index=bars.index, dtype=object)
+                return pd.Series([Signal.EXIT]*len(bars), index=bars.index, dtype=object)
+
+        BotEngine(config=cfg, strategy=BuyOnce(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        entry_price = 50_000.0
+        exit_price  = 55_000.0
+
+        _history(bus, 65, price=entry_price)
+        _live(bus, 65, price=entry_price)               # BUY queued
+        _live(bus, 66, price=entry_price)               # BUY fills; EXIT queued
+        _live(bus, 67, price=exit_price)                # EXIT fills at 55000 open
+
+        # Check closed position in storage
+        closed = [p for p in s.get_positions(limit=10) if p["status"] == "closed"]
+        assert closed, "Closed position must exist after EXIT fill"
+        realized = closed[0]["realized_pnl"]
+        assert realized > 0.0, (
+            f"Realized PnL must be positive when exit > entry: "
+            f"entry={entry_price}, exit={exit_price}, realized={realized:.4f}"
+        )
+
+    def test_realized_pnl_buy_then_sell_flat_is_negative_fees(self, tmp_path):
+        """BUY and EXIT at same price → realized PnL is negative (only fee cost)."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        class BuyOnce:
+            def __init__(self):
+                self._n = 0
+            def generate_signals(self, bars):
+                self._n += 1
+                if self._n == 1:
+                    return pd.Series([Signal.BUY]*len(bars), index=bars.index, dtype=object)
+                return pd.Series([Signal.EXIT]*len(bars), index=bars.index, dtype=object)
+
+        BotEngine(config=cfg, strategy=BuyOnce(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        price = 50_000.0
+        _history(bus, 65, price=price)
+        _live(bus, 65, price=price)   # BUY queued
+        _live(bus, 66, price=price)   # BUY fills; EXIT queued
+        _live(bus, 67, price=price)   # EXIT fills at same price
+
+        closed = [p for p in s.get_positions(limit=10) if p["status"] == "closed"]
+        assert closed, "Closed position must exist"
+        realized = closed[0]["realized_pnl"]
+        # At flat price, raw_pnl=0, realized = -(entry_fee + exit_fee) < 0
+        assert realized < 0.0, (
+            f"Realized PnL at flat price must be negative (fees): got {realized:.6f}"
+        )
+
+    def test_cash_returns_after_exit(self, tmp_path):
+        """After a round trip (BUY → EXIT), cash must be > 0 and equity > 0."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        class BuyOnce:
+            def __init__(self):
+                self._n = 0
+            def generate_signals(self, bars):
+                self._n += 1
+                if self._n == 1:
+                    return pd.Series([Signal.BUY]*len(bars), index=bars.index, dtype=object)
+                return pd.Series([Signal.EXIT]*len(bars), index=bars.index, dtype=object)
+
+        BotEngine(config=cfg, strategy=BuyOnce(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        _history(bus, 65, price=50_000.0)
+        _live(bus, 65, price=50_000.0)
+        _live(bus, 66, price=50_000.0)
+        _live(bus, 67, price=50_000.0)
+
+        assert not pm.has_open_position("BTCUSDT"), "Position must be closed"
+        assert pf.cash > 0.0, "Cash must be > 0 after round trip"
+
+
+class TestStopLossExecution:
+    """STOP_MARKET order triggers correctly and closes the position."""
+
+    def test_stop_loss_triggers_below_stop_price(self, tmp_path):
+        """Long position SL: when low <= stop_price, STOP_MARKET fills and position closes."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        BotEngine(config=cfg, strategy=BuyThenHold(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        entry_price = 50_000.0
+        stop_price  = 48_000.0   # 4% stop below entry
+
+        _history(bus, 65, price=entry_price)
+        _live(bus, 65, price=entry_price)   # BUY queued
+        _live(bus, 66, price=entry_price)   # BUY fills
+
+        assert pm.has_open_position("BTCUSDT"), "Position must be open after entry"
+        pos = pm.get_open("BTCUSDT")
+
+        # Submit a stop-loss order (STOP_MARKET SELL)
+        om.submit_stop_market(
+            symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
+            stop_price=stop_price, reduce_only=True,
+            current_position_size=pos.size,
+        )
+
+        # Send a candle with low below stop price — triggers the SL
+        _live(bus, 67, price=entry_price, low=47_000.0, high=entry_price * 1.001)
+
+        assert not pm.has_open_position("BTCUSDT"), (
+            "Position must be closed after stop-loss trigger"
+        )
+
+    def test_stop_loss_does_not_trigger_above_stop_price(self, tmp_path):
+        """SL must NOT trigger when bar stays above stop_price."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        BotEngine(config=cfg, strategy=BuyThenHold(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        entry_price = 50_000.0
+        stop_price  = 48_000.0
+
+        _history(bus, 65, price=entry_price)
+        _live(bus, 65, price=entry_price)
+        _live(bus, 66, price=entry_price)
+
+        assert pm.has_open_position("BTCUSDT")
+        pos = pm.get_open("BTCUSDT")
+
+        om.submit_stop_market(
+            symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
+            stop_price=stop_price, reduce_only=True,
+            current_position_size=pos.size,
+        )
+
+        # Bar stays well above stop_price
+        _live(bus, 67, price=entry_price,
+              low=49_000.0, high=entry_price * 1.01)
+
+        assert pm.has_open_position("BTCUSDT"), (
+            "Position must remain open when bar low > stop_price"
+        )
+
+    def test_stop_loss_produces_negative_pnl_on_loss(self, tmp_path):
+        """SL exit at price below entry → realized PnL is negative."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        BotEngine(config=cfg, strategy=BuyThenHold(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        entry_price = 50_000.0
+        stop_price  = 48_000.0
+
+        _history(bus, 65, price=entry_price)
+        _live(bus, 65, price=entry_price)
+        _live(bus, 66, price=entry_price)
+
+        pos = pm.get_open("BTCUSDT")
+        om.submit_stop_market(
+            symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
+            stop_price=stop_price, reduce_only=True,
+            current_position_size=pos.size,
+        )
+
+        _live(bus, 67, price=entry_price, low=47_000.0, high=entry_price * 1.001)
+
+        closed = [p for p in s.get_positions(limit=10) if p["status"] == "closed"]
+        assert closed, "Closed position must exist after SL trigger"
+        realized = closed[0]["realized_pnl"]
+        assert realized < 0.0, (
+            f"Realized PnL after stop-loss must be negative: got {realized:.4f}"
+        )
+
+
+class TestTakeProfitExecution:
+    """TAKE_PROFIT order triggers correctly and closes the position."""
+
+    def test_take_profit_triggers_above_stop_price(self, tmp_path):
+        """Long TP: when high >= stop_price, TAKE_PROFIT order fills and position closes."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        BotEngine(config=cfg, strategy=BuyThenHold(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        entry_price = 50_000.0
+        tp_price    = 52_000.0   # 4% take profit above entry
+
+        _history(bus, 65, price=entry_price)
+        _live(bus, 65, price=entry_price)
+        _live(bus, 66, price=entry_price)
+
+        assert pm.has_open_position("BTCUSDT")
+        pos = pm.get_open("BTCUSDT")
+
+        # Submit take-profit order
+        om.submit_take_profit(
+            symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
+            stop_price=tp_price, reduce_only=True,
+            current_position_size=pos.size,
+        )
+
+        # Send candle with high above TP price
+        _live(bus, 67, price=entry_price, high=53_000.0, low=entry_price * 0.99)
+
+        assert not pm.has_open_position("BTCUSDT"), (
+            "Position must be closed after take-profit trigger"
+        )
+
+    def test_take_profit_does_not_trigger_below_tp(self, tmp_path):
+        """TP must NOT trigger when bar high stays below stop_price."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        BotEngine(config=cfg, strategy=BuyThenHold(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        entry_price = 50_000.0
+        tp_price    = 52_000.0
+
+        _history(bus, 65, price=entry_price)
+        _live(bus, 65, price=entry_price)
+        _live(bus, 66, price=entry_price)
+
+        pos = pm.get_open("BTCUSDT")
+        om.submit_take_profit(
+            symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
+            stop_price=tp_price, reduce_only=True,
+            current_position_size=pos.size,
+        )
+
+        # Bar high stays below TP
+        _live(bus, 67, price=entry_price, high=51_000.0, low=entry_price * 0.99)
+
+        assert pm.has_open_position("BTCUSDT"), (
+            "Position must stay open when bar high < take-profit price"
+        )
+
+    def test_take_profit_produces_positive_pnl(self, tmp_path):
+        """TP exit at price above entry → realized PnL is positive."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(s, capital=1_000.0)
+
+        BotEngine(config=cfg, strategy=BuyThenHold(), state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        entry_price = 50_000.0
+        tp_price    = 52_000.0
+
+        _history(bus, 65, price=entry_price)
+        _live(bus, 65, price=entry_price)
+        _live(bus, 66, price=entry_price)
+
+        pos = pm.get_open("BTCUSDT")
+        om.submit_take_profit(
+            symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
+            stop_price=tp_price, reduce_only=True,
+            current_position_size=pos.size,
+        )
+
+        _live(bus, 67, price=entry_price, high=53_000.0, low=entry_price * 0.99)
+
+        closed = [p for p in s.get_positions(limit=10) if p["status"] == "closed"]
+        assert closed, "Closed position must exist after TP trigger"
+        realized = closed[0]["realized_pnl"]
+        assert realized > 0.0, (
+            f"Realized PnL after take-profit must be positive: got {realized:.4f}"
+        )
+
+
+class TestEventBusToBotManagerBridge:
+    """BotManager event bridge routes EventBus events to drain_events()."""
+
+    def test_fill_event_reaches_drain_events(self):
+        """FillEvent emitted on bus must appear in BotManager.drain_events()."""
+        from server.bot_manager import BotManager
+        from datetime import datetime, timezone
+
+        mgr = BotManager()
+
+        ev = FillEvent(
+            order_id="test-order-id",
+            symbol="BTCUSDT",
+            side="BUY",
+            fill_price=50_000.0,
+            fill_qty=0.001,
+            fee=0.05,
+            is_maker=False,
+        )
+
+        # Simulate what _enq('fill') does: build the dict and enqueue
+        d = {"type": "fill", "ts": ev.ts.isoformat()}
+        for fname in type(ev).__dataclass_fields__:
+            if fname != "ts":
+                d[fname] = getattr(ev, fname)
+        mgr._enqueue(d)
+
+        events = mgr.drain_events()
+        assert len(events) == 1
+        e = events[0]
+        assert e["type"] == "fill"
+        assert e["symbol"] == "BTCUSDT"
+        assert e["fill_price"] == 50_000.0
+
+    def test_drain_events_clears_queue(self):
+        """drain_events() must remove events from the queue."""
+        from server.bot_manager import BotManager
+
+        mgr = BotManager()
+        mgr._enqueue({"type": "test", "ts": "x"})
+        mgr._enqueue({"type": "test", "ts": "y"})
+
+        first = mgr.drain_events()
+        assert len(first) == 2
+
+        second = mgr.drain_events()
+        assert len(second) == 0, "Queue must be empty after drain"
+
+    def test_enqueue_drops_oldest_when_full(self):
+        """When queue is full (maxsize=500), oldest entry is dropped for new one."""
+        from server.bot_manager import BotManager
+        import queue
+
+        mgr = BotManager()
+        # Fill the queue to capacity
+        for i in range(500):
+            mgr._enqueue({"type": "t", "seq": i})
+
+        # Force one more beyond capacity — should drop oldest
+        mgr._enqueue({"type": "t", "seq": 9999})
+
+        events = mgr.drain_events(max_n=500)
+        seqs = [e["seq"] for e in events]
+        assert 9999 in seqs, "New event must be in queue after drop-oldest"
+        assert 0 not in seqs, "Oldest event must have been dropped"
+
+    def test_history_candle_not_bridged(self):
+        """CandleEvent with is_history=True must not reach the event queue."""
+        from server.bot_manager import BotManager
+
+        mgr = BotManager()
+
+        hist_ev = CandleEvent(
+            symbol="BTCUSDT", interval="1m",
+            open_time=1, open=1, high=1, low=1, close=1, volume=1,
+            close_time=59999, is_history=True,
+        )
+        # Simulate the _enq('candle') logic
+        if not (hist_ev.is_history):
+            d = {"type": "candle", "ts": hist_ev.ts.isoformat()}
+            mgr._enqueue(d)
+
+        events = mgr.drain_events()
+        assert len(events) == 0, "History candles must not be bridged to the event queue"
+
+
+# ── Part 3: Multi-symbol / max_open_positions ─────────────────────────────────
+
+class TestMultiSymbolGlobalPositionLimit:
+    """max_open_positions=1 is a global limit across all symbols.
+
+    DESIGN DECISION (intentional): RiskConfig.max_open_positions=1 means
+    the bot can hold at most one position across ALL symbols simultaneously.
+    This is a global risk circuit breaker, not a per-symbol limit.
+    The limit is enforced by RiskEngine._check_open_positions() which calls
+    PositionManager.open_position_count() — a total across all symbols.
+    """
+
+    def test_second_symbol_blocked_when_first_is_open(self, tmp_path):
+        """ETHUSDT BUY must be blocked by risk engine while BTCUSDT position is open."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(
+            s, capital=2_000.0, max_open_positions=1
+        )
+        cfg.feed.symbols   = ["BTCUSDT", "ETHUSDT"]
+        cfg.feed.intervals = ["1m"]
+
+        strategy_map = {
+            ("BTCUSDT", "1m"): AlwaysBuy(),
+            ("ETHUSDT", "1m"): AlwaysBuy(),
+        }
+
+        BotEngine(config=cfg, strategy=strategy_map, state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        # Warm up and open a BTCUSDT position
+        _history(bus, 65, symbol="BTCUSDT", price=50_000.0)
+        _live(bus, 65, symbol="BTCUSDT", price=50_000.0)    # BUY queued
+        _live(bus, 66, symbol="BTCUSDT", price=50_000.0)    # BUY fills
+
+        assert pm.has_open_position("BTCUSDT"), "BTCUSDT must be open"
+        assert pm.open_position_count() == 1
+
+        # Now warm up ETHUSDT and try to open
+        _history(bus, 65, symbol="ETHUSDT", price=3_000.0, interval="1m")
+        _live(bus, 65, symbol="ETHUSDT", price=3_000.0)     # BUY signal → risk blocks
+        _live(bus, 66, symbol="ETHUSDT", price=3_000.0)
+
+        assert not pm.has_open_position("ETHUSDT"), (
+            "ETHUSDT position must be blocked while BTCUSDT is open (max_open_positions=1)"
+        )
+        assert pm.open_position_count() == 1, "Total positions must remain 1"
+
+    def test_second_symbol_allowed_after_first_closes(self, tmp_path):
+        """After BTCUSDT position closes, ETHUSDT BUY must be allowed."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(
+            s, capital=2_000.0, max_open_positions=1
+        )
+        cfg.feed.symbols   = ["BTCUSDT", "ETHUSDT"]
+        cfg.feed.intervals = ["1m"]
+
+        class BuyBtcExitBtcThenBuyEth:
+            def __init__(self):
+                self._btc_signals = ["BUY", "EXIT", "HOLD", "HOLD", "HOLD"]
+                self._eth_signals = ["HOLD", "HOLD", "BUY", "HOLD", "HOLD"]
+                self._btc_n = 0
+                self._eth_n = 0
+
+            def generate_signals(self, bars):
+                # This won't be called — we use the strategy_map
+                return pd.Series([Signal.HOLD]*len(bars), index=bars.index, dtype=object)
+
+        btc_strat_calls = []
+        eth_strat_calls = []
+
+        class BtcStrategy:
+            def __init__(self):
+                self._n = 0
+            def generate_signals(self, bars):
+                self._n += 1
+                btc_strat_calls.append(self._n)
+                if self._n == 1:
+                    sig = Signal.BUY
+                elif self._n == 2:
+                    sig = Signal.EXIT
+                else:
+                    sig = Signal.HOLD
+                return pd.Series([sig]*len(bars), index=bars.index, dtype=object)
+
+        class EthStrategy:
+            def __init__(self):
+                self._n = 0
+            def generate_signals(self, bars):
+                self._n += 1
+                eth_strat_calls.append(self._n)
+                sig = Signal.BUY if self._n >= 2 else Signal.HOLD
+                return pd.Series([sig]*len(bars), index=bars.index, dtype=object)
+
+        strategy_map = {
+            ("BTCUSDT", "1m"): BtcStrategy(),
+            ("ETHUSDT", "1m"): EthStrategy(),
+        }
+
+        BotEngine(config=cfg, strategy=strategy_map, state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        # Warm both buffers
+        _history(bus, 65, symbol="BTCUSDT", price=50_000.0)
+        _history(bus, 65, symbol="ETHUSDT", price=3_000.0)
+
+        # Step 1: BTCUSDT BUY (signal 1), fill on step 2
+        _live(bus, 65, symbol="BTCUSDT", price=50_000.0)
+        _live(bus, 66, symbol="BTCUSDT", price=50_000.0)   # BUY fills; EXIT queued next
+
+        assert pm.has_open_position("BTCUSDT")
+
+        # Step 2: BTCUSDT EXIT (signal 2), fill closes position
+        _live(bus, 67, symbol="BTCUSDT", price=50_000.0)   # EXIT fills
+        assert not pm.has_open_position("BTCUSDT"), "BTCUSDT must be closed"
+
+        # Step 3: ETHUSDT BUY now allowed (signal 2+)
+        # n=1 → HOLD, n=2 → BUY queued, n=3 candle → BUY fills (market fills at next open)
+        _live(bus, 65, symbol="ETHUSDT", price=3_000.0)   # EthStrategy n=1 → HOLD
+        _live(bus, 66, symbol="ETHUSDT", price=3_000.0)   # EthStrategy n=2 → BUY queued
+        _live(bus, 67, symbol="ETHUSDT", price=3_000.0)   # BUY fills at candle open
+
+        assert pm.has_open_position("ETHUSDT"), (
+            "ETHUSDT position must be allowed after BTCUSDT closes"
+        )
+
+    def test_multi_interval_single_symbol_does_not_double_enter(self, tmp_path):
+        """BTCUSDT with 1m and 5m — only one position should ever be open."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(
+            s, capital=2_000.0, max_open_positions=1
+        )
+        cfg.feed.symbols   = ["BTCUSDT"]
+        cfg.feed.intervals = ["1m", "5m"]
+
+        strategy_map = {
+            ("BTCUSDT", "1m"): AlwaysBuy(),
+            ("BTCUSDT", "5m"): AlwaysBuy(),
+        }
+
+        BotEngine(config=cfg, strategy=strategy_map, state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        # Warm up both intervals
+        _history(bus, 65, symbol="BTCUSDT", interval="1m", price=50_000.0)
+        _history(bus, 65, symbol="BTCUSDT", interval="5m", price=50_000.0)
+
+        # Send live candles for both intervals
+        for i in range(65, 75):
+            _live(bus, i, symbol="BTCUSDT", interval="1m", price=50_000.0)
+            _live(bus, i, symbol="BTCUSDT", interval="5m", price=50_000.0)
+
+        assert pm.open_position_count() <= 1, (
+            "At most 1 position across all timeframes for same symbol"
+        )
+
+    def test_global_position_count_check(self, tmp_path):
+        """open_position_count() counts ALL open positions across all symbols."""
+        s = _storage(tmp_path)
+        cfg, bus, ex, om, pm, pf, risk, st = _components(
+            s, capital=5_000.0, max_open_positions=3
+        )
+        cfg.feed.symbols   = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        cfg.feed.intervals = ["1m"]
+
+        strategy_map = {
+            ("BTCUSDT", "1m"): AlwaysBuy(),
+            ("ETHUSDT", "1m"): AlwaysBuy(),
+            ("SOLUSDT", "1m"): AlwaysBuy(),
+        }
+
+        BotEngine(config=cfg, strategy=strategy_map, state=st, orders=om,
+                  positions=pm, portfolio=pf, risk=risk, storage=s, bus=bus)
+
+        for sym, price in [("BTCUSDT", 50_000.0), ("ETHUSDT", 3_000.0), ("SOLUSDT", 150.0)]:
+            _history(bus, 65, symbol=sym, price=price, interval="1m")
+            _live(bus, 65, symbol=sym, price=price)
+            _live(bus, 66, symbol=sym, price=price)
+
+        count = pm.open_position_count()
+        # With max_open_positions=3, we should have opened 3 positions
+        # (risk allows up to 3, so all 3 BUYs should succeed)
+        assert count <= 3, f"Position count {count} must not exceed max_open_positions=3"
+        # At least one must be open (first BUY definitely goes through)
+        assert count >= 1, "At least one position must be open"

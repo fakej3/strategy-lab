@@ -33,7 +33,7 @@ class RiskConfig:
 
     max_risk_pct: float           = 0.01     # 1% of equity at risk per trade
     max_position_size_usd: float  = 20.0     # max notional per position
-    max_daily_loss_usd: float     = 1.25     # 5% of 25 USDT starting capital
+    max_daily_loss_usd: float     = 10.0     # 5% of 200 USDT starting capital
     max_drawdown_pct: float       = 0.20     # halt if drawdown exceeds 20%
     max_leverage: float           = 1.0      # no leverage
     max_open_positions: int       = 1
@@ -46,7 +46,7 @@ class BotConfig:
     """Master configuration for the paper trading bot."""
 
     # ── Capital ──────────────────────────────────────────────────────────────
-    paper_capital: float  = 25.0
+    paper_capital: float  = 200.0
     fee_rate: float       = 0.001      # Binance taker fee (0.1%)
     slippage_pct: float   = 0.0005     # 0.05% simulated slippage per side
     maker_fee_rate: float = 0.0009     # cheaper for limit orders
@@ -96,7 +96,7 @@ class BotConfig:
     @classmethod
     def from_env(cls) -> "BotConfig":
         """Build a config from environment variables (useful for Docker/systemd)."""
-        capital = float(os.environ.get("BOT_CAPITAL", "25"))
+        capital = float(os.environ.get("BOT_CAPITAL", "200"))
         return cls(
             paper_capital    = capital,
             fee_rate         = float(os.environ.get("BOT_FEE_RATE", "0.001")),
