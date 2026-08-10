@@ -65,11 +65,12 @@ TIF_FOK = "FOK"
 
 @dataclass
 class SymbolRules:
-    """Per-symbol exchange filter rules.
+    """Per-symbol exchange filter rules (LOT_SIZE, MIN_NOTIONAL, PRICE_FILTER).
 
-    These values are currently hard-coded to Binance BTCUSDT defaults.
-    Future work: fetch from Binance exchangeInfo endpoint and populate a
-    registry keyed by symbol so each symbol gets the correct values.
+    Each tradeable symbol must have an explicit entry in BUILTIN_SYMBOL_RULES
+    or must be registered at startup via PaperExchange.register_symbol_rules().
+    Unknown symbols log a WARNING and fall back to the BTCUSDT defaults — this
+    is intentionally loud so missing symbol configuration is caught early.
     """
     min_notional: float = 10.0    # USDT minimum order notional
     min_qty:      float = 0.00001  # base currency minimum quantity
@@ -77,7 +78,8 @@ class SymbolRules:
     tick_size:    float = 0.01     # quote currency price precision
 
 
-# Default rules (BTCUSDT).  Retrieved via PaperExchange.get_symbol_rules().
+# Default rules (BTCUSDT-equivalent).  Used as last-resort fallback only.
+# Prefer explicit registration via BUILTIN_SYMBOL_RULES or register_symbol_rules().
 _DEFAULT_RULES = SymbolRules()
 
 # Module-level aliases kept for backward compatibility with tests/imports.
@@ -85,6 +87,66 @@ MIN_NOTIONAL = _DEFAULT_RULES.min_notional
 MIN_QTY      = _DEFAULT_RULES.min_qty
 QTY_STEP     = _DEFAULT_RULES.qty_step
 TICK_SIZE    = _DEFAULT_RULES.tick_size
+
+# Built-in per-symbol rules for common symbols.  Approximates Binance spot
+# LOT_SIZE and PRICE_FILTER values.  Add a new entry here whenever a new symbol
+# is used in production so no silent BTCUSDT-fallback warnings fire at runtime.
+#
+# Design note on qty_step for engine compatibility:
+#   The live BotEngine sizes orders via round(notional/price, qty_precision=5),
+#   which produces up to 5 decimal places (multiples of 0.00001).  Any symbol
+#   that may be processed by the live engine must therefore have
+#   qty_step = 0.00001 to guarantee step-valid quantities.  Symbols used only in
+#   isolated exchange tests (e.g. SNDKUSDT) may carry larger step sizes to
+#   demonstrate per-symbol rule isolation.
+BUILTIN_SYMBOL_RULES: dict[str, SymbolRules] = {
+    # Engine-compatible symbols: qty_step=0.00001; differ by min_qty / tick_size
+    "BTCUSDT":  SymbolRules(min_notional=10.0, min_qty=0.00001, qty_step=0.00001, tick_size=0.01),
+    "ETHUSDT":  SymbolRules(min_notional=10.0, min_qty=0.0001,  qty_step=0.00001, tick_size=0.01),
+    "XAUUSDT":  SymbolRules(min_notional=10.0, min_qty=0.001,   qty_step=0.00001, tick_size=0.01),
+    "XAGUSDT":  SymbolRules(min_notional=10.0, min_qty=0.01,    qty_step=0.00001, tick_size=0.001),
+    "BNBUSDT":  SymbolRules(min_notional=10.0, min_qty=0.001,   qty_step=0.00001, tick_size=0.01),
+    "SOLUSDT":  SymbolRules(min_notional=10.0, min_qty=0.001,   qty_step=0.00001, tick_size=0.01),
+    "XRPUSDT":  SymbolRules(min_notional=10.0, min_qty=0.01,    qty_step=0.00001, tick_size=0.0001),
+    # Isolated-test symbols: larger step sizes; not used in live engine scenarios
+    "ADAUSDT":  SymbolRules(min_notional=10.0, min_qty=1.0,     qty_step=1.0,     tick_size=0.0001),
+    "DOGEUSDT": SymbolRules(min_notional=10.0, min_qty=1.0,     qty_step=1.0,     tick_size=0.00001),
+    "SNDKUSDT": SymbolRules(min_notional=10.0, min_qty=1.0,     qty_step=1.0,     tick_size=0.0001),
+}
+
+
+def validate_symbol_registration(
+    symbols: list[str],
+    exchange: "PaperExchange | None" = None,
+) -> list[str]:
+    """Return symbols that have no explicit rules configured.
+
+    A symbol is considered "configured" if it appears in BUILTIN_SYMBOL_RULES
+    or has been registered on *exchange* via register_symbol_rules().  Symbols
+    that are neither will trigger a WARNING fallback at order-submission time.
+
+    Use this at startup::
+
+        unknown = validate_symbol_registration(cfg.symbols, paper_exchange)
+        if unknown:
+            raise ValueError(f"No symbol rules for: {unknown}")
+
+    Args:
+        symbols:  List of symbols to check.
+        exchange: If provided, also checks symbols registered on this exchange instance.
+
+    Returns:
+        List of symbol strings that have no rules configured.  Empty list
+        means all symbols have explicit rules and no fallback warnings will fire.
+    """
+    unknown = []
+    for sym in symbols:
+        if exchange is not None and sym in exchange._symbol_rules:
+            continue
+        if sym in BUILTIN_SYMBOL_RULES:
+            continue
+        unknown.append(sym)
+    return unknown
 
 
 # ── Order record ───────────────────────────────────────────────────────────────
@@ -200,8 +262,25 @@ class PaperExchange(ExchangeAdapter):
         self._symbol_rules: dict[str, SymbolRules] = {}
 
     def get_symbol_rules(self, symbol: str) -> SymbolRules:
-        """Return exchange filter rules for *symbol*, falling back to defaults."""
-        return self._symbol_rules.get(symbol, _DEFAULT_RULES)
+        """Return exchange filter rules for *symbol*.
+
+        Lookup order:
+        1. Explicitly registered via register_symbol_rules() — highest priority.
+        2. Built-in rules from BUILTIN_SYMBOL_RULES.
+        3. Default (BTCUSDT-equivalent) rules — a WARNING is logged so that
+           missing symbol configuration is caught early rather than silently
+           applying BTC rules to a symbol that may have very different filters.
+        """
+        if symbol in self._symbol_rules:
+            return self._symbol_rules[symbol]
+        if symbol in BUILTIN_SYMBOL_RULES:
+            return BUILTIN_SYMBOL_RULES[symbol]
+        log.warning(
+            "No rules configured for symbol %s; using BTCUSDT defaults. "
+            "Add the symbol to BUILTIN_SYMBOL_RULES or call register_symbol_rules().",
+            symbol,
+        )
+        return _DEFAULT_RULES
 
     def register_symbol_rules(self, symbol: str, rules: SymbolRules) -> None:
         """Override per-symbol exchange rules (e.g. loaded from exchangeInfo)."""

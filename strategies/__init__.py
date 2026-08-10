@@ -1,3 +1,6 @@
 from .ema_crossover import EMACrossover
+from .registry import registry, StrategyRegistry
 
-__all__ = ["EMACrossover"]
+registry.register(EMACrossover)
+
+__all__ = ["EMACrossover", "registry", "StrategyRegistry"]

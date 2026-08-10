@@ -144,15 +144,17 @@ class BatchBacktest:
 
     def __init__(
         self,
-        symbols:          list[str],
-        intervals:        list[str],
-        strategy_class:   Type[StrategyBase],
-        params:           dict[str, Any],
-        bars:             dict[tuple[str, str], pd.DataFrame],
-        starting_capital: float = 100_000.0,
-        equity_fraction:  float = 0.10,
-        engine_config:    EngineConfig | None = None,
-        max_workers:      int = 1,
+        symbols:                list[str],
+        intervals:              list[str],
+        strategy_class:         Type[StrategyBase],
+        params:                 dict[str, Any],
+        bars:                   dict[tuple[str, str], pd.DataFrame],
+        starting_capital:       float = 100_000.0,
+        equity_fraction:        float = 0.10,
+        engine_config:          EngineConfig | None = None,
+        max_workers:            int = 1,
+        max_open_positions:     int = 0,
+        max_total_exposure_usd: float = 0.0,
     ) -> None:
         """Initialise a batch backtest.
 
@@ -162,6 +164,10 @@ class BatchBacktest:
                 parallelise with a ProcessPool.  Use ``BatchBacktest.AUTO`` (0)
                 for automatic selection: sequential when total pairs < 4,
                 ProcessPool with min(pairs, cpu_count) workers otherwise.
+            max_open_positions: Maximum number of simultaneous open positions in
+                the portfolio simulation (Phase 5).  0 = unlimited.
+            max_total_exposure_usd: Maximum total committed capital across all
+                open positions in the portfolio simulation.  0 = unlimited.
         """
         if not symbols:
             raise ValueError("symbols must be a non-empty list")
@@ -172,16 +178,18 @@ class BatchBacktest:
         if not (0.0 < equity_fraction <= 1.0):
             raise ValueError(f"equity_fraction must be in (0, 1], got {equity_fraction!r}")
 
-        self.symbols          = list(symbols)
-        self.intervals        = list(intervals)
-        self.strategy_class   = strategy_class
-        self.params           = dict(params)
-        self.bars             = bars
-        self.starting_capital = starting_capital
-        self.equity_fraction  = equity_fraction
-        self.engine_config    = engine_config or EngineConfig()
-        self._auto_mode       = (max_workers == self.AUTO)
-        self.max_workers      = 1 if self._auto_mode else max(1, max_workers)
+        self.symbols                = list(symbols)
+        self.intervals              = list(intervals)
+        self.strategy_class         = strategy_class
+        self.params                 = dict(params)
+        self.bars                   = bars
+        self.starting_capital       = starting_capital
+        self.equity_fraction        = equity_fraction
+        self.engine_config          = engine_config or EngineConfig()
+        self._auto_mode             = (max_workers == self.AUTO)
+        self.max_workers            = 1 if self._auto_mode else max(1, max_workers)
+        self.max_open_positions     = max(0, int(max_open_positions))
+        self.max_total_exposure_usd = max(0.0, float(max_total_exposure_usd))
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -278,10 +286,19 @@ class BatchBacktest:
     ) -> tuple[pd.Series, dict]:
         """Chronological trade replay through a shared capital pool.
 
-        Collects all trades from all per-pair runs, sorts them by entry_time,
-        and replays each through a single equity pool.  The actual position
-        size for each trade is determined by the current equity × equity_fraction
-        at the moment the trade is entered.
+        Each trade produces an ENTRY event (at entry_time) and an EXIT event
+        (at exit_time).  Events are sorted chronologically; EXIT events at
+        the same timestamp sort *before* ENTRY events so that capital freed
+        by a closing trade is available for same-bar new entries.
+
+        At ENTRY: equity × equity_fraction is committed to the position.
+            The equity pool is NOT updated — the position is still open and
+            its PnL is unrealised.
+        At EXIT: the scaled PnL is applied to equity.
+
+        This correctly handles overlapping positions.  With the old
+        entry-sorted approach, BTC's full PnL was baked into equity before
+        ETH entered — wrong when both positions were open simultaneously.
 
         Returns:
             (equity_curve, metrics_dict) — equity_curve is a pd.Series indexed
@@ -306,53 +323,79 @@ class BatchBacktest:
             )
             return empty, _zero_portfolio_metrics()
 
-        # Sort by entry_time (chronological replay)
-        tagged_trades.sort(key=lambda x: x[2].entry_time)
+        # Build ENTRY/EXIT event list.  Sort order within same timestamp:
+        # EXIT (0) before ENTRY (1) — free capital before committing.
+        events: list[tuple[int, datetime, str, int, str, str, PortfolioTrade]] = []
+        for idx, (sym, iv, trade) in enumerate(tagged_trades):
+            events.append((1, _ts(trade.entry_time), "ENTRY", idx, sym, iv, trade))
+            events.append((0, _ts(trade.exit_time),  "EXIT",  idx, sym, iv, trade))
+        events.sort(key=lambda e: (e[1], e[0]))
 
-        # Replay events through shared capital pool
         equity = self.starting_capital
         peak   = equity
-        equity_points: list[tuple[datetime, float]] = [
-            (_ts(tagged_trades[0][2].entry_time), equity)
-        ]
+        equity_points: list[tuple[datetime, float]] = [(events[0][1], equity)]
 
+        # idx → (committed_capital, actual_size, unit_size, trade)
+        open_trades: dict[int, tuple[float, float, float, PortfolioTrade]] = {}
         trade_pnls: list[float] = []
         n_winners  = 0
 
-        for sym, iv, trade in tagged_trades:
-            # Size position based on current equity at entry time
-            entry_price = trade.entry_price
-            if entry_price <= 0:
-                continue
+        for sort_ord, ts, ev_type, idx, sym, iv, trade in events:
+            if ev_type == "ENTRY":
+                entry_price = trade.entry_price
+                if entry_price <= 0:
+                    continue
 
-            actual_size = (equity * self.equity_fraction) / entry_price
-            if actual_size <= 0:
-                continue
+                committed = equity * self.equity_fraction
+                if committed <= 0:
+                    continue
 
-            # Scale pnl and fees linearly from unit-size run
-            # unit_run used size=1.0 (PortfolioConfig default position_size=1.0
-            # is overridden by PCT_OF_EQUITY runs; for FIXED_UNITS size=1.0 run,
-            # trade.size is the actual size used by that run)
-            unit_size = trade.size if trade.size > 0 else 1.0
+                if self.max_open_positions > 0 and len(open_trades) >= self.max_open_positions:
+                    log.debug(
+                        "Portfolio sim: skipping %s %s entry — max_open_positions=%d reached",
+                        sym, iv, self.max_open_positions,
+                    )
+                    continue
 
-            scale = actual_size / unit_size
-            actual_gross = trade.gross_pnl * scale
-            actual_fees  = (trade.entry_fee + trade.exit_fee) * scale
-            actual_net   = actual_gross - actual_fees
+                if self.max_total_exposure_usd > 0:
+                    current_exposure = sum(c for c, *_ in open_trades.values())
+                    if current_exposure + committed > self.max_total_exposure_usd:
+                        log.debug(
+                            "Portfolio sim: skipping %s %s entry — "
+                            "max_total_exposure_usd=%.2f would be exceeded",
+                            sym, iv, self.max_total_exposure_usd,
+                        )
+                        continue
 
-            equity += actual_net
-            trade_pnls.append(actual_net)
-            if actual_net > 0:
-                n_winners += 1
+                actual_size = committed / entry_price
+                unit_size   = trade.size if trade.size > 0 else 1.0
+                open_trades[idx] = (committed, actual_size, unit_size, trade)
 
-            if equity > peak:
-                peak = equity
+            else:  # EXIT
+                if idx not in open_trades:
+                    # Entry was skipped (capacity/exposure limit) — ignore exit.
+                    continue
 
-            equity_points.append((_ts(trade.exit_time), equity))
+                committed, actual_size, unit_size, orig_trade = open_trades.pop(idx)
+
+                scale        = actual_size / unit_size
+                actual_gross = orig_trade.gross_pnl * scale
+                actual_fees  = (orig_trade.entry_fee + orig_trade.exit_fee) * scale
+                actual_net   = actual_gross - actual_fees
+
+                equity += actual_net
+                if equity > peak:
+                    peak = equity
+
+                trade_pnls.append(actual_net)
+                if actual_net > 0:
+                    n_winners += 1
+
+                equity_points.append((ts, equity))
 
         # Build equity curve Series
-        times   = [pt[0] for pt in equity_points]
-        values  = [pt[1] for pt in equity_points]
+        times     = [pt[0] for pt in equity_points]
+        values    = [pt[1] for pt in equity_points]
         eq_series = pd.Series(values, index=pd.DatetimeIndex(times), dtype=float)
         eq_series = eq_series[~eq_series.index.duplicated(keep="last")]
         eq_series.sort_index(inplace=True)
@@ -364,10 +407,9 @@ class BatchBacktest:
         max_dd     = _max_drawdown(eq_series)
         win_rate   = n_winners / n_trades if n_trades > 0 else 0.0
 
-        # Sharpe / Sortino from per-trade returns
-        sharpe   = _sharpe_from_pnls(trade_pnls, self.starting_capital)
-        sortino  = _sortino_from_pnls(trade_pnls, self.starting_capital)
-        calmar   = total_ret / abs(max_dd) if max_dd < 0 else 0.0
+        sharpe  = _sharpe_from_pnls(trade_pnls, self.starting_capital)
+        sortino = _sortino_from_pnls(trade_pnls, self.starting_capital)
+        calmar  = total_ret / abs(max_dd) if max_dd < 0 else 0.0
 
         metrics = {
             "portfolio_total_return":  total_ret,
