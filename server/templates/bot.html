@@ -1082,6 +1082,19 @@ function timeStr(isoStr) {
 function el(id) { return document.getElementById(id); }
 function setText(id, v) { const e = el(id); if (e) e.textContent = v; }
 function setClass(id, cls) { const e = el(id); if (e) e.className = cls; }
+// Phase 7 Market Watch helpers — create/update individual span elements to avoid
+// innerHTML re-parsing cost when updating many rows on every tick.
+function _mkSpan(cls, txt) {
+  const s = document.createElement('span');
+  s.className   = cls;
+  s.textContent = txt;
+  return s;
+}
+function _setSpan(span, base, mod, txt) {
+  const want = mod ? base + ' ' + mod : base;
+  if (span.className   !== want) span.className   = want;
+  if (span.textContent !== txt)  span.textContent = txt;
+}
 
 /* ══════════════════════════════════════════════════════════════
    CANDLESTICK CHART  — execution monitor
@@ -1522,7 +1535,7 @@ class MarketWatch {
     const ivArr = Array.isArray(intervals) ? intervals : [intervals];
     this._active = (symbols.length && ivArr.length) ? symbols[0] + ':' + ivArr[0] : null;
     this._onSelect = onSelect;
-    // Event delegation — rows are re-rendered via innerHTML so direct listeners won't survive
+    // Event delegation — single listener on container, no per-row listeners needed
     this._el.addEventListener('click', e => {
       const row = e.target.closest('.mwrow');
       if (row && row.dataset.key) this._select(row.dataset.key);
@@ -1535,41 +1548,77 @@ class MarketWatch {
   _addRow(sym, iv) {
     const key = this._key(sym, iv);
     const div = document.createElement('div');
-    div.className = 'mwrow';
+    div.className = 'mwrow' + (key === this._active ? ' active' : '');
     div.dataset.key = key;
+
+    // Pre-create stable span elements — Phase 7: update via textContent/className,
+    // never via innerHTML, to avoid DOM re-parsing cost on every tick.
+    const spans = {
+      sym:   _mkSpan('mw-sym',   esc(sym)),
+      tf:    _mkSpan('mw-tf',    esc(iv)),
+      price: _mkSpan('mw-price', '—'),
+      sig:   _mkSpan('mw-sig',   '—'),
+      pos:   _mkSpan('mw-pos',   '—'),
+      upd:   _mkSpan('mw-upd',   '—'),
+    };
+    div.appendChild(spans.sym);
+    div.appendChild(spans.tf);
+    div.appendChild(spans.price);
+    div.appendChild(spans.sig);
+    div.appendChild(spans.pos);
+    div.appendChild(spans.upd);
+
     this._el.appendChild(div);
-    this._rows[key] = { el: div, data: { sym, iv, price: null, signal: null, pos: null, updTs: null } };
-    this._render(key);
+    this._rows[key] = {
+      el: div,
+      spans,
+      data: { sym, iv, price: null, signal: null, pos: null, updTs: null },
+    };
   }
 
   _render(key) {
-    const { el, data } = this._rows[key];
-    el.className = 'mwrow' + (key === this._active ? ' active' : '');
+    const { el, spans, data } = this._rows[key];
+
+    // Row active state — only update className when it actually changes
+    const wantActive = key === this._active;
+    const isActive   = el.classList.contains('active');
+    if (wantActive !== isActive) el.classList.toggle('active', wantActive);
+
+    // Price
     const priceTxt = data.price != null ? Number(data.price).toFixed(2) : '—';
-    const sigCls   = data.signal === 'BUY' ? 'long' : data.signal === 'SELL' ? 'short' : '';
-    const sigTxt   = data.signal === 'BUY' ? 'LONG' : data.signal === 'SELL' ? 'SHORT' : '—';
-    const posCls   = data.pos === 'long' ? 'long' : data.pos === 'short' ? 'short' : '';
-    const posTxt   = data.pos ? data.pos.toUpperCase() : '—';
+    if (spans.price.textContent !== priceTxt) spans.price.textContent = priceTxt;
+
+    // Signal
+    const sigCls = data.signal === 'BUY' ? 'long' : data.signal === 'SELL' ? 'short' : '';
+    const sigTxt = data.signal === 'BUY' ? 'LONG' : data.signal === 'SELL' ? 'SHORT' : '—';
+    _setSpan(spans.sig, 'mw-sig', sigCls, sigTxt);
+
+    // Position
+    const posCls = data.pos === 'long' ? 'long' : data.pos === 'short' ? 'short' : '';
+    const posTxt = data.pos ? data.pos.toUpperCase() : '—';
+    _setSpan(spans.pos, 'mw-pos', posCls, posTxt);
+
+    // Last update time
     let updTxt = '—';
     if (data.updTs) {
-      try { updTxt = new Date(data.updTs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }); } catch { updTxt = '—'; }
+      try { updTxt = new Date(data.updTs).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }); }
+      catch { updTxt = '—'; }
     }
-    el.innerHTML =
-      `<span class="mw-sym">${esc(data.sym)}</span>` +
-      `<span class="mw-tf">${esc(data.iv)}</span>` +
-      `<span class="mw-price">${priceTxt}</span>` +
-      `<span class="mw-sig ${sigCls}">${sigTxt}</span>` +
-      `<span class="mw-pos ${posCls}">${posTxt}</span>` +
-      `<span class="mw-upd">${updTxt}</span>`;
+    if (spans.upd.textContent !== updTxt) spans.upd.textContent = updTxt;
   }
 
   _select(key) {
     if (key === this._active) return;
     const prev = this._active;
     this._active = key;
-    if (prev && this._rows[prev]) this._render(prev);
+    // Only toggle active class on the two affected rows — no full list redraw
+    if (prev && this._rows[prev]) {
+      this._rows[prev].el.classList.remove('active');
+      const { data } = this._rows[prev];
+      if (this._onSelect) {}  // no-op; event fires on new row selection below
+    }
     if (this._rows[key]) {
-      this._render(key);
+      this._rows[key].el.classList.add('active');
       const { data } = this._rows[key];
       if (this._onSelect) this._onSelect(data.sym, data.iv);
     }
@@ -1579,8 +1628,11 @@ class MarketWatch {
     const key = this._key(ev.symbol, ev.interval);
     const row = this._rows[key];
     if (!row) return;
-    row.data.price = ev.close;
-    row.data.updTs = ev.ts || null;
+    const newPrice = ev.close;
+    const newTs    = ev.ts || null;
+    if (row.data.price === newPrice && row.data.updTs === newTs) return;  // no-op
+    row.data.price = newPrice;
+    row.data.updTs = newTs;
     this._render(key);
   }
 
@@ -1588,7 +1640,9 @@ class MarketWatch {
     const key = this._key(ev.symbol, ev.interval);
     const row = this._rows[key];
     if (!row) return;
-    row.data.signal = (ev.signal && ev.signal !== 'HOLD') ? ev.signal : null;
+    const newSig = (ev.signal && ev.signal !== 'HOLD') ? ev.signal : null;
+    if (row.data.signal === newSig) return;  // no-op
+    row.data.signal = newSig;
     this._render(key);
   }
 
@@ -1599,6 +1653,7 @@ class MarketWatch {
     Object.keys(this._rows).forEach(key => {
       const { data } = this._rows[key];
       const newPos   = posMap[data.sym] || null;
+      // Only fall back to mark price when we have no live price yet
       const newPrice = (data.price == null && markPx[data.sym] != null) ? markPx[data.sym] : data.price;
       if (newPos !== data.pos || newPrice !== data.price) {
         data.pos   = newPos;
