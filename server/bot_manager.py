@@ -41,10 +41,12 @@ class BotManager:
         self._stopped_at: datetime | None = None
         self._error: str  = ""
 
-        # Priority-split event queues.
-        # HIGH: fills/signals/errors/positions/reconnects — never dropped.
-        # LOW : candles/ticks — oldest dropped when full.
-        self._q_high: queue.Queue = queue.Queue()          # unbounded
+        # Priority-split event queues — both bounded to prevent memory growth.
+        # HIGH: fills/signals/errors/positions/reconnects — drop-oldest when
+        #       full, but always log a WARNING so the operator knows.  Trading
+        #       is never affected; the browser recovers via REST on reconnect.
+        # LOW : candles/ticks — drop-oldest silently when full.
+        self._q_high: queue.Queue = queue.Queue(maxsize=500)
         self._q_low:  queue.Queue = queue.Queue(maxsize=500)
 
         # Active (symbol, interval) viewed in the chart.  When set, only that
@@ -177,9 +179,11 @@ class BotManager:
     def _enqueue(self, ev_dict: dict) -> None:
         """Enqueue an event for the WebSocket.
 
-        HIGH-priority events (fills, errors, …) go to an unbounded queue and
-        are never dropped.  LOW-priority events (candles, ticks) go to a
-        bounded queue; when it is full the oldest LOW event is discarded.
+        HIGH-priority events (fills, errors, …) go to a bounded queue; when
+        full the oldest HIGH event is dropped and a WARNING is logged.  The
+        trading engine is unaffected — the browser recovers via REST.
+        LOW-priority events (candles, ticks) go to a separate bounded queue;
+        when full the oldest LOW event is discarded silently.
         """
         ev_type = ev_dict.get("type", "")
         if ev_type in self._LOW_EV_TYPES:
@@ -195,16 +199,41 @@ class BotManager:
                 except queue.Full:
                     pass
         else:
-            self._q_high.put_nowait(ev_dict)
+            try:
+                self._q_high.put_nowait(ev_dict)
+            except queue.Full:
+                dropped: dict | None = None
+                try:
+                    dropped = self._q_high.get_nowait()
+                except queue.Empty:
+                    pass
+                if dropped is not None:
+                    log.warning(
+                        "HIGH-priority event queue full (maxsize=%d): dropped "
+                        "oldest event type=%r — browser will miss this "
+                        "notification; trading is unaffected; browser recovers "
+                        "via REST on reconnect.",
+                        self._q_high.maxsize, dropped.get("type", "?"),
+                    )
+                try:
+                    self._q_high.put_nowait(ev_dict)
+                except queue.Full:
+                    pass
 
     def drain_events(self, max_n: int = 50) -> list[dict]:
         """Return up to *max_n* queued bot events without blocking.
 
         HIGH-priority events (fills, signals, errors…) are always drained
         first so they reach the browser before any pending candle updates.
+
+        LOW-priority events (candles/ticks) are coalesced before delivery:
+        when the same (type, symbol, interval) appears multiple times in the
+        drain batch only the latest value is kept.  The browser always sees
+        fresh data without stale intermediate updates.  May return fewer than
+        *max_n* events when coalescing reduces duplicates.
         """
         events: list[dict] = []
-        # HIGH priority first
+        # HIGH priority first (fills, signals, errors — never coalesced)
         while len(events) < max_n:
             try:
                 events.append(self._q_high.get_nowait())
@@ -212,11 +241,20 @@ class BotManager:
                 break
         # LOW priority for remaining slots
         remaining = max_n - len(events)
+        raw_low: list[dict] = []
         for _ in range(remaining):
             try:
-                events.append(self._q_low.get_nowait())
+                raw_low.append(self._q_low.get_nowait())
             except queue.Empty:
                 break
+        # Coalesce: for each (type, symbol, interval), keep only the latest.
+        # _q_low holds only candle/tick events; the key fully identifies a pair.
+        if raw_low:
+            coalesced: dict[tuple, dict] = {}
+            for ev in raw_low:
+                key = (ev.get("type", ""), ev.get("symbol", ""), ev.get("interval", ""))
+                coalesced[key] = ev   # later entry wins — latest event per pair
+            events.extend(coalesced.values())
         return events
 
     def set_active_pair(self, symbol: str, interval: str) -> None:
