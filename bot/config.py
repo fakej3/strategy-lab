@@ -26,6 +26,13 @@ class FeedConfig:
     ws_open_timeout_s: int    = 30    # websockets connection open timeout
     rest_timeout_s: int       = 30    # aiohttp REST request timeout
 
+    # Phase 2B: parallel backfill concurrency
+    # 8 concurrent REST requests ≈ 960 weight/min at 2 weight/request and 100ms
+    # latency — well within Binance's 1200 weight/min public-API limit.
+    backfill_concurrency: int      = 8    # max simultaneous REST requests per backfill batch
+    backfill_max_retries: int      = 3    # attempts per pair (1 initial + 2 retries)
+    backfill_retry_delay_s: float  = 0.5  # base delay before first retry; doubles each attempt
+
 
 @dataclass
 class RiskConfig:

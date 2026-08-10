@@ -209,43 +209,160 @@ class LiveFeed:
     # ── REST backfill ─────────────────────────────────────────────────────────
 
     async def _backfill_all(self) -> None:
+        """Backfill all (symbol, interval) pairs with bounded concurrency.
+
+        One shared aiohttp.ClientSession is created for the entire batch and
+        closed in a finally block.  An asyncio.Semaphore caps the number of
+        simultaneous in-flight REST requests so we never exceed
+        config.feed.backfill_concurrency concurrent connections.
+
+        All pairs run concurrently up to the semaphore limit; one failure never
+        cancels other pairs.
+        """
         cfg = self.config.feed
-        for symbol in cfg.symbols:
-            for interval in cfg.intervals:
-                try:
-                    backfilled = await self._backfill(symbol, interval)
-                    log.info(
-                        "Backfilled %d candles for %s %s",
-                        backfilled, symbol, interval,
-                    )
-                    self.bus.emit(ReconnectEvent(
-                        symbol=symbol,
-                        interval=interval,
-                        backfilled=backfilled,
-                    ))
-                except Exception:
-                    log.exception("Backfill failed for %s %s", symbol, interval)
+        pairs = [
+            (sym, iv)
+            for sym in cfg.symbols
+            for iv in cfg.intervals
+        ]
+        if not pairs:
+            return
 
-    async def _backfill(self, symbol: str, interval: str) -> int:
-        limit = self.config.feed.backfill_bars
-        url = (
-            f"{self.config.feed.rest_base_url}/klines"
-            f"?symbol={symbol}&interval={interval}&limit={limit}"
+        sem = asyncio.Semaphore(cfg.backfill_concurrency)
+        # limit_per_host matches the semaphore — connector pool is never the
+        # bottleneck and we never hold more open sockets than the semaphore allows.
+        connector = aiohttp.TCPConnector(limit_per_host=cfg.backfill_concurrency)
+        timeout    = aiohttp.ClientTimeout(total=cfg.rest_timeout_s)
+
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            await asyncio.gather(
+                *(self._backfill_one(sym, iv, session, sem) for sym, iv in pairs)
+            )
+
+    async def _backfill_one(
+        self,
+        symbol: str,
+        interval: str,
+        session: aiohttp.ClientSession,
+        sem: asyncio.Semaphore,
+    ) -> None:
+        """Failure-isolated backfill for one (symbol, interval) pair.
+
+        Any exception other than CancelledError is caught, logged, and emitted
+        as an ErrorEvent so a single bad pair cannot abort the batch.
+        CancelledError is always re-raised so the gather propagates cancellation.
+        """
+        try:
+            backfilled = await self._backfill(symbol, interval, session, sem)
+            log.info("Backfilled %d candles for %s %s", backfilled, symbol, interval)
+            self.bus.emit(ReconnectEvent(
+                symbol=symbol,
+                interval=interval,
+                backfilled=backfilled,
+            ))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.error(
+                "Backfill failed for %s/%s — %s: %s",
+                symbol, interval, type(exc).__name__, exc,
+            )
+            self.bus.emit(ErrorEvent(
+                source="runtime",
+                message=f"Backfill failed: {symbol}/{interval}",
+                detail=f"{type(exc).__name__}: {exc}",
+            ))
+
+    async def _backfill(
+        self,
+        symbol: str,
+        interval: str,
+        session: aiohttp.ClientSession,
+        sem: asyncio.Semaphore,
+    ) -> int:
+        """Fetch kline history via REST with semaphore-bounded concurrency and retry.
+
+        The semaphore is acquired per attempt (released during sleep delays)
+        so it does not block the connector pool between retries.
+
+        Retry policy:
+          - Transient errors (5xx, network, timeout): retry up to max_retries total.
+          - Permanent errors (4xx, 429):              fail immediately, no retry.
+          - CancelledError:                           propagate immediately.
+
+        HTTP 429 is treated as permanent: retrying would worsen a rate-limit
+        storm.  The operator should reduce backfill_concurrency if 429s appear.
+        """
+        cfg  = self.config.feed
+        url  = (
+            f"{cfg.rest_base_url}/klines"
+            f"?symbol={symbol}&interval={interval}&limit={cfg.backfill_bars}"
         )
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=self.config.feed.rest_timeout_s)) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
+        max_retries = cfg.backfill_max_retries
+        delay       = cfg.backfill_retry_delay_s
 
-        count = 0
+        for attempt in range(max_retries):
+            try:
+                async with sem:
+                    async with session.get(url) as resp:
+                        if resp.status == 429:
+                            log.warning(
+                                "Rate-limited (HTTP 429) for %s/%s on attempt %d/%d — "
+                                "not retrying (would worsen rate-limit storm); "
+                                "reduce backfill_concurrency if this recurs",
+                                symbol, interval, attempt + 1, max_retries,
+                            )
+                            resp.raise_for_status()   # raises ClientResponseError(429)
+                        resp.raise_for_status()
+                        data: list = await resp.json()
+                # Semaphore released; process response outside it so we free the
+                # slot for other pairs immediately.
+                return self._process_kline_rows(data, symbol, interval)
+
+            except asyncio.CancelledError:
+                raise
+
+            except aiohttp.ClientResponseError as exc:
+                # 4xx and 429 are permanent — no point retrying.
+                if exc.status < 500:
+                    raise
+                if attempt == max_retries - 1:
+                    raise
+                log.warning(
+                    "Backfill HTTP %d for %s/%s; retry %d/%d in %.1fs",
+                    exc.status, symbol, interval, attempt + 1, max_retries, delay,
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
+
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                if attempt == max_retries - 1:
+                    raise
+                log.warning(
+                    "Backfill %s for %s/%s; retry %d/%d in %.1fs",
+                    type(exc).__name__, symbol, interval, attempt + 1, max_retries, delay,
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
+
+        raise RuntimeError(  # unreachable: loop always returns or raises
+            f"backfill retry loop exited unexpectedly for {symbol}/{interval}"
+        )
+
+    def _process_kline_rows(self, data: list, symbol: str, interval: str) -> int:
+        """Convert raw Binance kline rows into CandleEvents and push to the bus.
+
+        Rows where close_time is within 1 second of now are skipped — the candle
+        may still be open.  All emitted events have is_history=True so the engine
+        warms buffers without submitting orders.
+        """
+        now_ms = int(time.time() * 1000)
+        count  = 0
         for row in data:
             # row: [open_time, open, high, low, close, volume, close_time, ...]
             close_time = int(row[6])
-            # Skip the last (open) candle — it may not be closed yet
-            if close_time > int(time.time() * 1000) - 1000:
-                continue
-            # is_history=True tells the engine to warm the buffer WITHOUT
-            # submitting any orders from these historical candles.
+            if close_time > now_ms - 1000:
+                continue   # candle may not be fully closed yet
             event = CandleEvent(
                 symbol=symbol,
                 interval=interval,
@@ -261,7 +378,6 @@ class LiveFeed:
             self.bus.emit(event)
             self._last_close_time[(symbol, interval)] = close_time
             count += 1
-
         return count
 
     # ── URL builder ───────────────────────────────────────────────────────────
