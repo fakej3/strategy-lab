@@ -54,11 +54,16 @@ class BotManager:
         db_path: str = "bot.db",
         log_path: str = "logs/bot.log",
         recover: bool = True,
+        max_open_positions: int | None = None,
     ) -> tuple[bool, str]:
         """Build a BotConfig and start the bot. Returns (success, error_message).
 
         Accepts either ``intervals`` (list) or the legacy ``interval`` (single
         string).  ``intervals`` takes precedence when both are supplied.
+
+        ``max_open_positions`` defaults to ``len(symbols)`` so every configured
+        symbol can hold one position simultaneously.  Pass an explicit value to
+        override (e.g. 1 for single-market mode, N for a tighter portfolio limit).
         """
         from bot.config import BotConfig, FeedConfig, RiskConfig
 
@@ -66,6 +71,20 @@ class BotManager:
             intervals if intervals
             else ([interval] if interval else ["1h"])
         )
+        n_symbols = len(symbols)
+        resolved_max_positions: int = (
+            max_open_positions if max_open_positions is not None else n_symbols
+        )
+
+        # Per-position notional cap: divide total available capital by number of
+        # symbols so each position uses at most its fair share.  Floor at 1 USD
+        # to avoid degenerate zero limits.
+        per_position_usd = max(1.0, (capital * 0.8) / max(n_symbols, 1))
+        per_position_cap = min(per_position_usd, 20.0 * max(n_symbols, 1))
+
+        # Portfolio-level total exposure cap: 80% of capital (prevents over-
+        # allocation when many positions are open simultaneously).
+        total_exposure_cap = capital * 0.8
 
         try:
             cfg = BotConfig(
@@ -77,7 +96,9 @@ class BotManager:
                     intervals = resolved_intervals,
                 ),
                 risk = RiskConfig(
-                    max_position_size_usd = min(capital * 0.8, 20.0),
+                    max_open_positions    = resolved_max_positions,
+                    max_position_size_usd = per_position_cap,
+                    max_total_exposure_usd = total_exposure_cap,
                     max_daily_loss_usd    = capital * 0.05,
                 ),
                 db_path            = db_path,

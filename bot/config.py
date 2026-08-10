@@ -36,7 +36,8 @@ class RiskConfig:
     max_daily_loss_usd: float     = 10.0     # 5% of 200 USDT starting capital
     max_drawdown_pct: float       = 0.20     # halt if drawdown exceeds 20%
     max_leverage: float           = 1.0      # no leverage
-    max_open_positions: int       = 1
+    max_open_positions: int       = 1        # portfolio-level: set to len(symbols) for multi-symbol
+    max_total_exposure_usd: float = 0.0      # total notional cap across all open positions; 0 = disabled
     trading_cooldown_s: float     = 0.0      # minimum seconds between trades
     max_daily_trades: int         = 50
 

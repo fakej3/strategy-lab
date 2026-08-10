@@ -52,6 +52,7 @@ class RiskContext:
 
     # Position state
     open_positions: int     # number of currently open positions
+    total_exposure: float = 0.0  # total notional across all open positions (USD)
 
     # Timing
     last_trade_ts: float = 0.0   # unix timestamp of most recent trade close
@@ -82,6 +83,7 @@ class RiskEngine:
             or self._check_drawdown(ctx)
             or self._check_daily_trades(ctx)
             or self._check_open_positions(ctx)
+            or self._check_total_exposure(ctx)
             or self._check_cooldown(ctx)
             or self._check_position_size(ctx)
         )
@@ -141,6 +143,18 @@ class RiskEngine:
         if elapsed < self.cfg.trading_cooldown_s:
             remaining = self.cfg.trading_cooldown_s - elapsed
             return f"trading cooldown: {remaining:.1f}s remaining"
+        return ""
+
+    def _check_total_exposure(self, ctx: RiskContext) -> str:
+        if self.cfg.max_total_exposure_usd <= 0:
+            return ""  # disabled
+        new_notional = ctx.qty * ctx.ref_price
+        projected = ctx.total_exposure + new_notional
+        if projected > self.cfg.max_total_exposure_usd:
+            return (
+                f"total portfolio exposure limit: projected={projected:.2f} "
+                f"limit={self.cfg.max_total_exposure_usd:.2f}"
+            )
         return ""
 
     def _check_position_size(self, ctx: RiskContext) -> str:

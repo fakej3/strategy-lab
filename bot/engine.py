@@ -254,6 +254,7 @@ class BotEngine:
             daily_pnl=self.portfolio.daily_pnl,
             n_trades_today=self.portfolio.n_trades_today,
             open_positions=self.positions.open_position_count(),
+            total_exposure=self.positions.total_exposure(),
             last_trade_ts=self.portfolio.last_trade_ts,
         )
         reason = self.risk.check(risk_ctx)
