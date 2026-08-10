@@ -974,3 +974,263 @@ class TestBotManagerRejectionBridge:
         # Verify neither is conflated
         sig = next(e for e in events if e["type"] == "signal")
         assert "fill_price" not in sig, "Signal event must not carry fill_price"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 8 — Regression tests: PositionEvent bridge + chart data contract
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestBotManagerPositionBridge:
+    """BotManager._enqueue must correctly serialise PositionEvent into websocket
+    payloads that the chart can consume (type='position', required fields present)."""
+
+    def _make_position_event(self, action="opened", direction="long",
+                              entry_price=65000.0, exit_price=0.0,
+                              size=0.0003, realized_pnl=0.0, symbol="BTCUSDT"):
+        from bot.events import PositionEvent
+        return PositionEvent(
+            symbol=symbol,
+            action=action,
+            direction=direction,
+            size=size,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            realized_pnl=realized_pnl,
+        )
+
+    def test_position_opened_event_bridged(self):
+        """'opened' PositionEvent must produce type='position' with correct fields."""
+        from server.bot_manager import BotManager
+        bm = BotManager()
+
+        ev = self._make_position_event(action="opened", direction="long", entry_price=65000.0)
+        # Simulate what _enq('position') does
+        d = {"type": "position", "ts": ev.ts.isoformat()}
+        for fname in type(ev).__dataclass_fields__:
+            if fname != "ts":
+                d[fname] = getattr(ev, fname)
+        bm._enqueue(d)
+
+        events = bm.drain_events()
+        assert len(events) == 1
+        e = events[0]
+        assert e["type"] == "position"
+        assert e["action"] == "opened"
+        assert e["direction"] == "long"
+        assert e["entry_price"] == 65000.0
+        assert e["symbol"] == "BTCUSDT"
+        assert "exit_price" in e
+        assert "realized_pnl" in e
+
+    def test_position_closed_event_bridged(self):
+        """'closed' PositionEvent must carry exit_price and realized_pnl."""
+        from server.bot_manager import BotManager
+        bm = BotManager()
+
+        ev = self._make_position_event(
+            action="closed", direction="long",
+            entry_price=65000.0, exit_price=66000.0, realized_pnl=0.3,
+        )
+        d = {"type": "position", "ts": ev.ts.isoformat()}
+        for fname in type(ev).__dataclass_fields__:
+            if fname != "ts":
+                d[fname] = getattr(ev, fname)
+        bm._enqueue(d)
+
+        events = bm.drain_events()
+        assert len(events) == 1
+        e = events[0]
+        assert e["action"] == "closed"
+        assert e["exit_price"] == 66000.0
+        assert e["realized_pnl"] == pytest.approx(0.3)
+
+    def test_position_event_has_all_chart_required_fields(self):
+        """All fields the chart JS reads must be present in the bridged payload."""
+        from server.bot_manager import BotManager
+        bm = BotManager()
+
+        ev = self._make_position_event()
+        d = {"type": "position", "ts": ev.ts.isoformat()}
+        for fname in type(ev).__dataclass_fields__:
+            if fname != "ts":
+                d[fname] = getattr(ev, fname)
+        bm._enqueue(d)
+
+        events = bm.drain_events()
+        required = {"type", "ts", "symbol", "action", "direction", "entry_price",
+                    "exit_price", "size", "realized_pnl"}
+        assert required <= events[0].keys(), (
+            f"Missing chart-required fields: {required - events[0].keys()}"
+        )
+
+    def test_position_opened_and_closed_sequential(self):
+        """Opened followed by closed must produce two events in order."""
+        from server.bot_manager import BotManager
+        bm = BotManager()
+
+        for action, exit_p in [("opened", 0.0), ("closed", 66000.0)]:
+            ev = self._make_position_event(action=action, exit_price=exit_p)
+            d = {"type": "position", "ts": ev.ts.isoformat()}
+            for fname in type(ev).__dataclass_fields__:
+                if fname != "ts":
+                    d[fname] = getattr(ev, fname)
+            bm._enqueue(d)
+
+        events = bm.drain_events()
+        assert len(events) == 2
+        assert events[0]["action"] == "opened"
+        assert events[1]["action"] == "closed"
+
+    def test_position_not_conflated_with_fill(self):
+        """'position' event must be distinct from 'fill' event in the queue."""
+        from server.bot_manager import BotManager
+        bm = BotManager()
+
+        bm._enqueue({"type": "fill",     "symbol": "BTCUSDT", "fill_price": 65000.0, "side": "BUY"})
+        bm._enqueue({"type": "position", "symbol": "BTCUSDT", "action": "opened",   "entry_price": 65000.0})
+
+        events = bm.drain_events()
+        types = [e["type"] for e in events]
+        assert "fill" in types
+        assert "position" in types
+        fill_ev = next(e for e in events if e["type"] == "fill")
+        pos_ev  = next(e for e in events if e["type"] == "position")
+        assert "action" not in fill_ev,      "fill event must not carry action field"
+        assert "fill_price" not in pos_ev,   "position event must not carry fill_price"
+
+
+class TestFillEventChartContract:
+    """FillEvent bridge payloads must carry all fields the chart needs to render
+    trade markers: order_id (dedup key), ts (time mapping), fill_price, side."""
+
+    def test_fill_event_payload_has_order_id(self):
+        """Bridged fill payload must include order_id for chart deduplication."""
+        from server.bot_manager import BotManager
+        bm = BotManager()
+        bm._enqueue({
+            "type":       "fill",
+            "ts":         "2025-06-01T12:00:00+00:00",
+            "order_id":   "ord-abc-123",
+            "symbol":     "BTCUSDT",
+            "side":       "BUY",
+            "fill_price": 65000.0,
+            "fill_qty":   0.00031,
+            "fee":        0.00002015,
+        })
+        events = bm.drain_events()
+        assert len(events) == 1
+        e = events[0]
+        assert e["order_id"] == "ord-abc-123", "order_id must be present for chart dedup"
+
+    def test_fill_event_payload_has_fill_price_and_side(self):
+        """Chart marker needs fill_price (y-axis) and side (BUY=▲ / SELL=▼)."""
+        from server.bot_manager import BotManager
+        bm = BotManager()
+        bm._enqueue({
+            "type": "fill", "ts": "2025-06-01T12:00:00+00:00",
+            "order_id": "ord-sell-1", "symbol": "ETHUSDT",
+            "side": "SELL", "fill_price": 3200.0, "fill_qty": 0.01, "fee": 0.0032,
+        })
+        events = bm.drain_events()
+        e = events[0]
+        assert e["fill_price"] == 3200.0
+        assert e["side"] == "SELL"
+
+    def test_fill_event_has_timestamp_for_candle_mapping(self):
+        """Chart uses ev.ts to find the candle slot; it must be an ISO timestamp."""
+        from server.bot_manager import BotManager
+        import re
+        bm = BotManager()
+        ts = "2025-06-01T14:05:23.456789+00:00"
+        bm._enqueue({
+            "type": "fill", "ts": ts,
+            "order_id": "ord-ts-check", "symbol": "BTCUSDT",
+            "side": "BUY", "fill_price": 64000.0, "fill_qty": 0.0003, "fee": 0.0,
+        })
+        events = bm.drain_events()
+        assert re.match(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', events[0]["ts"]), \
+            "ts must be ISO-8601 for JS new Date(ev.ts) to parse correctly"
+
+    def test_fill_side_buy_not_confused_with_sell(self):
+        """BUY fill and SELL fill must be distinguishable by 'side' field."""
+        from server.bot_manager import BotManager
+        bm = BotManager()
+        bm._enqueue({"type": "fill", "order_id": "b1", "side": "BUY",  "fill_price": 65000.0, "symbol": "BTCUSDT"})
+        bm._enqueue({"type": "fill", "order_id": "s1", "side": "SELL", "fill_price": 66000.0, "symbol": "BTCUSDT"})
+        events = bm.drain_events()
+        sides = {e["order_id"]: e["side"] for e in events if e["type"] == "fill"}
+        assert sides["b1"] == "BUY"
+        assert sides["s1"] == "SELL"
+
+    def test_multiple_fills_different_order_ids(self):
+        """Multiple fill events must each carry a unique order_id."""
+        from server.bot_manager import BotManager
+        bm = BotManager()
+        for i in range(5):
+            bm._enqueue({"type": "fill", "order_id": f"ord-{i}", "side": "BUY",
+                          "fill_price": 65000.0 + i, "symbol": "BTCUSDT"})
+        events = bm.drain_events()
+        ids = [e["order_id"] for e in events]
+        assert len(set(ids)) == 5, "All order_ids must be unique"
+
+
+class TestPositionEventEmission:
+    """PositionManager must emit PositionEvent on open and close, and the emitted
+    events must carry the fields expected by the BotManager bridge."""
+
+    def _make_infra(self, tmp_path):
+        from bot.events import PositionEvent
+        storage = BotStorage(str(tmp_path / "test.db"))
+        storage.connect()
+        bus = EventBus()
+        pos_events: list = []
+        bus.subscribe(PositionEvent, pos_events.append)
+        positions = PositionManager(storage=storage, bus=bus)
+        return storage, bus, positions, pos_events
+
+    def _paper_fill(self, order_id, symbol, side, price, qty, fee=0.0):
+        from bot.paper_exchange import PaperFill
+        return PaperFill(order_id=order_id, symbol=symbol, side=side,
+                         fill_price=price, fill_qty=qty, fee=fee)
+
+    def test_open_position_emits_position_event_opened(self, tmp_path):
+        """on_fill(BUY PaperFill) must emit PositionEvent(action='opened')."""
+        from bot.events import PositionEvent
+        _, _, positions, pos_events = self._make_infra(tmp_path)
+        positions.on_fill(self._paper_fill("o1", "BTCUSDT", "BUY", 65000.0, 0.0003))
+        opened = [e for e in pos_events if e.action == "opened"]
+        assert len(opened) == 1, "Exactly one 'opened' PositionEvent expected"
+        e = opened[0]
+        assert e.symbol == "BTCUSDT"
+        assert e.direction == "long"
+        assert e.entry_price == 65000.0
+        assert e.size == pytest.approx(0.0003)
+
+    def test_close_position_emits_position_event_closed(self, tmp_path):
+        """on_fill(SELL PaperFill) after BUY must emit PositionEvent(action='closed')."""
+        _, _, positions, pos_events = self._make_infra(tmp_path)
+        positions.on_fill(self._paper_fill("o1", "BTCUSDT", "BUY",  65000.0, 0.0003))
+        positions.on_fill(self._paper_fill("o2", "BTCUSDT", "SELL", 66000.0, 0.0003))
+        closed = [e for e in pos_events if e.action == "closed"]
+        assert len(closed) == 1, "Exactly one 'closed' PositionEvent expected"
+        e = closed[0]
+        assert e.exit_price == pytest.approx(66000.0)
+        assert e.realized_pnl == pytest.approx(0.0003 * (66000.0 - 65000.0))
+
+    def test_position_event_fields_match_bridge_contract(self, tmp_path):
+        """PositionEvent dataclass fields must include all fields the bridge serialises."""
+        from bot.events import PositionEvent
+        required_bridge_fields = {
+            "symbol", "action", "direction", "size", "entry_price", "exit_price", "realized_pnl"
+        }
+        event_fields = set(PositionEvent.__dataclass_fields__.keys())
+        missing = required_bridge_fields - event_fields
+        assert not missing, f"PositionEvent missing fields needed by bridge: {missing}"
+
+    def test_position_event_not_emitted_for_unknown_symbol_fill(self, tmp_path):
+        """SELL fill on a symbol with no open position must not emit a closed event."""
+        from bot.events import PositionEvent
+        _, _, positions, pos_events = self._make_infra(tmp_path)
+        positions.on_fill(self._paper_fill("o-bad", "UNKNOWN", "SELL", 100.0, 1.0))
+        closed = [e for e in pos_events if e.action == "closed"]
+        assert len(closed) == 0

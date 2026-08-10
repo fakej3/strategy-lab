@@ -343,7 +343,7 @@ class BotManager:
         from bot.engine import BotEngine
         from bot.events import (
             CandleEvent, DailyResetEvent, DisconnectEvent, ErrorEvent,
-            EventBus, FillEvent, OrderEvent, ReconnectEvent,
+            EventBus, FillEvent, OrderEvent, PositionEvent, ReconnectEvent,
             RiskRejectionEvent, SignalEvent,
         )
         from bot.monitor import Monitor
@@ -461,6 +461,7 @@ class BotManager:
             bus.subscribe(DisconnectEvent,    _enq('disconnect'))
             bus.subscribe(ReconnectEvent,     _enq('reconnect'))
             bus.subscribe(RiskRejectionEvent, _enq('risk_rejected'))
+            bus.subscribe(PositionEvent,      _enq('position'))
 
             def _on_order_event(ev: OrderEvent) -> None:
                 if ev.status == 'REJECTED':

@@ -1084,16 +1084,37 @@ function setText(id, v) { const e = el(id); if (e) e.textContent = v; }
 function setClass(id, cls) { const e = el(id); if (e) e.className = cls; }
 
 /* ══════════════════════════════════════════════════════════════
-   CANDLESTICK CHART
+   CANDLESTICK CHART  — execution monitor
+   Renders: candles, volume, grid, live-price line, entry-price
+   line, fill markers (▲▼), signal markers (◆), crosshair/OHLC
+   tooltip, pan (drag) and zoom (wheel).
 ══════════════════════════════════════════════════════════════ */
 class CandleChart {
   constructor(canvas) {
-    this.canvas  = canvas;
-    this.ctx     = null;
-    this.candles = [];
-    this.dpr     = window.devicePixelRatio || 1;
+    this.canvas    = canvas;
+    this.ctx       = null;
+    this.candles   = [];
+    this._fills    = [];      // [{id, time (unix sec), price, side}]
+    this._signals  = [];      // [{time (unix sec), signal:'BUY'|'SELL'}]
+    this._position = null;    // {entry_price, direction:'long'|'short'} | null
+    this.dpr       = window.devicePixelRatio || 1;
     this.W = 0; this.H = 0;
     this.m = { top:14, right:72, bottom:28, left:4, volH:42 };
+
+    // Pan / zoom
+    this.visibleBars = 100;
+    this.rightOffset = 0;
+    this._lastSlotW  = 8;
+
+    // Crosshair
+    this._mx = -1;
+    this._my = -1;
+
+    // Drag state
+    this._drag     = false;
+    this._dragX0   = 0;
+    this._dragOff0 = 0;
+
     this._init();
   }
 
@@ -1102,6 +1123,41 @@ class CandleChart {
     this._resize();
     this._ro = new ResizeObserver(() => this._resize());
     this._ro.observe(this.canvas.parentElement);
+
+    this.canvas.addEventListener('mousemove', e => {
+      const r = this.canvas.getBoundingClientRect();
+      this._mx = e.clientX - r.left;
+      this._my = e.clientY - r.top;
+      this.render();
+    });
+    this.canvas.addEventListener('mouseleave', () => {
+      this._mx = -1; this._my = -1; this.render();
+    });
+    this.canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 1.12 : 0.89;
+      this.visibleBars = Math.max(10, Math.min(500, Math.round(this.visibleBars * factor)));
+      this.render();
+    }, { passive: false });
+
+    this.canvas.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      this._drag = true;
+      this._dragX0   = e.clientX;
+      this._dragOff0 = this.rightOffset;
+      this.canvas.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mousemove', e => {
+      if (!this._drag) return;
+      const dx    = e.clientX - this._dragX0;
+      const dBars = Math.round(-dx / Math.max(this._lastSlotW, 1));
+      const maxOff = Math.max(0, this.candles.length - 10);
+      this.rightOffset = Math.max(0, Math.min(maxOff, this._dragOff0 + dBars));
+      this.render();
+    });
+    window.addEventListener('mouseup', () => {
+      if (this._drag) { this._drag = false; this.canvas.style.cursor = ''; }
+    });
   }
 
   _resize() {
@@ -1117,7 +1173,11 @@ class CandleChart {
     this.render();
   }
 
-  setData(candles) { this.candles = candles.slice(); this.render(); }
+  /* ── Data setters ──────────────────────────────────────────── */
+  setData(candles)    { this.candles = candles.slice(); this.rightOffset = 0; this.render(); }
+  setFills(fills)     { this._fills   = fills.slice();  this.render(); }
+  setSignals(sigs)    { this._signals = sigs.slice();   this.render(); }
+  setOpenPosition(p)  { this._position = p || null;     this.render(); }
 
   updateCandle(c) {
     const n = this.candles.length;
@@ -1129,51 +1189,82 @@ class CandleChart {
     this.render();
   }
 
+  addFill(fill) {
+    if (!this._fills.some(f => f.id === fill.id)) {
+      this._fills.push(fill);
+      this.render();
+    }
+  }
+
+  addSignal(sig) { this._signals.push(sig); this.render(); }
+
+  /* ── Compute visible slice ─────────────────────────────────── */
+  _getVis() {
+    const n = this.candles.length;
+    if (!n) return { vis: [], startI: 0, slotW: this._lastSlotW };
+    const bodyW   = this.W - this.m.left - this.m.right;
+    const vb      = Math.min(this.visibleBars, n);
+    const maxOff  = Math.max(0, n - vb);
+    const off     = Math.min(this.rightOffset, maxOff);
+    const endIdx  = n - off;
+    const startIdx = Math.max(0, endIdx - vb);
+    const vis     = this.candles.slice(startIdx, endIdx);
+    const slotW   = bodyW / Math.max(vb, 1);
+    this._lastSlotW = slotW;
+    return { vis, startI: vb - vis.length, slotW };
+  }
+
+  /* Find index of the largest candle time <= tSec (for mapping events to candles). */
+  _nearestCandle(vis, tSec) {
+    let best = 0;
+    for (let i = 0; i < vis.length; i++) {
+      if (vis[i].time <= tSec) best = i; else break;
+    }
+    return best;
+  }
+
+  /* ── Main render ───────────────────────────────────────────── */
   render() {
-    const { ctx, W, H, m, candles } = this;
+    const { ctx, W, H, m } = this;
 
     ctx.fillStyle = '#090c12';
     ctx.fillRect(0, 0, W, H);
 
-    if (!candles.length) {
+    if (!this.candles.length) {
       ctx.fillStyle = '#3a5060';
       ctx.font = '12px "SFMono-Regular","SF Mono","Consolas",monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('Waiting for candle data…', W / 2, H / 2);
       return;
     }
 
-    const bodyW  = W - m.left - m.right;
-    // maxSl: target number of visible candle slots — determines candle width.
-    // Always dividing by maxSl (not vis.length) prevents the candle-width from
-    // exploding when the buffer has only a few candles (bot just started).
-    // Available candles right-align inside the fixed slot grid.
-    const maxSl  = Math.max(20, Math.floor(bodyW / 8));
-    const vis    = candles.slice(-maxSl);
-    const slotW  = bodyW / maxSl;           // fixed width regardless of count
-    const startI = maxSl - vis.length;      // right-align: skip empty left slots
-    const priceH = H - m.top - m.bottom - m.volH;
+    const { vis, startI, slotW } = this._getVis();
+    if (!vis.length) return;
 
+    const priceH = H - m.top - m.bottom - m.volH;
+    const volTop = H - m.bottom - m.volH;
+
+    /* Price range — include entry price so it never clips */
     let lo = Infinity, hi = -Infinity;
     for (const c of vis) { lo = Math.min(lo, c.low); hi = Math.max(hi, c.high); }
-    const pad = (hi - lo) * 0.06 || 1;
+    if (this._position) {
+      lo = Math.min(lo, this._position.entry_price);
+      hi = Math.max(hi, this._position.entry_price);
+    }
+    const pad = (hi - lo) * 0.07 || 1;
     lo -= pad; hi += pad;
     const pr = hi - lo;
 
-    let maxV = 0;
-    for (const c of vis) maxV = Math.max(maxV, c.volume || 0);
+    const py = p => m.top + priceH * (1 - (p - lo) / pr);
+    const cx = i => m.left + (startI + i + 0.5) * slotW;
 
-    const py = price => m.top + priceH * (1 - (price - lo) / pr);
-    const cx = i     => m.left + (startI + i + 0.5) * slotW;
-
-    /* Grid */
-    ctx.strokeStyle = '#161d28';
+    /* ── Horizontal grid ───────────────────────────────────── */
     ctx.lineWidth = 1;
     const gN = 5;
     for (let i = 0; i <= gN; i++) {
       const gp = lo + pr * i / gN;
       const gy = py(gp);
+      ctx.strokeStyle = '#161d28';
       ctx.beginPath(); ctx.moveTo(m.left, gy); ctx.lineTo(W - m.right, gy); ctx.stroke();
       ctx.fillStyle = '#3a5060';
       ctx.font = '9px "SFMono-Regular","SF Mono","Consolas",monospace';
@@ -1182,35 +1273,98 @@ class CandleChart {
     }
 
     /* Volume separator */
-    const volTop = H - m.bottom - m.volH;
     ctx.strokeStyle = '#161d28';
     ctx.beginPath(); ctx.moveTo(m.left, volTop); ctx.lineTo(W - m.right, volTop); ctx.stroke();
 
-    /* Candles */
-    for (let i = 0; i < vis.length; i++) {
-      const c   = vis[i];
-      const x   = cx(i);
-      const up  = c.close >= c.open;
-      const col = up ? '#18c784' : '#ea3943';
-      const fill= up ? 'rgba(24,199,132,.72)' : 'rgba(234,57,67,.72)';
-      const bW  = Math.max(slotW * 0.64, 1);
+    /* ── Candles + volume bars ──────────────────────────────── */
+    let maxV = 0;
+    for (const c of vis) maxV = Math.max(maxV, c.volume || 0);
 
+    const bW = Math.max(slotW * 0.64, 1);
+    for (let i = 0; i < vis.length; i++) {
+      const c  = vis[i];
+      const x  = cx(i);
+      const up = c.close >= c.open;
+      const col = up ? '#18c784' : '#ea3943';
       ctx.strokeStyle = col; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, py(c.high)); ctx.lineTo(x, py(c.low)); ctx.stroke();
-
       const bt = py(Math.max(c.open, c.close));
       const bb = py(Math.min(c.open, c.close));
-      ctx.fillStyle = fill;
+      ctx.fillStyle = up ? 'rgba(24,199,132,.72)' : 'rgba(234,57,67,.72)';
       ctx.fillRect(x - bW / 2, bt, bW, Math.max(bb - bt, 1));
-
-      if (maxV > 0) {
-        const vh = ((c.volume || 0) / maxV) * (m.volH - 5);
-        ctx.fillStyle = up ? 'rgba(24,199,132,.22)' : 'rgba(234,57,67,.22)';
+      if (maxV > 0 && c.volume) {
+        const vh = (c.volume / maxV) * (m.volH - 5);
+        ctx.fillStyle = up ? 'rgba(24,199,132,.18)' : 'rgba(234,57,67,.18)';
         ctx.fillRect(x - bW / 2, H - m.bottom - vh, bW, vh);
       }
     }
 
-    /* Last-price line */
+    /* ── Signal markers — small diamonds at candle close/open ─ */
+    for (const sig of this._signals) {
+      if (sig.time < vis[0].time) continue;
+      const i = this._nearestCandle(vis, sig.time);
+      const c = vis[i];
+      const sx  = cx(i);
+      const isBuy = sig.signal === 'BUY';
+      const sy  = isBuy ? py(c.low) - 7 : py(c.high) + 7;
+      const dsz = Math.max(3, Math.min(5, slotW * 0.28));
+      ctx.fillStyle = isBuy ? 'rgba(24,199,132,.5)' : 'rgba(234,57,67,.5)';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - dsz); ctx.lineTo(sx + dsz, sy);
+      ctx.lineTo(sx, sy + dsz); ctx.lineTo(sx - dsz, sy);
+      ctx.closePath(); ctx.fill();
+    }
+
+    /* ── Fill (execution) markers — solid triangles at fill price ─ */
+    const mkSz = Math.max(6, Math.min(14, slotW * 0.5));
+    for (const f of this._fills) {
+      if (!vis.length || f.time < vis[0].time) continue;
+      const i    = this._nearestCandle(vis, f.time);
+      const fx   = cx(i);
+      const fy   = py(f.price);
+      const isBuy = f.side === 'BUY';
+      ctx.fillStyle   = isBuy ? '#18c784' : '#ea3943';
+      ctx.strokeStyle = '#090c12'; ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      if (isBuy) {
+        ctx.moveTo(fx,               fy - mkSz);
+        ctx.lineTo(fx + mkSz * 0.6,  fy + mkSz * 0.2);
+        ctx.lineTo(fx - mkSz * 0.6,  fy + mkSz * 0.2);
+      } else {
+        ctx.moveTo(fx,               fy + mkSz);
+        ctx.lineTo(fx + mkSz * 0.6,  fy - mkSz * 0.2);
+        ctx.lineTo(fx - mkSz * 0.6,  fy - mkSz * 0.2);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      if (slotW >= 7) {
+        ctx.fillStyle = isBuy ? '#18c784' : '#ea3943';
+        ctx.font = '8px "SFMono-Regular","SF Mono","Consolas",monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = isBuy ? 'bottom' : 'top';
+        const labelY = fy + (isBuy ? -mkSz * 0.2 - 1 : mkSz * 0.2 + 1);
+        ctx.fillText(f.price.toFixed(2), fx + mkSz * 0.6 + 2, labelY);
+      }
+    }
+
+    /* ── Entry price line (only when position is open) ─────── */
+    if (this._position) {
+      const ep  = this._position.entry_price;
+      const ey  = py(ep);
+      const isL = this._position.direction === 'long';
+      const col = isL ? '#d4a017' : '#a855f7';
+      ctx.strokeStyle = col; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(m.left, ey); ctx.lineTo(W - m.right, ey); ctx.stroke();
+      ctx.setLineDash([]);
+      const lw = 68, lh = 14;
+      ctx.fillStyle = col;
+      ctx.fillRect(W - m.right, ey - lh / 2, lw, lh);
+      ctx.fillStyle = '#090c12';
+      ctx.font = 'bold 9px "SFMono-Regular","SF Mono","Consolas",monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('ENTRY ' + ep.toFixed(2), W - m.right + lw / 2, ey);
+    }
+
+    /* ── Live price line ───────────────────────────────────── */
     const last = vis[vis.length - 1];
     if (last) {
       const ly  = py(last.close);
@@ -1219,7 +1373,6 @@ class CandleChart {
       ctx.strokeStyle = col; ctx.setLineDash([3, 5]); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(m.left, ly); ctx.lineTo(W - m.right, ly); ctx.stroke();
       ctx.setLineDash([]);
-
       const tagW = 68, tagH = 14;
       ctx.fillStyle = col;
       ctx.fillRect(W - m.right, ly - tagH / 2, tagW, tagH);
@@ -1229,16 +1382,68 @@ class CandleChart {
       ctx.fillText(last.close.toFixed(2), W - m.right + tagW / 2, ly);
     }
 
-    /* Time labels */
+    /* ── Time axis labels ──────────────────────────────────── */
     ctx.fillStyle = '#3a5060';
     ctx.font = '9px "SFMono-Regular","SF Mono","Consolas",monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     const evN = Math.max(1, Math.floor(vis.length / 7));
     for (let i = 0; i < vis.length; i += evN) {
-      const d = new Date(vis[i].time * 1000);
-      const lbl = d.getUTCHours().toString().padStart(2,'0') + ':' +
-                  d.getUTCMinutes().toString().padStart(2,'0');
+      const d   = new Date(vis[i].time * 1000);
+      const lbl = d.getUTCHours().toString().padStart(2, '0') + ':' +
+                  d.getUTCMinutes().toString().padStart(2, '0');
       ctx.fillText(lbl, cx(i), H - m.bottom + 3);
+    }
+
+    /* ── Crosshair + OHLC tooltip ──────────────────────────── */
+    const mx = this._mx, my = this._my;
+    if (mx >= m.left && mx <= W - m.right && my >= m.top && my <= H - m.bottom) {
+      ctx.strokeStyle = 'rgba(160,185,210,.25)'; ctx.setLineDash([3, 5]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(mx, m.top);    ctx.lineTo(mx, H - m.bottom); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(m.left, my);   ctx.lineTo(W - m.right, my);  ctx.stroke();
+      ctx.setLineDash([]);
+
+      /* Price tag on right axis at crosshair y */
+      if (my <= m.top + priceH) {
+        const crossP = lo + pr * (1 - (my - m.top) / priceH);
+        ctx.fillStyle = 'rgba(25,35,50,.92)';
+        ctx.fillRect(W - m.right, my - 7, 68, 14);
+        ctx.fillStyle = '#7090a8';
+        ctx.font = '9px "SFMono-Regular","SF Mono","Consolas",monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(crossP.toFixed(2), W - m.right + 34, my);
+      }
+
+      /* OHLC bar for the hovered candle */
+      const slotI = Math.floor((mx - m.left) / slotW);
+      const candI = slotI - startI;
+      if (candI >= 0 && candI < vis.length) {
+        const hc  = vis[candI];
+        const up  = hc.close >= hc.open;
+        const cCol = up ? '#18c784' : '#ea3943';
+        const d   = new Date(hc.time * 1000);
+        const ts  = d.getUTCFullYear() + '-' +
+          String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+          String(d.getUTCDate()).padStart(2, '0') + ' ' +
+          String(d.getUTCHours()).padStart(2, '0') + ':' +
+          String(d.getUTCMinutes()).padStart(2, '0') + ' UTC';
+        ctx.font = '9px "SFMono-Regular","SF Mono","Consolas",monospace';
+        ctx.fillStyle = 'rgba(10,16,26,.88)';
+        ctx.fillRect(m.left, m.top, 340, 16);
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        let lx = m.left + 6;
+        ctx.fillStyle = '#4a6070';
+        ctx.fillText(ts, lx, m.top + 8);
+        lx += ctx.measureText(ts).width + 10;
+        for (const [lbl, val] of [['O',hc.open],['H',hc.high],['L',hc.low],['C',hc.close]]) {
+          ctx.fillStyle = '#384a58';
+          ctx.fillText(lbl + ' ', lx, m.top + 8);
+          lx += ctx.measureText(lbl + ' ').width;
+          ctx.fillStyle = lbl === 'C' ? cCol : '#8ba0b8';
+          const txt = val.toFixed(2);
+          ctx.fillText(txt, lx, m.top + 8);
+          lx += ctx.measureText(txt).width + 10;
+        }
+      }
     }
   }
 }
@@ -1487,6 +1692,9 @@ const mktwatch = new MarketWatch(
     setText('ch-sym', sym);
     setText('ch-iv', iv);
     chart.setData([]);
+    chart.setFills([]);
+    chart.setSignals([]);
+    chart.setOpenPosition(null);
     loadCandles(sym, iv);
   }
 );
@@ -1554,6 +1762,29 @@ function connectWS() {
       if (ev.signal !== 'HOLD' && ev.symbol === activeSymbol && ev.interval === activeInterval) {
         showToast(ev.signal, ev.symbol);
         updateSignalPanel(ev.signal, ev.symbol);
+        chart.addSignal({
+          time:   Math.floor(new Date(ev.ts).getTime() / 1000),
+          signal: ev.signal,
+        });
+      }
+    }
+
+    /* Fill event → trade marker on chart (only for active symbol) */
+    if (ev.type === 'fill' && ev.symbol === activeSymbol) {
+      chart.addFill({
+        id:    ev.order_id,
+        time:  Math.floor(new Date(ev.ts).getTime() / 1000),
+        price: ev.fill_price,
+        side:  ev.side,
+      });
+    }
+
+    /* Position event → entry line on chart */
+    if (ev.type === 'position' && ev.symbol === activeSymbol) {
+      if (ev.action === 'opened') {
+        chart.setOpenPosition({ entry_price: ev.entry_price, direction: ev.direction });
+      } else if (ev.action === 'closed') {
+        chart.setOpenPosition(null);
       }
     }
 
@@ -1603,6 +1834,23 @@ async function pollStatus() {
     setText('ch-price', p);
     setText('sr-price', p);
   }
+
+  /* Sync entry-price line — ground truth from open positions */
+  const myPos = (s.open_positions || []).find(p => p.symbol === activeSymbol);
+  chart.setOpenPosition(myPos
+    ? { entry_price: myPos.entry_price, direction: myPos.direction }
+    : null);
+
+  /* Sync fill markers from DB truth (recent_trades) */
+  const activeFills = (s.recent_trades || [])
+    .filter(t => t.symbol === activeSymbol)
+    .map(t => ({
+      id:    t.order_id || (t.symbol + ':' + (t.filled_at || '')),
+      time:  Math.floor(new Date(t.filled_at).getTime() / 1000),
+      price: t.fill_price,
+      side:  t.side,
+    }));
+  chart.setFills(activeFills);
 
   /* Strategy panel counters */
   setText('sr-positions', (s.open_positions || []).length);
