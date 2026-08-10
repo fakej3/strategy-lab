@@ -137,6 +137,11 @@ class BatchBacktest:
                           debug).
     """
 
+    # Sentinel value for max_workers that activates auto-selection:
+    # sequential for < AUTO_THRESHOLD pairs, ProcessPool for >= AUTO_THRESHOLD.
+    AUTO = 0
+    AUTO_THRESHOLD = 4
+
     def __init__(
         self,
         symbols:          list[str],
@@ -149,6 +154,15 @@ class BatchBacktest:
         engine_config:    EngineConfig | None = None,
         max_workers:      int = 1,
     ) -> None:
+        """Initialise a batch backtest.
+
+        Args:
+            max_workers: Number of parallel worker processes.  Use 1 for
+                sequential execution (default, easiest to debug).  Use > 1 to
+                parallelise with a ProcessPool.  Use ``BatchBacktest.AUTO`` (0)
+                for automatic selection: sequential when total pairs < 4,
+                ProcessPool with min(pairs, cpu_count) workers otherwise.
+        """
         if not symbols:
             raise ValueError("symbols must be a non-empty list")
         if not intervals:
@@ -166,7 +180,8 @@ class BatchBacktest:
         self.starting_capital = starting_capital
         self.equity_fraction  = equity_fraction
         self.engine_config    = engine_config or EngineConfig()
-        self.max_workers      = max(1, max_workers)
+        self._auto_mode       = (max_workers == self.AUTO)
+        self.max_workers      = 1 if self._auto_mode else max(1, max_workers)
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -193,12 +208,21 @@ class BatchBacktest:
     # ── Per-pair execution ─────────────────────────────────────────────────────
 
     def _run_pairs(self, pairs: list[tuple[str, str]]) -> list[SymbolResult]:
-        if self.max_workers == 1 or len(pairs) == 1:
+        if self._auto_mode:
+            import os
+            if len(pairs) < self.AUTO_THRESHOLD:
+                effective_workers = 1
+            else:
+                effective_workers = min(len(pairs), os.cpu_count() or 4)
+        else:
+            effective_workers = self.max_workers
+
+        if effective_workers == 1 or len(pairs) == 1:
             return [self._run_one(sym, iv) for sym, iv in pairs]
 
         from concurrent.futures import ProcessPoolExecutor, as_completed
         results: list[SymbolResult | None] = [None] * len(pairs)
-        with ProcessPoolExecutor(max_workers=self.max_workers) as pool:
+        with ProcessPoolExecutor(max_workers=effective_workers) as pool:
             futs = {
                 pool.submit(
                     _run_one_worker,
