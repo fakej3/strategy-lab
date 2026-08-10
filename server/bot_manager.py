@@ -40,7 +40,19 @@ class BotManager:
         self._started_at: datetime | None = None
         self._stopped_at: datetime | None = None
         self._error: str  = ""
-        self._event_queue: queue.Queue = queue.Queue(maxsize=500)
+
+        # Priority-split event queues.
+        # HIGH: fills/signals/errors/positions/reconnects — never dropped.
+        # LOW : candles/ticks — oldest dropped when full.
+        self._q_high: queue.Queue = queue.Queue()          # unbounded
+        self._q_low:  queue.Queue = queue.Queue(maxsize=500)
+
+        # Active (symbol, interval) viewed in the chart.  When set, only that
+        # pair receives full OHLCV candle events; all others get lightweight ticks.
+        self._active_symbol:   str | None = None
+        self._active_interval: str | None = None
+        # Last-seen close price per (symbol, interval) for tick change calculation.
+        self._last_close: dict[tuple[str, str], float] = {}
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -120,11 +132,12 @@ class BotManager:
             self._stopped_at = None
 
         # Drain stale events from previous run
-        while not self._event_queue.empty():
-            try:
-                self._event_queue.get_nowait()
-            except queue.Empty:
-                break
+        for q in (self._q_high, self._q_low):
+            while True:
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    break
 
         self._thread = threading.Thread(
             target=self._run_in_thread,
@@ -157,65 +170,94 @@ class BotManager:
         with self._lock:
             return self._running
 
+    # LOW-priority event types — candles and ticks.  Everything else (fills,
+    # signals, errors, positions, reconnects…) is HIGH and never dropped.
+    _LOW_EV_TYPES: frozenset[str] = frozenset({"candle", "tick"})
+
     def _enqueue(self, ev_dict: dict) -> None:
-        """Enqueue an event for the WebSocket; drop oldest entry if full."""
-        try:
-            self._event_queue.put_nowait(ev_dict)
-        except queue.Full:
+        """Enqueue an event for the WebSocket.
+
+        HIGH-priority events (fills, errors, …) go to an unbounded queue and
+        are never dropped.  LOW-priority events (candles, ticks) go to a
+        bounded queue; when it is full the oldest LOW event is discarded.
+        """
+        ev_type = ev_dict.get("type", "")
+        if ev_type in self._LOW_EV_TYPES:
             try:
-                self._event_queue.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                self._event_queue.put_nowait(ev_dict)
+                self._q_low.put_nowait(ev_dict)
             except queue.Full:
-                pass
+                try:
+                    self._q_low.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self._q_low.put_nowait(ev_dict)
+                except queue.Full:
+                    pass
+        else:
+            self._q_high.put_nowait(ev_dict)
 
     def drain_events(self, max_n: int = 50) -> list[dict]:
-        """Return up to *max_n* queued bot events without blocking."""
+        """Return up to *max_n* queued bot events without blocking.
+
+        HIGH-priority events (fills, signals, errors…) are always drained
+        first so they reach the browser before any pending candle updates.
+        """
         events: list[dict] = []
-        for _ in range(max_n):
+        # HIGH priority first
+        while len(events) < max_n:
             try:
-                events.append(self._event_queue.get_nowait())
+                events.append(self._q_high.get_nowait())
+            except queue.Empty:
+                break
+        # LOW priority for remaining slots
+        remaining = max_n - len(events)
+        for _ in range(remaining):
+            try:
+                events.append(self._q_low.get_nowait())
             except queue.Empty:
                 break
         return events
 
+    def set_active_pair(self, symbol: str, interval: str) -> None:
+        """Record which (symbol, interval) the browser is currently viewing.
+
+        Once set, only that pair receives full OHLCV candle events; every
+        other pair sends lightweight tick events for the Market Watch table.
+        Thread-safe — can be called from any request handler.
+        """
+        with self._lock:
+            self._active_symbol   = symbol
+            self._active_interval = interval
+
     def get_candles(self, symbol: str, interval: str, limit: int = 200) -> list[dict]:
         """Return the most recent OHLCV candles from the live buffer.
+
+        Uses the Phase 2A cache (BotState.get_buffer_df) so sort/dedup only
+        runs when the buffer has been modified since the last call.
 
         ``time`` is ``open_time // 1000`` (Unix seconds at candle open), which
         is the canonical x-axis key used by both the REST endpoint and the live
         WebSocket feed so the frontend can deduplicate updates without drift.
-        Candles are guaranteed to be in ascending open_time order (the buffer
-        always appends, but we sort defensively to handle any edge cases).
         """
         with self._lock:
             state = self._state
         if state is None:
             return []
-        key = (symbol, interval)
-        with state._lock:
-            buf = list(state._buffers.get(key, []))
-        # Sort ascending by open_time — defensive guard against any out-of-order
-        # entries that could reach the buffer (e.g., during reconnect races).
-        buf.sort(key=lambda c: c.open_time)
-        # Deduplicate: keep last entry for each open_time
-        seen: dict[int, object] = {}
-        for c in buf:
-            seen[c.open_time] = c
-        buf = list(seen.values())
-        buf = buf[-limit:]
+        df = state.get_buffer_df(symbol, interval)
+        if df.empty:
+            return []
+        df = df.tail(limit)
         return [
             {
-                "time":   c.open_time // 1000,  # Unix seconds at candle open
-                "open":   c.open,
-                "high":   c.high,
-                "low":    c.low,
-                "close":  c.close,
-                "volume": c.volume,
+                "time":   int(row.open_time) // 1000,  # Unix seconds at candle open
+                "open":   row.open,
+                "high":   row.high,
+                "low":    row.low,
+                "close":  row.close,
+                "volume": row.volume,
             }
-            for c in buf
+            for row in df.itertuples()
         ]
 
     def get_counters(self) -> dict:
@@ -465,9 +507,6 @@ class BotManager:
             # Bridge bot EventBus → WebSocket event queue
             def _enq(ev_type: str):
                 def _h(ev):
-                    # Skip backfill candles — browser fetches history via REST
-                    if ev_type == 'candle' and getattr(ev, 'is_history', False):
-                        return
                     d: dict = {'type': ev_type, 'ts': ev.ts.isoformat()}
                     for fname in type(ev).__dataclass_fields__:
                         if fname != 'ts':
@@ -475,7 +514,56 @@ class BotManager:
                     self._enqueue(d)
                 return _h
 
-            bus.subscribe(CandleEvent,        _enq('candle'))
+            def _on_candle(ev: CandleEvent) -> None:
+                # Skip backfill candles — browser fetches history via REST
+                if ev.is_history:
+                    return
+
+                pair_key = (ev.symbol, ev.interval)
+                with self._lock:
+                    last_close  = self._last_close.get(pair_key)
+                    active_sym  = self._active_symbol
+                    active_iv   = self._active_interval
+
+                # Lightweight tick for Market Watch (all symbols, LOW priority)
+                tick: dict = {
+                    'type':     'tick',
+                    'ts':       ev.ts.isoformat(),
+                    'symbol':   ev.symbol,
+                    'interval': ev.interval,
+                    'close':    ev.close,
+                }
+                if last_close is not None and last_close != 0.0:
+                    tick['change'] = round(
+                        (ev.close - last_close) / last_close * 100.0, 4
+                    )
+                self._enqueue(tick)
+
+                # Update last-seen close (under lock to avoid race conditions)
+                with self._lock:
+                    self._last_close[pair_key] = ev.close
+
+                # Full OHLCV candle for active pair only (or all if no pair set)
+                is_active = (
+                    active_sym is None
+                    or (ev.symbol == active_sym and ev.interval == active_iv)
+                )
+                if is_active:
+                    self._enqueue({
+                        'type':      'candle',
+                        'ts':        ev.ts.isoformat(),
+                        'symbol':    ev.symbol,
+                        'interval':  ev.interval,
+                        'open_time': ev.open_time,
+                        'open':      ev.open,
+                        'high':      ev.high,
+                        'low':       ev.low,
+                        'close':     ev.close,
+                        'volume':    ev.volume,
+                        'is_history': False,
+                    })
+
+            bus.subscribe(CandleEvent,        _on_candle)
             bus.subscribe(SignalEvent,        _enq('signal'))
             bus.subscribe(FillEvent,          _enq('fill'))
             bus.subscribe(ErrorEvent,         _enq('error'))

@@ -188,11 +188,12 @@ class BotState:
 
             rows = [
                 {
-                    "open":   c.open,
-                    "high":   c.high,
-                    "low":    c.low,
-                    "close":  c.close,
-                    "volume": c.volume,
+                    "open_time": c.open_time,  # ms since epoch at candle open
+                    "open":      c.open,
+                    "high":      c.high,
+                    "low":       c.low,
+                    "close":     c.close,
+                    "volume":    c.volume,
                 }
                 for c in candles
             ]

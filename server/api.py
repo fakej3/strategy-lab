@@ -315,3 +315,22 @@ def api_bot_candles(
 @router.get("/bot/counters")
 def api_bot_counters(_: AuthUser = None) -> JSONResponse:
     return JSONResponse(bot_manager.get_counters())
+
+
+@router.post("/bot/active-pair")
+async def api_bot_set_active_pair(request: Request, _: AuthUser) -> JSONResponse:
+    """Tell the server which (symbol, interval) the browser is currently viewing.
+
+    Once set, full OHLCV candle events are only sent for that pair.  All other
+    pairs send lightweight tick events for the Market Watch table.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    symbol   = str(body.get("symbol",   "")).strip()
+    interval = str(body.get("interval", "")).strip()
+    if not symbol or not interval:
+        raise HTTPException(status_code=422, detail="symbol and interval are required")
+    bot_manager.set_active_pair(symbol, interval)
+    return JSONResponse({"ok": True})

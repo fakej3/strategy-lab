@@ -593,22 +593,47 @@ class TestEventBusToBotManagerBridge:
         assert len(second) == 0, "Queue must be empty after drain"
 
     def test_enqueue_drops_oldest_when_full(self):
-        """When queue is full (maxsize=500), oldest entry is dropped for new one."""
+        """LOW-priority queue (maxsize=500): oldest candle dropped when full."""
         from server.bot_manager import BotManager
-        import queue
 
         mgr = BotManager()
-        # Fill the queue to capacity
+        # Fill the LOW queue to capacity with candle events
         for i in range(500):
-            mgr._enqueue({"type": "t", "seq": i})
+            mgr._enqueue({"type": "candle", "seq": i})
 
-        # Force one more beyond capacity — should drop oldest
-        mgr._enqueue({"type": "t", "seq": 9999})
+        # Force one more beyond capacity — should drop oldest candle
+        mgr._enqueue({"type": "candle", "seq": 9999})
 
         events = mgr.drain_events(max_n=500)
         seqs = [e["seq"] for e in events]
-        assert 9999 in seqs, "New event must be in queue after drop-oldest"
-        assert 0 not in seqs, "Oldest event must have been dropped"
+        assert 9999 in seqs, "New candle event must be in queue after drop-oldest"
+        assert 0 not in seqs, "Oldest candle event must have been dropped"
+
+    def test_high_priority_events_never_dropped(self):
+        """HIGH-priority events (fills, errors, etc.) are never dropped."""
+        from server.bot_manager import BotManager
+
+        mgr = BotManager()
+        # Fill LOW queue to capacity
+        for i in range(500):
+            mgr._enqueue({"type": "candle", "seq": i})
+
+        # HIGH events go to an unbounded queue — must always be accepted
+        mgr._enqueue({"type": "fill",   "seq": 9000})
+        mgr._enqueue({"type": "signal", "seq": 9001})
+        mgr._enqueue({"type": "error",  "seq": 9002})
+
+        events = mgr.drain_events(max_n=503)
+        seqs  = [e["seq"] for e in events]
+        types = [e["type"] for e in events]
+        assert 9000 in seqs, "fill event must not be dropped"
+        assert 9001 in seqs, "signal event must not be dropped"
+        assert 9002 in seqs, "error event must not be dropped"
+        # HIGH events always come before LOW in drain order
+        high_idxs = [i for i, t in enumerate(types) if t != "candle"]
+        low_idxs  = [i for i, t in enumerate(types) if t == "candle"]
+        if high_idxs and low_idxs:
+            assert max(high_idxs) < min(low_idxs), "HIGH events must precede LOW events"
 
     def test_history_candle_not_bridged(self):
         """CandleEvent with is_history=True must not reach the event queue."""

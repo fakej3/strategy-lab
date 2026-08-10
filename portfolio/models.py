@@ -77,6 +77,7 @@ class PortfolioConfig:
     equity_fraction  : float      = 0.10
     trade_capital    : float      = 10_000.0
     fraction         : float      = 0.25
+    summary_only     : bool       = False
 
     def __post_init__(self) -> None:
         if self.starting_capital <= 0:

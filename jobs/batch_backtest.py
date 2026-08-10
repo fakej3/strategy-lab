@@ -196,11 +196,19 @@ class BatchBacktest:
         if self.max_workers == 1 or len(pairs) == 1:
             return [self._run_one(sym, iv) for sym, iv in pairs]
 
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ProcessPoolExecutor, as_completed
         results: list[SymbolResult | None] = [None] * len(pairs)
-        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+        with ProcessPoolExecutor(max_workers=self.max_workers) as pool:
             futs = {
-                pool.submit(self._run_one, sym, iv): i
+                pool.submit(
+                    _run_one_worker,
+                    sym, iv,
+                    self.strategy_class,
+                    self.params,
+                    self.bars.get((sym, iv)),
+                    self.starting_capital,
+                    self.engine_config,
+                ): i
                 for i, (sym, iv) in enumerate(pairs)
             }
             for fut in as_completed(futs):
@@ -348,6 +356,37 @@ class BatchBacktest:
             "portfolio_win_rate":      win_rate,
         }
         return eq_series, metrics
+
+
+# ── Module-level worker (must be top-level for ProcessPoolExecutor pickling) ────
+
+def _run_one_worker(
+    symbol:          str,
+    interval:        str,
+    strategy_class:  Type[StrategyBase],
+    params:          dict[str, Any],
+    bars:            "pd.DataFrame | None",
+    starting_capital: float,
+    engine_config:   EngineConfig,
+) -> SymbolResult:
+    """Picklable worker for ProcessPoolExecutor — runs one (symbol, interval) pair."""
+    if bars is None or (hasattr(bars, "empty") and bars.empty):
+        return SymbolResult(
+            symbol=symbol, interval=interval,
+            error=f"No bars data for {symbol} {interval}",
+        )
+    try:
+        strategy = strategy_class(**params)
+        port_cfg = PortfolioConfig(starting_capital=starting_capital)
+        result   = PortfolioEngine(port_cfg).run(bars, strategy, engine_config)
+        log.info(
+            "Backtest %s %s: %d trades, return=%.2f%%",
+            symbol, interval, len(result.trades), result.total_return * 100,
+        )
+        return SymbolResult(symbol=symbol, interval=interval, portfolio_result=result)
+    except Exception as exc:
+        log.warning("Backtest failed %s %s: %s", symbol, interval, exc)
+        return SymbolResult(symbol=symbol, interval=interval, error=str(exc))
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

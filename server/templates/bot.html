@@ -1744,6 +1744,12 @@ const mktwatch = new MarketWatch(
   (sym, iv) => {
     activeSymbol = sym;
     activeInterval = iv;
+    /* Notify server of the newly active pair for candle filtering */
+    fetch('/api/bot/active-pair', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({symbol: sym, interval: iv}),
+    }).catch(() => {});
     setText('ch-sym', sym);
     setText('ch-iv', iv);
     chart.setData([]);
@@ -1771,6 +1777,13 @@ function loadCandles(sym, iv) {
 
 loadCandles(activeSymbol);
 
+/* Register initial active pair with the server so candle filtering starts immediately */
+fetch('/api/bot/active-pair', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({symbol: activeSymbol, interval: activeInterval}),
+}).catch(() => {});
+
 /* ── WebSocket ────────────────────────────────────────────── */
 let ws = null;
 
@@ -1793,22 +1806,26 @@ function connectWS() {
     try { ev = JSON.parse(data); } catch { return; }
     if (ev.type === 'ping') return;
 
-    /* Update chart on live candle — only for the currently focused (sym, interval). */
-    if (ev.type === 'candle' && !ev.is_history) {
+    /* Lightweight tick — Market Watch price update (all symbols, no chart). */
+    if (ev.type === 'tick') {
       mktwatch.onCandle(ev);
-      if (ev.symbol === activeSymbol && ev.interval === activeInterval) {
-        chart.updateCandle({
-          time:   Math.floor(ev.open_time / 1000),  // open_time matches REST
-          open:   ev.open,
-          high:   ev.high,
-          low:    ev.low,
-          close:  ev.close,
-          volume: ev.volume,
-        });
-        const p = fmt(ev.close, 2);
-        setText('tm-price', p);
-        setText('ch-price', p);
-      }
+      return;
+    }
+
+    /* Full OHLCV candle — chart update.  Backend only sends this for the active
+       pair, so no client-side symbol filter needed. */
+    if (ev.type === 'candle' && !ev.is_history) {
+      chart.updateCandle({
+        time:   Math.floor(ev.open_time / 1000),  // open_time matches REST
+        open:   ev.open,
+        high:   ev.high,
+        low:    ev.low,
+        close:  ev.close,
+        volume: ev.volume,
+      });
+      const p = fmt(ev.close, 2);
+      setText('tm-price', p);
+      setText('ch-price', p);
     }
 
     /* Signal events — update panel only for the focused (sym, interval) */
@@ -1843,7 +1860,7 @@ function connectWS() {
       }
     }
 
-    /* Event feed — all non-history events */
+    /* Event feed — all events except tick (too frequent) and backfill candles */
     if (ev.type !== 'candle' || !ev.is_history) {
       feed.add(ev);
     }

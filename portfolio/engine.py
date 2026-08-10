@@ -144,6 +144,13 @@ class PortfolioEngine:
         in_bars  = sum(t.exit_bar - t.entry_bar + 1 for t in ptrades)
         exposure = min(in_bars / n_bars, 1.0)
 
+        # Drop curves when only scalar metrics are needed (saves memory in batch runs).
+        if cfg.summary_only:
+            _empty = pd.Series(dtype=float)
+            equity_curve   = _empty
+            balance_curve  = _empty.copy()
+            drawdown_curve = _empty.copy()
+
         return PortfolioResult(
             starting_capital = cfg.starting_capital,
             ending_equity    = ending_equity,
