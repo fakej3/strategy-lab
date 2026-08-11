@@ -389,12 +389,7 @@ class BotManager:
                     fills = reader.get_fills(limit=20)
                     result["recent_trades"] = fills
 
-                    closed = reader.get_positions(limit=500)
-                    result["realized_pnl"] = sum(
-                        p.get("realized_pnl", 0.0)
-                        for p in closed
-                        if p.get("status") == "closed"
-                    )
+                    result["realized_pnl"] = reader.get_realized_pnl()
                 finally:
                     reader.close()
             except Exception:

@@ -142,6 +142,10 @@ class BatchBacktest:
     AUTO = 0
     AUTO_THRESHOLD = 4
 
+    # Hard cap on workers spawned in AUTO mode — avoids spawning hundreds of
+    # processes on many-core machines for a local research workload.
+    _MAX_AUTO_WORKERS = 8
+
     def __init__(
         self,
         symbols:                list[str],
@@ -155,6 +159,7 @@ class BatchBacktest:
         max_workers:            int = 1,
         max_open_positions:     int = 0,
         max_total_exposure_usd: float = 0.0,
+        summary_only:           bool = False,
     ) -> None:
         """Initialise a batch backtest.
 
@@ -163,11 +168,16 @@ class BatchBacktest:
                 sequential execution (default, easiest to debug).  Use > 1 to
                 parallelise with a ProcessPool.  Use ``BatchBacktest.AUTO`` (0)
                 for automatic selection: sequential when total pairs < 4,
-                ProcessPool with min(pairs, cpu_count) workers otherwise.
+                ProcessPool with min(pairs, cpu_count, _MAX_AUTO_WORKERS)
+                workers otherwise.
             max_open_positions: Maximum number of simultaneous open positions in
                 the portfolio simulation (Phase 5).  0 = unlimited.
             max_total_exposure_usd: Maximum total committed capital across all
                 open positions in the portfolio simulation.  0 = unlimited.
+            summary_only: When True, per-pair equity/balance/drawdown curves are
+                dropped after computing scalar metrics.  Saves memory for large
+                batch jobs (100+ pairs).  Scalar metrics and trades are preserved.
+                Pass False (default) when curves are needed for charting/debugging.
         """
         if not symbols:
             raise ValueError("symbols must be a non-empty list")
@@ -190,6 +200,7 @@ class BatchBacktest:
         self.max_workers            = 1 if self._auto_mode else max(1, max_workers)
         self.max_open_positions     = max(0, int(max_open_positions))
         self.max_total_exposure_usd = max(0.0, float(max_total_exposure_usd))
+        self.summary_only           = bool(summary_only)
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -221,7 +232,8 @@ class BatchBacktest:
             if len(pairs) < self.AUTO_THRESHOLD:
                 effective_workers = 1
             else:
-                effective_workers = min(len(pairs), os.cpu_count() or 4)
+                cpu_count = os.cpu_count() or 4
+                effective_workers = min(len(pairs), cpu_count, self._MAX_AUTO_WORKERS)
         else:
             effective_workers = self.max_workers
 
@@ -240,6 +252,7 @@ class BatchBacktest:
                     self.bars.get((sym, iv)),
                     self.starting_capital,
                     self.engine_config,
+                    self.summary_only,
                 ): i
                 for i, (sym, iv) in enumerate(pairs)
             }
@@ -267,7 +280,10 @@ class BatchBacktest:
 
         try:
             strategy  = self.strategy_class(**self.params)
-            port_cfg  = PortfolioConfig(starting_capital=self.starting_capital)
+            port_cfg  = PortfolioConfig(
+                starting_capital=self.starting_capital,
+                summary_only=self.summary_only,
+            )
             result    = PortfolioEngine(port_cfg).run(bars, strategy, self.engine_config)
             log.info(
                 "Backtest %s %s: %d trades, return=%.2f%%",
@@ -434,6 +450,7 @@ def _run_one_worker(
     bars:            "pd.DataFrame | None",
     starting_capital: float,
     engine_config:   EngineConfig,
+    summary_only:    bool = False,
 ) -> SymbolResult:
     """Picklable worker for ProcessPoolExecutor — runs one (symbol, interval) pair."""
     if bars is None or (hasattr(bars, "empty") and bars.empty):
@@ -443,7 +460,7 @@ def _run_one_worker(
         )
     try:
         strategy = strategy_class(**params)
-        port_cfg = PortfolioConfig(starting_capital=starting_capital)
+        port_cfg = PortfolioConfig(starting_capital=starting_capital, summary_only=summary_only)
         result   = PortfolioEngine(port_cfg).run(bars, strategy, engine_config)
         log.info(
             "Backtest %s %s: %d trades, return=%.2f%%",

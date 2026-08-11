@@ -47,21 +47,23 @@ from shared.logging import setup_logging
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Paper trading bot")
-    p.add_argument("--capital",   type=float, default=None, help="Starting capital (USDT)")
-    p.add_argument("--symbols",   type=str,   default=None, help="Comma-separated symbols e.g. BTCUSDT,ETHUSDT")
-    p.add_argument("--interval",  type=str,   default=None, help="Candle interval e.g. 1h")
-    p.add_argument("--strategy",  type=str,   default=None, help="Strategy name (default: EMACrossover)")
-    p.add_argument("--db",        type=str,   default=None, help="Database path (default: bot.db)")
-    p.add_argument("--log-level", type=str,   default="INFO", choices=["DEBUG","INFO","WARNING","ERROR"])
-    p.add_argument("--dashboard", action="store_true", help="Also start bot dashboard on port 8001")
-    p.add_argument("--dashboard-port", type=int, default=8001)
-    p.add_argument("--no-recover", action="store_true", help="Don't recover open orders/positions on start")
+    p.add_argument("--capital",       type=float, default=None,  help="Starting capital (USDT)")
+    p.add_argument("--symbols",       type=str,   default=None,  help="Comma-separated symbols e.g. BTCUSDT,ETHUSDT")
+    p.add_argument("--interval",      type=str,   default=None,  help="Candle interval e.g. 1h")
+    p.add_argument("--strategy",      type=str,   default=None,  help="Strategy name (default: EMACrossover)")
+    p.add_argument("--db",            type=str,   default=None,  help="Database path (default: bot.db)")
+    p.add_argument("--max-positions", type=int,   default=0,
+                   help="Max simultaneous open positions (default: one per configured symbol)")
+    p.add_argument("--log-level",     type=str,   default="INFO", choices=["DEBUG","INFO","WARNING","ERROR"])
+    p.add_argument("--dashboard",     action="store_true", help="Also start bot dashboard on port 8001")
+    p.add_argument("--dashboard-port", type=int,  default=8001)
+    p.add_argument("--no-recover",    action="store_true", help="Don't recover open orders/positions on start")
     return p.parse_args()
 
 
 def _build_config(args: argparse.Namespace) -> BotConfig:
     cfg = BotConfig.from_env()
-    if args.capital:
+    if args.capital is not None:
         cfg.paper_capital = args.capital
     if args.symbols:
         cfg.feed.symbols = [s.strip() for s in args.symbols.split(",")]
@@ -73,49 +75,30 @@ def _build_config(args: argparse.Namespace) -> BotConfig:
         cfg.db_path = args.db
     if args.no_recover:
         cfg.recover_on_restart = False
+
+    # Derive max_open_positions from configured symbols if not explicitly
+    # overridden — mirrors BotManager.start() so CLI and web-UI are consistent.
+    explicit = args.max_positions if args.max_positions else 0
+    cfg.risk.max_open_positions = explicit if explicit > 0 else len(cfg.feed.symbols)
+
     return cfg
 
 
-def _discover_strategies() -> dict[str, type]:
-    """Scan the strategies/ package for StrategyBase subclasses.
-
-    Imports every module under strategies/ and collects classes that inherit
-    from StrategyBase.  New strategies are picked up automatically without
-    modifying this file.
-    """
-    import importlib
-    import pkgutil
-    import strategies as _strat_pkg
-    from engine.strategy import StrategyBase
-
-    log = logging.getLogger("strategy_lab.bot")
-    registry: dict[str, type] = {}
-    for _finder, module_name, _ispkg in pkgutil.iter_modules(_strat_pkg.__path__):
-        try:
-            mod = importlib.import_module(f"strategies.{module_name}")
-        except Exception:
-            log.warning("Failed to import strategies.%s", module_name, exc_info=True)
-            continue
-        for attr in vars(mod).values():
-            if (
-                isinstance(attr, type)
-                and issubclass(attr, StrategyBase)
-                and attr is not StrategyBase
-            ):
-                registry[attr.__name__] = attr
-    return registry
-
-
 def _load_strategy(cfg: BotConfig):
-    """Load the configured strategy via automatic discovery of StrategyBase subclasses."""
-    registry = _discover_strategies()
-    cls = registry.get(cfg.strategy_name)
-    if cls is None:
-        available = ", ".join(sorted(registry)) or "none found in strategies/"
+    """Load the configured strategy from the StrategyRegistry.
+
+    The registry is the single source of truth for available strategies.
+    Register a new strategy in ``strategies/__init__.py`` to make it
+    available here, in BotManager, and in BatchBacktest automatically.
+    """
+    from strategies import registry
+    try:
+        return registry.create(cfg.strategy_name, cfg.strategy_params)
+    except KeyError:
+        available = ", ".join(registry.list_strategies()) or "none registered"
         raise ValueError(
-            f"Unknown strategy: {cfg.strategy_name!r}. Available: {available}"
+            f"Unknown strategy {cfg.strategy_name!r}. Available: {available}"
         )
-    return cls(**cfg.strategy_params)
 
 
 def _start_dashboard(port: int) -> None:
@@ -176,11 +159,18 @@ async def _main(args: argparse.Namespace) -> None:
         fee_rate=cfg.fee_rate,
     )
     risk     = RiskEngine(config=cfg.risk, bus=bus)
-    strategy = _load_strategy(cfg)
+
+    # Create an independent strategy instance per (symbol, interval) pair so
+    # that stateful strategies never cross-contaminate between different pairs.
+    strategy_map = {
+        (sym, iv): _load_strategy(cfg)
+        for sym in cfg.feed.symbols
+        for iv in cfg.feed.intervals
+    }
 
     engine = BotEngine(
         config=cfg,
-        strategy=strategy,
+        strategy=strategy_map,
         state=state,
         orders=orders,
         positions=positions,

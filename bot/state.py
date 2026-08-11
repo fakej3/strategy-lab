@@ -150,8 +150,16 @@ class BotState:
         or duplicated DataFrame to the strategy.
 
         The result is cached; repeated calls with no intervening push are O(1).
-        Pandas 3.0+ Copy-on-Write semantics protect the cached DataFrame from
-        accidental mutation by callers — no explicit .copy() is needed.
+        The caller receives an explicit ``df.copy()`` so mutations to the
+        returned DataFrame do not corrupt the cache, regardless of the pandas
+        version.  (Pandas 3.0 Copy-on-Write reduces the cost of this copy to
+        near zero when the caller only reads, but we always copy defensively
+        so older pandas versions are equally safe.)
+
+        Ownership: the caller owns the returned DataFrame and may mutate it
+        freely.  The internal cache is never shared with callers.
+        Cache invalidation: any ``push_candle()`` call invalidates the cache;
+        the next ``get_buffer_df()`` rebuilds and re-caches.
         """
         key = (symbol, interval)
         with self._lock:

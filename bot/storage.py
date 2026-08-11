@@ -261,6 +261,18 @@ class BotStorage:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def get_realized_pnl(self) -> float:
+        """Return the sum of realized_pnl for all closed positions.
+
+        Uses SQL aggregation (O(1) per-row cost) instead of loading N rows
+        and summing in Python — efficient for accounts with many trades.
+        """
+        with self._lock:
+            row = self.connect().execute(
+                "SELECT COALESCE(SUM(realized_pnl), 0.0) FROM bot_positions WHERE status='closed'"
+            ).fetchone()
+            return float(row[0]) if row else 0.0
+
     def get_positions(self, limit: int = 200, symbol: str | None = None) -> list[dict]:
         with self._lock:
             if symbol:

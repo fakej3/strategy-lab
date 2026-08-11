@@ -35,9 +35,24 @@ class BarStore:
         return self._path(symbol, interval, year, month).exists()
 
     def write(self, symbol: str, interval: str, year: int, month: int, df: pd.DataFrame) -> None:
+        """Write bars to a Parquet file atomically (temp file → rename).
+
+        A crash during write leaves the previous file intact; readers always
+        see either the old valid file or the newly completed file, never a
+        partial write.
+        """
         path = self._path(symbol, interval, year, month)
         path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(path)
+        tmp = path.with_suffix(".parquet.tmp")
+        try:
+            df.to_parquet(tmp)
+            tmp.replace(path)
+        except Exception:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     def read(self, symbol: str, interval: str, year: int, month: int) -> pd.DataFrame:
         df = pd.read_parquet(self._path(symbol, interval, year, month))
