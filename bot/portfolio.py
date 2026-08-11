@@ -4,7 +4,9 @@ Tracks cash, equity, peak, and drawdown.  Updated on every fill and every
 monitoring tick.  Thread-safe via a lock so the dashboard can read without
 racing the main event loop.
 
-Equity = cash + unrealized PnL across all open positions.
+Equity = cash + (mark_price * size) for each open position.
+Each BUY fill deducts the entry notional from cash, so adding the current
+market value of each position gives the correct total portfolio value.
 """
 from __future__ import annotations
 
@@ -114,11 +116,21 @@ class Portfolio:
     ) -> PortfolioSnapshot:
         """Compute and persist a portfolio snapshot."""
         with self._lock:
+            # Equity = cash + full market value of open positions.
+            # cash is already reduced by entry notionals on each BUY fill, so
+            # cash + mark*size gives the correct total portfolio value.
+            position_value = sum(
+                mark_prices.get(p.symbol, p.avg_entry_price) * p.size
+                for p in positions
+            )
+            equity = self._cash + position_value
+
+            # Unrealized PnL = gain/loss from entry prices; kept as a readable
+            # dashboard metric separate from equity.
             unrealized = sum(
                 p.unrealized_pnl(mark_prices.get(p.symbol, p.avg_entry_price))
                 for p in positions
             )
-            equity = self._cash + unrealized
 
             if equity > self._peak_equity:
                 self._peak_equity = equity

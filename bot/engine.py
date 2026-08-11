@@ -289,14 +289,20 @@ class BotEngine:
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _current_equity(self) -> float:
-        """Approximate equity from cash + unrealized PnL at current marks."""
+        """Cash + market value of open positions at current mark prices.
+
+        Using mark_price * size (not unrealized_pnl) so that equity includes
+        the full notional of open positions, not just the gain/loss from entry.
+        cash is already reduced by the entry notional on each BUY fill, so
+        cash + position_market_value = true portfolio value.
+        """
         marks = self.state.all_mark_prices()
         open_positions = self.positions.get_all_open()
-        unrealized = sum(
-            p.unrealized_pnl(marks.get(p.symbol, p.avg_entry_price))
+        position_value = sum(
+            marks.get(p.symbol, p.avg_entry_price) * p.size
             for p in open_positions
         )
-        return self.portfolio.cash + unrealized
+        return self.portfolio.cash + position_value
 
     def _size_order(self, equity: float, price: float) -> float:
         """Compute order quantity from equity fraction and price."""

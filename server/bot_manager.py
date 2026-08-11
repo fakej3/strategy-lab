@@ -640,8 +640,9 @@ class BotManager:
             scheduler.every(cfg.snapshot_interval_s, _snapshot, name="equity_snapshot")
 
             def _daily_reset() -> None:
-                from datetime import datetime as _dt
-                yesterday = _dt.now(timezone.utc).strftime("%Y-%m-%d")
+                from datetime import datetime as _dt, timedelta
+                # Fires at midnight UTC; subtract 1 day to get the completed day.
+                yesterday = (_dt.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
                 try:
                     generate_daily_report(storage, cfg.reports_dir)
                 except Exception:

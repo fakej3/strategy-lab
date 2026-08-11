@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import queue
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+log = logging.getLogger("strategy_lab.server.websocket")
 
 from server.background import job_manager
 from server.bot_manager import bot_manager
@@ -80,6 +83,7 @@ async def ws_job_progress(websocket: WebSocket, job_id: str) -> None:
     except WebSocketDisconnect:
         pass
     except Exception:
+        log.exception("Unexpected error in ws_job_progress for job_id=%s", job_id)
         try:
             await websocket.close()
         except Exception:
@@ -129,6 +133,7 @@ async def ws_bot_events(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     except Exception:
+        log.exception("Unexpected error in ws_bot_events")
         try:
             await websocket.close()
         except Exception:

@@ -211,16 +211,18 @@ async def _main(args: argparse.Namespace) -> None:
     scheduler.every(cfg.snapshot_interval_s, _snapshot, name="equity_snapshot")
 
     def _daily_reset():
-        from datetime import datetime, timezone
+        from datetime import datetime, timedelta, timezone
+        # Scheduler fires at midnight UTC; subtract 1 day to get the day that ended.
         yesterday = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
         )
         try:
             generate_daily_report(storage, cfg.reports_dir)
         except Exception:
             log.exception("Failed to generate daily report")
-        bus.emit(DailyResetEvent(date_utc=yesterday))
-        engine.on_daily_reset(DailyResetEvent(date_utc=yesterday))
+        ev = DailyResetEvent(date_utc=yesterday)
+        bus.emit(ev)
+        engine.on_daily_reset(ev)
 
     scheduler.daily_at_utc(cfg.daily_report_hour_utc, _daily_reset, name="daily_reset")
     scheduler.start()
