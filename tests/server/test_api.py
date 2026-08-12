@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from starlette.testclient import TestClient as StarletteTestClient
 
 from server.app import create_app
 from server.auth import hash_password
@@ -31,6 +30,12 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_mod, "_USERNAME",  "testuser")
     monkeypatch.setattr(auth_mod, "_PASS_HASH", hash_password("testpass"))
     monkeypatch.setattr(auth_mod, "USING_DEFAULT_CREDS", False)
+
+    # server.api sets _REPORTS_DIR at import time from EDGELAB_REPORTS, so the
+    # env-var change above is too late.  Patch the attribute directly so every
+    # test using this fixture is isolated from the developer's real reports dir.
+    import server.api as api_mod
+    monkeypatch.setattr(api_mod, "_REPORTS_DIR", tmp_path / "reports")
 
     application = create_app()
     return application
@@ -207,9 +212,47 @@ class TestApiRestartJob:
 
 class TestApiReports:
     def test_list_reports_empty(self, authed_client):
+        """Reports endpoint returns [] when the (isolated) reports dir has no HTML files."""
         resp = authed_client.get("/api/reports")
         assert resp.status_code == 200
         assert resp.json() == []
+
+    def test_list_reports_empty_isolated_from_real_reports_dir(
+        self, app, tmp_path, monkeypatch
+    ):
+        """Isolation regression: test must return [] even when the real reports/
+        directory on disk contains HTML files.  The fixture must not leak the
+        developer's existing reports into the test result."""
+        import server.api as api_mod
+
+        # Create a directory with HTML files and inject it as a "real" dir to
+        # simulate what a developer machine has.
+        polluted_dir = tmp_path / "polluted_reports"
+        polluted_dir.mkdir()
+        (polluted_dir / "leaked_report.html").write_text("<html>real</html>")
+        (polluted_dir / "another.html").write_text("<html>real</html>")
+
+        # The authed_client fixture builds on top of `app`, which patches
+        # _REPORTS_DIR to an empty temp dir.  Verify the polluted_dir is NOT
+        # the one the API is using.
+        client = TestClient(app, raise_server_exceptions=True)
+        resp = client.post(
+            "/login",
+            data={"username": "testuser", "password": "testpass", "next": "/"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+
+        # Without the isolation fix, _REPORTS_DIR would point at the real
+        # reports/ folder (which may have HTML files) and this test would fail.
+        api_resp = client.get("/api/reports")
+        assert api_resp.status_code == 200
+        files = api_resp.json()
+        assert files == [], (
+            f"Expected [] but got {[f['name'] for f in files]}. "
+            "The test is reading from the real reports directory instead of "
+            "the isolated tmp_path — check the app fixture's _REPORTS_DIR patch."
+        )
 
     def test_list_reports_with_file(self, authed_client, tmp_path, monkeypatch):
         reports_dir = tmp_path / "reports"

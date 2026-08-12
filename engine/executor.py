@@ -34,30 +34,33 @@ def _validate_bars(bars: pd.DataFrame) -> None:
             f"bars is missing required column(s): {sorted(missing)}"
         )
 
-    ohlc = bars[["open", "high", "low", "close"]]
+    # Convert to a single numpy array once; all subsequent checks operate on
+    # raw arrays — much cheaper than repeated pandas Series operations.
+    ohlc = bars[["open", "high", "low", "close"]].to_numpy(dtype=float)
+    o, h, l, c = ohlc[:, 0], ohlc[:, 1], ohlc[:, 2], ohlc[:, 3]
 
-    if ohlc.isnull().any().any():
+    if np.isnan(ohlc).any():
         raise ValueError(
             "bars contains NaN values in OHLC columns; "
             "clean or forward-fill the data before backtesting"
         )
 
-    if np.isinf(ohlc.to_numpy(dtype=float)).any():
+    if np.isinf(ohlc).any():
         raise ValueError(
             "bars contains infinite values in OHLC columns"
         )
 
-    if (bars["high"] < bars["low"]).any():
+    if (h < l).any():
         raise ValueError(
             "bars contains rows where high < low (corrupted candle data)"
         )
 
-    if (bars["open"] < bars["low"]).any() or (bars["open"] > bars["high"]).any():
+    if (o < l).any() or (o > h).any():
         raise ValueError(
             "bars contains rows where open is outside [low, high]"
         )
 
-    if (bars["close"] < bars["low"]).any() or (bars["close"] > bars["high"]).any():
+    if (c < l).any() or (c > h).any():
         raise ValueError(
             "bars contains rows where close is outside [low, high]"
         )

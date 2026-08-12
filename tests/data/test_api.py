@@ -127,8 +127,8 @@ class TestCacheBehaviour:
         pd.testing.assert_frame_equal(df1, df2, check_freq=False)
 
     def test_current_month_always_refetched(self, mock_provider, tmp_store):
-        from datetime import datetime
-        today = datetime.utcnow().date()
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).date()
         kwargs = dict(provider=mock_provider, store=tmp_store)
         get_bars("BTCUSDT", "1h", date(today.year, today.month, 1), today, **kwargs)
         get_bars("BTCUSDT", "1h", date(today.year, today.month, 1), today, **kwargs)

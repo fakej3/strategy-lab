@@ -546,12 +546,34 @@ def _make_candle(sym: str, iv: str, t: int) -> CandleRow:
 
 
 class TestBatchBacktestPerformance:
-    """BatchBacktest timing benchmarks — 10, 50, 100, 200 symbol workloads."""
+    """BatchBacktest timing benchmarks — 10, 50, 100, 200 symbol workloads.
+
+    Design: calibrate against this machine's actual 1-symbol baseline, then
+    assert that N symbols scales approximately linearly (< 3× expected linear
+    cost).  This avoids machine-dependent absolute thresholds while still
+    catching pathological super-linear regressions.
+    """
+
+    def _calibrate_1sym(self) -> float:
+        """Return seconds to run a 1-symbol backtest on this machine."""
+        bars_1 = {("SYM000USDT", "1h"): _bars(30)}
+        t0 = time.monotonic()
+        BatchBacktest(
+            symbols=["SYM000USDT"], intervals=["1h"],
+            strategy_class=_BuyAt5Exit15, params={},
+            bars=bars_1, starting_capital=100_000.0,
+            max_workers=1, summary_only=True,
+        ).run()
+        return time.monotonic() - t0
 
     @pytest.mark.parametrize("n_symbols", [10, 50, 100, 200])
     def test_sequential_completes_within_budget(self, n_symbols):
+        """N symbols must finish in approximately-linear time vs single-symbol baseline."""
+        baseline = self._calibrate_1sym()
+
         symbols = [f"SYM{i:03d}USDT" for i in range(n_symbols)]
         bars = {(s, "1h"): _bars(30) for s in symbols}
+
         t0 = time.monotonic()
         bb = BatchBacktest(
             symbols=symbols, intervals=["1h"],
@@ -561,11 +583,17 @@ class TestBatchBacktestPerformance:
         )
         result = bb.run()
         elapsed = time.monotonic() - t0
+
         assert len(result.symbol_results) == n_symbols
-        # Generous threshold: 10ms per symbol
-        budget = n_symbols * 0.010 + 0.5
+
+        # Budget: 3× the linear expectation (N × per-symbol baseline) plus a
+        # fixed 0.5 s overhead.  Catches super-linear growth without being
+        # sensitive to absolute machine speed.
+        budget = baseline * n_symbols * 3.0 + 0.5
         assert elapsed < budget, (
-            f"{n_symbols} symbols took {elapsed:.2f}s > budget {budget:.2f}s"
+            f"{n_symbols} symbols took {elapsed:.3f}s "
+            f"(baseline_1sym={baseline*1000:.1f}ms, budget={budget:.2f}s). "
+            "Check for super-linear regression in BatchBacktest."
         )
 
     def test_summary_only_reduces_memory_footprint(self):

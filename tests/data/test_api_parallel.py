@@ -87,7 +87,13 @@ class TestParallelDownloads:
         assert [done for _, done, _ in calls] == [1, 2, 3]
 
     def test_partial_fetch_failure_continues(self, tmp_path):
-        """A failing month should not prevent other months from returning."""
+        """A failing month should not prevent other months from returning.
+
+        get_bars() intentionally emits a RuntimeWarning (not an exception)
+        when some months fail to fetch, so other months can still be returned.
+        This test explicitly asserts that warning is emitted with the correct
+        content, rather than letting it appear as an uncontrolled noisy warning.
+        """
         call_count = 0
 
         def failing_provider(s, i, y, m):
@@ -100,12 +106,13 @@ class TestParallelDownloads:
         provider = MagicMock()
         provider.fetch_month.side_effect = failing_provider
 
-        result = get_bars(
-            "BTCUSDT", "1h", date(2024, 1, 1), date(2024, 3, 31),
-            provider=provider,
-            store=BarStore(tmp_path),
-            n_workers=4,
-        )
+        with pytest.warns(RuntimeWarning, match="simulated network error"):
+            result = get_bars(
+                "BTCUSDT", "1h", date(2024, 1, 1), date(2024, 3, 31),
+                provider=provider,
+                store=BarStore(tmp_path),
+                n_workers=4,
+            )
         # Jan and Mar should still be returned
         assert not result.empty
         assert call_count == 3

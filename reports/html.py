@@ -627,9 +627,9 @@ def generate_html_report(
     elapsed_secs: float,
 ) -> str:
     """Return a complete self-contained HTML string for one research run."""
-    from datetime import datetime
+    from datetime import datetime, timezone
 
-    generated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     stats       = _stats_grid(session_id, symbol, interval, start_date, end_date,
                               results, n_tested, elapsed_secs)

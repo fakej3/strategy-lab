@@ -142,6 +142,9 @@ def calculate_research_metrics(
     # ── Returns ───────────────────────────────────────────────────────────────
     returns = equity_curve.pct_change().dropna()
     n_bars  = len(equity_curve)
+    # Filter out non-finite returns (e.g. inf from a zero starting equity)
+    # before computing std/Sharpe — inf propagates to NaN in std via inf-inf.
+    finite_returns = returns[np.isfinite(returns)]
 
     # ── CAGR ─────────────────────────────────────────────────────────────────
     starting = float(equity_curve.iloc[0])
@@ -159,19 +162,21 @@ def calculate_research_metrics(
         cagr = math.nan
 
     # ── Volatility & Sharpe ───────────────────────────────────────────────────
-    excess   = returns - rf_per_bar
-    ann_vol  = float(returns.std(ddof=1)) * math.sqrt(bars_per_year)
-    mean_excess = float(excess.mean())
+    # Use finite_returns to exclude inf/-inf (e.g. from zero starting equity)
+    # which would make std() compute inf - inf = NaN.
+    excess      = finite_returns - rf_per_bar
+    ann_vol     = float(finite_returns.std(ddof=1)) * math.sqrt(bars_per_year)
+    mean_excess = float(excess.mean()) if len(excess) > 0 else 0.0
 
-    if ann_vol > 0:
+    if ann_vol > 0 and not math.isnan(ann_vol):
         sharpe = (mean_excess * bars_per_year) / ann_vol
     else:
         sharpe = 0.0
 
     # ── Sortino ───────────────────────────────────────────────────────────────
     # Semi-deviation = sqrt(mean(min(r - MAR, 0)^2)) across ALL periods
-    neg_sq           = np.minimum(returns.to_numpy() - rf_per_bar, 0.0) ** 2
-    mean_neg_sq      = float(neg_sq.mean())
+    neg_sq           = np.minimum(finite_returns.to_numpy() - rf_per_bar, 0.0) ** 2
+    mean_neg_sq      = float(neg_sq.mean()) if len(neg_sq) > 0 else 0.0
     downside_vol_bar = math.sqrt(mean_neg_sq) if mean_neg_sq > 0 else 0.0
     ann_downside_vol = downside_vol_bar * math.sqrt(bars_per_year)
 

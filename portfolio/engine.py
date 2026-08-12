@@ -121,7 +121,13 @@ class PortfolioEngine:
             )
 
         equity_curve   = build_equity_curve(bars, ptrades, cfg.starting_capital)
-        balance_curve  = build_balance_curve(bars, ptrades, cfg.starting_capital)
+        # balance_curve is only used as a chart — skip building it in summary_only
+        # mode to avoid an unnecessary O(N_bars) pass over the data.
+        balance_curve  = (
+            pd.Series(dtype=float)
+            if cfg.summary_only
+            else build_balance_curve(bars, ptrades, cfg.starting_capital)
+        )
         drawdown_curve = build_drawdown_curve(equity_curve)
 
         peak_equity      = float(equity_curve.max())
