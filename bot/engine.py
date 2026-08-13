@@ -326,7 +326,9 @@ class BotEngine:
         """Called at midnight UTC — persist final daily stats and reset counters."""
         try:
             equity = self._current_equity()
-            stats = self.portfolio.daily_stats(equity, self._starting_equity)
+            stats = self.portfolio.daily_stats(
+                equity, self._starting_equity, date_utc=event.date_utc
+            )
             self.storage.upsert_daily_stats(stats)
         except Exception:
             log.exception("Failed to finalize daily stats")

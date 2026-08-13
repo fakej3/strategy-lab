@@ -382,8 +382,18 @@ class LiveFeed:
 
     # ── URL builder ───────────────────────────────────────────────────────────
 
+    _BINANCE_MAX_STREAMS = 1024
+
     def _build_ws_url(self) -> str:
         cfg = self.config.feed
+        n_streams = len(cfg.symbols) * len(cfg.intervals)
+        if n_streams > self._BINANCE_MAX_STREAMS:
+            raise ValueError(
+                f"Stream count {n_streams} ({len(cfg.symbols)} symbols × "
+                f"{len(cfg.intervals)} intervals) exceeds Binance's "
+                f"{self._BINANCE_MAX_STREAMS}-stream-per-connection limit. "
+                "Reduce the number of symbols or intervals."
+            )
         streams = "/".join(
             f"{sym.lower()}@kline_{iv}"
             for sym in cfg.symbols

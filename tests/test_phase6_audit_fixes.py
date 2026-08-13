@@ -16,6 +16,17 @@ Bug 4  — BotStorage.connect() was not holding the instance lock before the
 
 Bug 5  — WebSocket exception handlers silently swallowed unexpected errors
          with bare `except Exception: pass`.  Fixed to log.exception().
+
+Bug 6  — portfolio.daily_stats() always used datetime.now() for date_utc.
+         At midnight the daily-reset path stored yesterday's stats under
+         today's date key, then those were overwritten by the first intraday
+         fill.  Fixed: daily_stats() accepts an optional date_utc parameter;
+         on_daily_reset() passes event.date_utc so yesterday's key is used.
+
+Bug 7  — LiveFeed._build_ws_url() had no guard against exceeding Binance's
+         1024-stream-per-connection limit.  Excess streams cause a silent
+         connection rejection.  Fixed: fail-fast ValueError raised before
+         the WebSocket is opened.
 """
 from __future__ import annotations
 
@@ -372,3 +383,121 @@ class TestWebSocketErrorLogging:
         assert "log.exception" in src or "log.error" in src, (
             "ws_bot_events must log unexpected exceptions instead of silently swallowing them"
         )
+
+
+# ── Bug 6: portfolio.daily_stats date_utc parameter ──────────────────────────
+
+class TestPortfolioDailyStatsDateParam:
+    """daily_stats() must honour an explicit date_utc so midnight resets store
+    completed-day stats under yesterday's key, not today's."""
+
+    def _make_portfolio(self) -> Portfolio:
+        return Portfolio(
+            starting_capital=200.0,
+            storage=MagicMock(),
+            bus=EventBus(),
+        )
+
+    def test_intraday_uses_todays_date(self):
+        """Without date_utc, daily_stats returns today's UTC date."""
+        pf = self._make_portfolio()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        stats = pf.daily_stats(equity=200.0, starting_equity=200.0)
+        assert stats["date_utc"] == today
+
+    def test_explicit_date_utc_is_used(self):
+        """Passing date_utc='2024-01-14' stores stats under that date."""
+        pf = self._make_portfolio()
+        stats = pf.daily_stats(
+            equity=210.0, starting_equity=200.0, date_utc="2024-01-14"
+        )
+        assert stats["date_utc"] == "2024-01-14"
+
+    def test_midnight_reset_path_stores_yesterday(self):
+        """Simulate on_daily_reset: date_utc from DailyResetEvent is yesterday."""
+        yesterday = "2024-01-14"
+        pf = self._make_portfolio()
+
+        # Midnight reset should use event.date_utc (yesterday)
+        reset_stats = pf.daily_stats(
+            equity=205.0, starting_equity=200.0, date_utc=yesterday
+        )
+        assert reset_stats["date_utc"] == yesterday, (
+            "Midnight reset must store stats under yesterday's date"
+        )
+
+        # Intraday update (no date_utc) must use the real current UTC date,
+        # which is definitely not the pinned "yesterday" we passed above.
+        intraday_stats = pf.daily_stats(equity=207.0, starting_equity=205.0)
+        actual_today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert intraday_stats["date_utc"] == actual_today, (
+            "Intraday stats must use today's UTC date"
+        )
+        # The two calls produced different date keys — no data collision.
+        assert reset_stats["date_utc"] != intraday_stats["date_utc"]
+
+    def test_engine_on_daily_reset_passes_date_utc(self):
+        """BotEngine.on_daily_reset() must forward event.date_utc to daily_stats()."""
+        import inspect
+        from bot.engine import BotEngine
+
+        src = inspect.getsource(BotEngine.on_daily_reset)
+        assert "date_utc" in src, (
+            "on_daily_reset must pass date_utc=event.date_utc to portfolio.daily_stats()"
+        )
+        assert "event.date_utc" in src, (
+            "on_daily_reset must use event.date_utc (the correct yesterday date)"
+        )
+
+
+# ── Bug 7: Binance stream count limit ─────────────────────────────────────────
+
+class TestBinanceStreamLimit:
+    """_build_ws_url() must raise ValueError when stream count exceeds 1024."""
+
+    def _make_feed(self, symbols: list[str], intervals: list[str]) -> "LiveFeed":
+        from bot.config import BotConfig, FeedConfig
+        from bot.events import EventBus
+        from bot.runtime import LiveFeed
+        from bot.state import BotState
+
+        cfg = BotConfig(
+            feed=FeedConfig(symbols=symbols, intervals=intervals)
+        )
+        state = BotState()
+        bus = EventBus()
+        return LiveFeed(config=cfg, state=state, bus=bus)
+
+    def test_within_limit_succeeds(self):
+        """32 symbols × 4 intervals = 128 streams — well within the 1024 limit."""
+        symbols = [f"SYM{i:02d}USDT" for i in range(32)]
+        feed = self._make_feed(symbols=symbols, intervals=["1m", "5m", "1h", "1d"])
+        url = feed._build_ws_url()
+        assert "?streams=" in url
+        assert url.count("@kline_") == 128
+
+    def test_exactly_at_limit_succeeds(self):
+        """1024 streams exactly — must not raise."""
+        symbols = [f"SYM{i:04d}USDT" for i in range(256)]
+        feed = self._make_feed(symbols=symbols, intervals=["1m", "5m", "1h", "4h"])
+        url = feed._build_ws_url()
+        assert url.count("@kline_") == 1024
+
+    def test_over_limit_raises_value_error(self):
+        """1025 streams — must raise ValueError with a clear message."""
+        # 257 symbols × 4 intervals = 1028 streams
+        symbols = [f"SYM{i:04d}USDT" for i in range(257)]
+        feed = self._make_feed(symbols=symbols, intervals=["1m", "5m", "1h", "4h"])
+        with pytest.raises(ValueError, match="1024"):
+            feed._build_ws_url()
+
+    def test_error_message_mentions_symbols_and_intervals(self):
+        """Error message must name stream count, symbol count, and interval count."""
+        symbols = [f"SYM{i:04d}USDT" for i in range(513)]
+        feed = self._make_feed(symbols=symbols, intervals=["1m", "5m"])
+        with pytest.raises(ValueError) as exc_info:
+            feed._build_ws_url()
+        msg = str(exc_info.value)
+        assert "1026" in msg   # 513 × 2
+        assert "513" in msg
+        assert "2" in msg

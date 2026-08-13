@@ -183,8 +183,18 @@ class Portfolio:
         with self._lock:
             return self._last_trade_ts
 
-    def daily_stats(self, equity: float, starting_equity: float) -> dict[str, Any]:
-        """Return a dict suitable for BotStorage.upsert_daily_stats()."""
+    def daily_stats(
+        self,
+        equity: float,
+        starting_equity: float,
+        date_utc: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a dict suitable for BotStorage.upsert_daily_stats().
+
+        *date_utc* overrides the date key.  Pass it from DailyResetEvent at
+        midnight so the completed day's stats are stored under yesterday's date,
+        not today's.  Leave it as None for intraday updates (uses today).
+        """
         with self._lock:
             win_rate = (
                 self._n_winners / self._n_trades
@@ -200,7 +210,7 @@ class Portfolio:
                 dd = (self._peak_equity - equity) / self._peak_equity
 
             return {
-                "date_utc":        datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "date_utc":        date_utc or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                 "n_trades":        self._n_trades,
                 "n_winners":       self._n_winners,
                 "n_losers":        self._n_losers,

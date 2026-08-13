@@ -304,6 +304,20 @@ class TestPhase3WsUrlFormat:
         url = feed._build_ws_url()
         assert "btcusdt@kline_1m/ethusdt@kline_1m" in url
 
+    def test_stream_count_at_limit_succeeds(self):
+        """Exactly 1024 streams must not raise."""
+        symbols = [f"SYM{i:04d}USDT" for i in range(256)]
+        feed, _, _ = _make_feed(symbols=symbols, intervals=["1m", "5m", "1h", "4h"])
+        url = feed._build_ws_url()
+        assert url.count("@kline_") == 1024
+
+    def test_stream_count_over_limit_raises(self):
+        """Exceeding Binance's 1024-stream limit must raise ValueError."""
+        symbols = [f"SYM{i:04d}USDT" for i in range(257)]
+        feed, _, _ = _make_feed(symbols=symbols, intervals=["1m", "5m", "1h", "4h"])
+        with pytest.raises(ValueError, match="1024"):
+            feed._build_ws_url()
+
 
 # ── Phase 2 + 4: _handle_message() injection ─────────────────────────────────
 
