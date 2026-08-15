@@ -50,9 +50,8 @@ def client(app):
 def authed_client(client):
     """Client with an active session cookie."""
     resp = client.post(
-        "/login",
-        data={"username": "testuser", "password": "testpass", "next": "/"},
-        follow_redirects=True,
+        "/api/auth/login",
+        json={"username": "testuser", "password": "testpass"},
     )
     assert resp.status_code == 200
     return client
@@ -237,9 +236,8 @@ class TestApiReports:
         # the one the API is using.
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.post(
-            "/login",
-            data={"username": "testuser", "password": "testpass", "next": "/"},
-            follow_redirects=True,
+            "/api/auth/login",
+            json={"username": "testuser", "password": "testpass"},
         )
         assert resp.status_code == 200
 
@@ -272,8 +270,13 @@ class TestApiReports:
 
     def test_get_report_path_traversal_blocked(self, authed_client):
         resp = authed_client.get("/api/reports/../etc/passwd")
-        # Either 404 or sanitised; must not serve arbitrary files
-        assert resp.status_code in (404, 400, 422)
+        # URL normalises to /api/etc/passwd — no such route exists, so either
+        # the reports handler rejects it (404/400/422) or the SPA catch-all
+        # serves index.html (200). In either case /etc/passwd is NOT returned.
+        assert resp.status_code in (200, 404, 400, 422)
+        if resp.status_code == 200:
+            # Must be the React SPA, not the actual file
+            assert b"root:" not in resp.content
 
     def test_delete_report_not_found(self, authed_client):
         resp = authed_client.delete("/api/reports/ghost.html")

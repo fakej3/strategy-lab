@@ -47,9 +47,8 @@ def client(app):
 @pytest.fixture()
 def authed_client(client):
     resp = client.post(
-        "/login",
-        data={"username": "testuser", "password": "testpass", "next": "/"},
-        follow_redirects=True,
+        "/api/auth/login",
+        json={"username": "testuser", "password": "testpass"},
     )
     assert resp.status_code == 200
     return client
@@ -93,49 +92,77 @@ _RUNNING_STATUS = {
 
 class TestBotPage:
     def test_bot_page_requires_auth(self, client):
-        resp = client.get("/bot", follow_redirects=False)
-        assert resp.status_code in (302, 303, 307)
+        """API status endpoint must require auth (401), not open to anonymous."""
+        resp = client.get("/api/bot/status", follow_redirects=False)
+        assert resp.status_code in (302, 303, 307, 401)
 
     def test_bot_page_renders_when_stopped(self, authed_client):
-        with patch("server.app.bot_manager") as mock_bm, \
-             patch("server.bot_manager.bot_manager") as _:
+        """API status must report running=False when bot is stopped."""
+        with patch("server.api.bot_manager") as mock_bm:
             mock_bm.get_status.return_value = _STOPPED_STATUS
-            resp = authed_client.get("/bot")
+            resp = authed_client.get("/api/bot/status")
         assert resp.status_code == 200
-        assert b"Paper Bot" in resp.content
-        assert b"Start Bot" in resp.content
+        data = resp.json()
+        assert data["running"] is False
 
     def test_bot_page_shows_running_state(self, authed_client):
-        with patch("server.app.bot_manager") as mock_bm, \
-             patch("server.bot_manager.bot_manager") as _:
+        """API status must report running=True when bot is active."""
+        with patch("server.api.bot_manager") as mock_bm:
             mock_bm.get_status.return_value = _RUNNING_STATUS
-            resp = authed_client.get("/bot")
+            resp = authed_client.get("/api/bot/status")
         assert resp.status_code == 200
-        assert b"Stop Bot" in resp.content or b"Running" in resp.content
+        assert resp.json()["running"] is True
 
     def test_bot_page_has_no_min_1000_capital(self, authed_client):
-        """The start form must allow any positive capital, not enforce ≥1000."""
-        with patch("server.app.bot_manager") as mock_bm:
-            mock_bm.get_status.return_value = _STOPPED_STATUS
-            resp = authed_client.get("/bot")
+        """The start API must allow any positive capital, not enforce ≥1000."""
+        with patch("server.api.bot_manager") as mock_bm:
+            mock_bm.start.return_value = (True, "")
+            resp = authed_client.post(
+                "/api/bot/start",
+                json={
+                    "capital": 25.0,
+                    "symbols": ["BTCUSDT"],
+                    "interval": "1h",
+                    "strategy": "EMACrossover",
+                },
+            )
         assert resp.status_code == 200
-        assert b'min="1000"' not in resp.content
+        assert resp.json().get("started") is True
 
 
 # ── Research page capital restriction ─────────────────────────────────────────
 
 class TestResearchCapitalRestriction:
     def test_research_page_no_min_1000(self, authed_client):
-        """The research form starting_capital input must NOT have min=1000."""
-        resp = authed_client.get("/research")
-        assert resp.status_code == 200
-        assert b'min="1000"' not in resp.content
+        """Research API must accept starting_capital well below 1000 (no min=1000 restriction)."""
+        with patch("server.api.job_manager") as mock_jm:
+            mock_jm.submit.return_value = "test-job-id"
+            resp = authed_client.post(
+                "/api/research/run",
+                json={
+                    "starting_capital": 100,
+                    "symbols": "BTCUSDT",
+                    "strategies": ["EMACrossover"],
+                },
+                headers={"Content-Type": "application/json"},
+            )
+        assert resp.status_code == 202
+        assert "job_id" in resp.json()
 
     def test_research_page_accepts_low_capital_label(self, authed_client):
-        """The research form starting_capital input should be present."""
-        resp = authed_client.get("/research")
-        assert resp.status_code == 200
-        assert b"starting_capital" in resp.content
+        """Research API must accept a starting_capital field without error."""
+        with patch("server.api.job_manager") as mock_jm:
+            mock_jm.submit.return_value = "test-job-id-2"
+            resp = authed_client.post(
+                "/api/research/run",
+                json={
+                    "starting_capital": 50,
+                    "symbols": "BTCUSDT",
+                    "strategies": ["EMACrossover"],
+                },
+                headers={"Content-Type": "application/json"},
+            )
+        assert resp.status_code == 202
 
 
 # ── API status endpoint ───────────────────────────────────────────────────────
@@ -257,27 +284,28 @@ class TestBotStartStopAPI:
 
 class TestBotFormRoutes:
     def test_form_start_redirects_to_bot_page(self, authed_client):
-        with patch("server.app.bot_manager") as mock_bm:
+        """API bot start must succeed and return started=True."""
+        with patch("server.api.bot_manager") as mock_bm:
             mock_bm.start.return_value = (True, "")
             resp = authed_client.post(
-                "/bot/start",
-                data={
-                    "capital": "25",
-                    "symbols": "BTCUSDT",
+                "/api/bot/start",
+                json={
+                    "capital": 25.0,
+                    "symbols": ["BTCUSDT"],
                     "interval": "1h",
                     "strategy": "EMACrossover",
                 },
-                follow_redirects=False,
             )
-        assert resp.status_code == 302
-        assert resp.headers["location"].endswith("/bot")
+        assert resp.status_code == 200
+        assert resp.json()["started"] is True
 
     def test_form_stop_redirects_to_bot_page(self, authed_client):
-        with patch("server.app.bot_manager") as mock_bm:
+        """API bot stop must succeed and return stopped=True."""
+        with patch("server.api.bot_manager") as mock_bm:
             mock_bm.stop.return_value = (True, "")
-            resp = authed_client.post("/bot/stop", follow_redirects=False)
-        assert resp.status_code == 302
-        assert resp.headers["location"].endswith("/bot")
+            resp = authed_client.post("/api/bot/stop")
+        assert resp.status_code == 200
+        assert resp.json()["stopped"] is True
 
 
 # ── BotManager unit tests (no server) ────────────────────────────────────────
@@ -376,57 +404,61 @@ class TestBotManagerLowCapital:
 # ── Strategy select regression tests ─────────────────────────────────────────
 
 class TestStrategySelectOptions:
-    """Regression tests for the bot.html strategy <select> bug.
+    """Regression tests for the strategy name serialisation bug.
 
-    Before the fix, {{ s }} rendered the full Python dict repr
-    (e.g. "{'name': 'EMACrossover', 'param_space': {...}}") as the
-    HTML option value, causing bot startup to fail with ValueError.
+    Before the fix, the strategy value sent to bot_manager.start() was
+    the full Python dict repr (e.g. "{'name': 'EMACrossover', ...}")
+    instead of just the clean class name.  These tests verify the API
+    layer passes only the clean name.
     """
 
     def test_strategy_option_values_are_clean_names_not_dicts(self, authed_client):
-        """GET /bot: each <option value="..."> must be 'EMACrossover', not a dict repr."""
-        with patch("server.app.bot_manager") as mock_bm:
-            mock_bm.get_status.return_value = _STOPPED_STATUS
-            resp = authed_client.get("/bot")
+        """GET /api/available-strategies: each item's 'name' must be a plain string, not a dict repr."""
+        resp = authed_client.get("/api/available-strategies")
         assert resp.status_code == 200
-        body = resp.text
-        # The clean name must appear as an option value
-        assert 'value="EMACrossover"' in body
-        # The dict repr must NOT appear anywhere in the HTML
-        assert "{'name': 'EMACrossover'" not in body
-        assert '{"name": "EMACrossover"' not in body
-        assert "param_space" not in body
+        strategies = resp.json()
+        assert len(strategies) > 0, "Expected at least one strategy"
+        for s in strategies:
+            name = s["name"]
+            # Must be a plain class name, not a dict repr
+            assert not name.startswith("{"), (
+                f"Strategy name looks like a dict repr: {name!r}"
+            )
+            assert "param_space" not in name, (
+                f"Strategy name contains 'param_space': {name!r}"
+            )
+            assert "'" not in name, (
+                f"Strategy name contains quotes (dict repr?): {name!r}"
+            )
 
     def test_strategy_option_selected_matches_running_strategy(self, authed_client):
-        """When bot is running EMACrossover, the <option> for EMACrossover must be selected."""
-        with patch("server.app.bot_manager") as mock_bm:
+        """GET /api/bot/status: strategy field must equal the running strategy name."""
+        with patch("server.api.bot_manager") as mock_bm:
             mock_bm.get_status.return_value = _RUNNING_STATUS
-            resp = authed_client.get("/bot")
+            resp = authed_client.get("/api/bot/status")
         assert resp.status_code == 200
-        assert 'value="EMACrossover" selected' in resp.text or \
-               'value="EMACrossover"  selected' in resp.text or \
-               'selected' in resp.text
+        data = resp.json()
+        assert data["strategy"] == "EMACrossover"
 
     def test_form_start_submits_clean_strategy_name(self, authed_client):
-        """POST /bot/start: strategy field value must reach bot_manager.start() as 'EMACrossover'."""
+        """POST /api/bot/start: strategy field must reach bot_manager.start() as 'EMACrossover'."""
         captured: list[str] = []
 
-        with patch("server.app.bot_manager") as mock_bm:
+        with patch("server.api.bot_manager") as mock_bm:
             def capture_start(**kwargs):
                 captured.append(kwargs.get("strategy", ""))
                 return (True, "")
             mock_bm.start.side_effect = capture_start
             resp = authed_client.post(
-                "/bot/start",
-                data={
-                    "capital": "25",
-                    "symbols": "BTCUSDT",
+                "/api/bot/start",
+                json={
+                    "capital": 25.0,
+                    "symbols": ["BTCUSDT"],
                     "interval": "1h",
                     "strategy": "EMACrossover",
                 },
-                follow_redirects=False,
             )
-        assert resp.status_code == 302
+        assert resp.status_code == 200
         assert len(captured) == 1
         assert captured[0] == "EMACrossover", (
             f"Expected 'EMACrossover' but got {captured[0]!r}"

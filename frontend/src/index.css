@@ -12,21 +12,52 @@
   * {
     @apply border-border;
   }
+  /* Prevent horizontal overflow at the page level */
+  body { overflow-x: hidden; }
 }
 
 @layer components {
+  /* Scrollbars */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #1c2b3a transparent;
+    scrollbar-color: #1E2D45 transparent;
   }
-  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar { width: 5px; height: 5px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { background: #1c2b3a; border-radius: 3px; }
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #243447; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #1E2D45; border-radius: 3px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #263650; }
 
+  /* Log line colors */
   .log-line-ok    { @apply text-green; }
   .log-line-warn  { @apply text-amber; }
   .log-line-error { @apply text-red; }
   .log-line-step  { @apply text-accent font-semibold; }
   .log-line-muted { @apply text-muted; }
+
+  /* Table helpers */
+  .table-dense th {
+    @apply px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted text-left;
+  }
+  .table-dense td {
+    @apply px-3 py-2 text-[11px];
+  }
+  .table-dense tr {
+    @apply border-b border-border last:border-0;
+  }
+  .table-dense tbody tr {
+    @apply hover:bg-s2 transition-colors;
+  }
+
+  /* Focus ring for interactive elements */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:ring-offset-0;
+  }
+
+  /* Section label — tiny all-caps divider */
+  .section-label {
+    @apply text-[10px] font-semibold uppercase tracking-widest text-muted2;
+  }
+
+  /* Number/price display */
+  .num { @apply font-mono tabular-nums; }
 }

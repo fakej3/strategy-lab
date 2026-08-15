@@ -460,9 +460,8 @@ def authed_client(api_app):
     from fastapi.testclient import TestClient
     client = TestClient(api_app, raise_server_exceptions=True)
     resp = client.post(
-        "/login",
-        data={"username": "testuser", "password": "testpass", "next": "/"},
-        follow_redirects=True,
+        "/api/auth/login",
+        json={"username": "testuser", "password": "testpass"},
     )
     assert resp.status_code == 200
     return client

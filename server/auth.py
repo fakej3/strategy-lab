@@ -67,13 +67,12 @@ def authenticate(username: str, password: str) -> bool:
 # ── FastAPI dependency ─────────────────────────────────────────────────────────
 
 def require_auth(request: Request) -> str:
-    """Dependency: return username or raise 303 redirect to /login."""
+    """Dependency: return username or raise 401 (React SPA handles redirect)."""
     user = request.session.get("user")
     if not user:
-        next_url = request.url.path
         raise HTTPException(
-            status_code=status.HTTP_303_SEE_OTHER,
-            headers={"Location": f"/login?next={next_url}"},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
         )
     return user
 
