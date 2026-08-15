@@ -59,7 +59,9 @@ class OrderManager:
 
         # order_id → PaperOrder (open orders only)
         self._open: dict[str, PaperOrder] = {}
-        # order_id → PaperOrder (all: open + terminal)
+        # order_id → PaperOrder (all: open + terminal).
+        # Grows unboundedly over bot uptime. At realistic trade frequencies
+        # (≤10/day) this is negligible for months; defer pruning until needed.
         self._all:  dict[str, PaperOrder] = {}
 
     # ── Submit ────────────────────────────────────────────────────────────────

@@ -149,7 +149,7 @@ def api_delete_report(filename: str, _: AuthUser) -> JSONResponse:
 # ── History ───────────────────────────────────────────────────────────────────
 
 @router.get("/history")
-def api_history(limit: int = 50, _: AuthUser = None) -> JSONResponse:
+def api_history(_: AuthUser, limit: int = 50) -> JSONResponse:
     store    = _store()
     sessions = store.get_sessions(limit=min(limit, 200))
     store.close()
@@ -170,9 +170,9 @@ def api_history(limit: int = 50, _: AuthUser = None) -> JSONResponse:
 
 @router.get("/strategies")
 def api_strategies(
+    _: AuthUser,
     metric: str = "sharpe_ratio",
     limit:  int = 100,
-    _: AuthUser = None,
 ) -> JSONResponse:
     if metric not in _VALID_SORT_METRICS:
         metric = "sharpe_ratio"
@@ -201,19 +201,19 @@ def api_strategies(
 # ── Available strategies for form ─────────────────────────────────────────────
 
 @router.get("/available-strategies")
-def api_available_strategies(_: AuthUser = None) -> JSONResponse:
+def api_available_strategies(_: AuthUser) -> JSONResponse:
     return JSONResponse(get_available_strategies())
 
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 
 @router.get("/notifications")
-def api_notifications(_: AuthUser = None) -> JSONResponse:
+def api_notifications(_: AuthUser) -> JSONResponse:
     return JSONResponse(notification_manager.in_app.list())
 
 
 @router.delete("/notifications")
-def api_clear_notifications(_: AuthUser = None) -> JSONResponse:
+def api_clear_notifications(_: AuthUser) -> JSONResponse:
     notification_manager.in_app.clear()
     return JSONResponse({"cleared": True})
 
@@ -221,7 +221,7 @@ def api_clear_notifications(_: AuthUser = None) -> JSONResponse:
 # ── Logs ──────────────────────────────────────────────────────────────────────
 
 @router.get("/logs")
-def api_logs(lines: int = 200, _: AuthUser = None) -> JSONResponse:
+def api_logs(_: AuthUser, lines: int = 200) -> JSONResponse:
     path = _LOG_PATH
     if not path.exists():
         return JSONResponse({"lines": []})
@@ -236,7 +236,7 @@ def api_logs(lines: int = 200, _: AuthUser = None) -> JSONResponse:
 # ── Stats (overview) ──────────────────────────────────────────────────────────
 
 @router.get("/stats")
-def api_stats(_: AuthUser = None) -> JSONResponse:
+def api_stats(_: AuthUser) -> JSONResponse:
     store = _store()
     stats = store.get_stats()
     store.close()
@@ -246,7 +246,7 @@ def api_stats(_: AuthUser = None) -> JSONResponse:
 # ── Paper Trading Bot ─────────────────────────────────────────────────────────
 
 @router.get("/bot/status")
-def api_bot_status(_: AuthUser = None) -> JSONResponse:
+def api_bot_status(_: AuthUser) -> JSONResponse:
     return JSONResponse(bot_manager.get_status())
 
 
@@ -301,10 +301,10 @@ def api_bot_stop(_: AuthUser) -> JSONResponse:
 
 @router.get("/bot/candles")
 def api_bot_candles(
+    _: AuthUser,
     symbol:   str = "BTCUSDT",
     interval: str = "1h",
     limit:    int = 200,
-    _: AuthUser = None,
 ) -> JSONResponse:
     candles = bot_manager.get_candles(
         symbol=symbol, interval=interval, limit=min(limit, 500)
@@ -313,7 +313,7 @@ def api_bot_candles(
 
 
 @router.get("/bot/counters")
-def api_bot_counters(_: AuthUser = None) -> JSONResponse:
+def api_bot_counters(_: AuthUser) -> JSONResponse:
     return JSONResponse(bot_manager.get_counters())
 
 

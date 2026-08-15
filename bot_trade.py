@@ -76,6 +76,13 @@ def _build_config(args: argparse.Namespace) -> BotConfig:
     if args.no_recover:
         cfg.recover_on_restart = False
 
+    if len(cfg.feed.intervals) > 1:
+        raise ValueError(
+            f"Multi-interval configuration is not supported: {cfg.feed.intervals!r}. "
+            "PositionManager tracks one position per symbol regardless of interval. "
+            "Use a single interval per bot instance."
+        )
+
     # Derive max_open_positions from configured symbols if not explicitly
     # overridden — mirrors BotManager.start() so CLI and web-UI are consistent.
     explicit = args.max_positions if args.max_positions else 0
@@ -184,16 +191,28 @@ async def _main(args: argparse.Namespace) -> None:
 
     # ── Recovery ─────────────────────────────────────────────────────────────
     if cfg.recover_on_restart:
-        n_orders    = orders.recover_open_orders()
-        n_positions = positions.recover()
-        # Restore portfolio cash from last balance snapshot
+        orders.recover_open_orders()
+        positions.recover()
+        # Apply fills saved during the crash window (save_fill done, on_fill not).
+        # Must run after positions.recover() so existing open positions are loaded.
+        positions.recover_from_orphan_fills(storage)
+
+        # Compute exact cash from the position ledger rather than a stale snapshot.
+        # cash = starting_capital + Σ(realized_pnl closed) − Σ(entry_notional+fee open)
+        realized_pnl   = storage.get_realized_pnl()
+        open_positions = positions.get_all_open()
+        open_cost      = sum(
+            p.avg_entry_price * p.size + p.entry_fee for p in open_positions
+        )
+        recovered_cash = cfg.paper_capital + realized_pnl - open_cost
+
+        # peak_equity cannot be recomputed deterministically; use the last snapshot.
         history = storage.get_balance_history(limit=1)
+        peak_equity = cfg.paper_capital
         if history:
-            last = history[-1]
-            portfolio.restore(
-                cash=last.get("cash", cfg.paper_capital),
-                peak_equity=last.get("equity", cfg.paper_capital),
-            )
+            peak_equity = history[-1].get("equity", cfg.paper_capital)
+
+        portfolio.restore(cash=recovered_cash, peak_equity=peak_equity)
 
     # ── Dashboard ─────────────────────────────────────────────────────────────
     if args.dashboard:
@@ -221,7 +240,6 @@ async def _main(args: argparse.Namespace) -> None:
         except Exception:
             log.exception("Failed to generate daily report")
         ev = DailyResetEvent(date_utc=yesterday)
-        bus.emit(ev)
         engine.on_daily_reset(ev)
 
     scheduler.daily_at_utc(cfg.daily_report_hour_utc, _daily_reset, name="daily_reset")

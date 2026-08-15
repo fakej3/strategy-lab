@@ -72,6 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_bpos_opened ON bot_positions(opened_at DESC);
 
 CREATE TABLE IF NOT EXISTS bot_fills (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    fill_id         TEXT    UNIQUE,
     order_id        TEXT    NOT NULL,
     symbol          TEXT    NOT NULL,
     side            TEXT    NOT NULL,
@@ -291,17 +292,56 @@ class BotStorage:
 
     def save_fill(self, fill: dict[str, Any]) -> None:
         with self._lock:
+            # fill_id defaults to order_id: one market fill per order in this system.
+            fill_id = fill.get("fill_id") or fill["order_id"]
             c = self.connect()
             c.execute("""
-                INSERT INTO bot_fills
-                (order_id, symbol, side, fill_price, fill_qty, fee, is_maker, filled_at)
-                VALUES (?,?,?,?,?,?,?,?)
+                INSERT OR IGNORE INTO bot_fills
+                (fill_id, order_id, symbol, side, fill_price, fill_qty, fee, is_maker, filled_at)
+                VALUES (?,?,?,?,?,?,?,?,?)
             """, (
+                fill_id,
                 fill["order_id"], fill["symbol"], fill["side"],
                 fill["fill_price"], fill["fill_qty"], fill["fee"],
                 int(fill.get("is_maker", False)), fill.get("filled_at", _now()),
             ))
             c.commit()
+
+    def get_orphan_buy_fills(self) -> list[dict]:
+        """Return BUY fills whose order_id has no matching position entry.
+
+        Detects the crash window where save_fill() completed but
+        positions.on_fill() (position open) never ran.
+        """
+        with self._lock:
+            rows = self.connect().execute("""
+                SELECT f.* FROM bot_fills f
+                WHERE f.side = 'BUY'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM bot_positions p
+                    WHERE p.entry_order_id = f.order_id
+                  )
+                ORDER BY f.filled_at ASC
+            """).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_orphan_sell_fills(self) -> list[dict]:
+        """Return SELL fills whose order_id has no matching position exit.
+
+        Detects the crash window where save_fill() completed but
+        positions.on_fill() (position close) never ran.
+        """
+        with self._lock:
+            rows = self.connect().execute("""
+                SELECT f.* FROM bot_fills f
+                WHERE f.side = 'SELL'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM bot_positions p
+                    WHERE p.exit_order_id = f.order_id
+                  )
+                ORDER BY f.filled_at ASC
+            """).fetchall()
+            return [dict(r) for r in rows]
 
     def get_fills(self, symbol: str | None = None, limit: int = 500) -> list[dict]:
         with self._lock:
@@ -449,6 +489,15 @@ class BotStorage:
             stmt = stmt.strip()
             if stmt:
                 c.execute(stmt)
+        # Migration: add fill_id to existing bot_fills tables created before this column.
+        try:
+            c.execute("ALTER TABLE bot_fills ADD COLUMN fill_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        c.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_bf_fill_id "
+            "ON bot_fills(fill_id) WHERE fill_id IS NOT NULL"
+        )
         c.commit()
 
 

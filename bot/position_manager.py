@@ -147,7 +147,13 @@ class PositionManager:
             return total
 
     def total_exposure(self) -> float:
-        """Total notional (entry_price * size) across all open positions."""
+        """Total notional (avg_entry_price * size) across all open positions.
+
+        Uses entry price (cost basis), not current mark price. This is intentional:
+        it represents locked capital, making the max_total_exposure_usd risk limit
+        slightly permissive when positions are profitable. Mark-price exposure
+        tracking belongs in Portfolio._current_equity(), which is separate.
+        """
         with self._lock:
             return sum(p.notional() for p in self._open.values())
 
@@ -166,6 +172,42 @@ class PositionManager:
             if recovered:
                 log.info("Recovered %d open positions from storage", recovered)
             return recovered
+
+    def recover_from_orphan_fills(self, storage) -> int:
+        """Apply fills saved during the crash window before positions were updated.
+
+        The crash window sits between storage.save_fill() (in OrderManager.on_candle)
+        and positions.on_fill() (in BotEngine._on_fill). If the bot crashed there,
+        the fill exists in the DB but the position was never opened or closed.
+
+        BUY orphans are processed first so a SELL orphan can close the position.
+        Call this after recover() so existing open positions are already loaded.
+        """
+        applied = 0
+
+        for row in storage.get_orphan_buy_fills():
+            fill = _fill_from_row(row)
+            if not self.has_open_position(fill.symbol):
+                log.warning(
+                    "Crash-window recovery: replaying BUY fill %s for %s",
+                    fill.order_id, fill.symbol,
+                )
+                self.on_fill(fill, equity=0.0)
+                applied += 1
+
+        for row in storage.get_orphan_sell_fills():
+            fill = _fill_from_row(row)
+            if self.has_open_position(fill.symbol):
+                log.warning(
+                    "Crash-window recovery: replaying SELL fill %s for %s",
+                    fill.order_id, fill.symbol,
+                )
+                self.on_fill(fill, equity=0.0)
+                applied += 1
+
+        if applied:
+            log.info("Crash-window recovery: applied %d orphan fills", applied)
+        return applied
 
     # ── Private ───────────────────────────────────────────────────────────────
 
@@ -239,6 +281,20 @@ class PositionManager:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _fill_from_row(row: dict) -> PaperFill:
+    """Reconstruct a PaperFill from a bot_fills storage row."""
+    return PaperFill(
+        order_id=row["order_id"],
+        symbol=row["symbol"],
+        side=row["side"],
+        fill_price=row["fill_price"],
+        fill_qty=row["fill_qty"],
+        fee=row["fee"],
+        is_maker=bool(row.get("is_maker", False)),
+        filled_at=row.get("filled_at", ""),
+    )
 
 
 def _row_to_position(row: dict) -> Position:

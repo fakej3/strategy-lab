@@ -86,15 +86,13 @@ class BotManager:
             else ([interval] if interval else ["1h"])
         )
 
-        if len(resolved_intervals) > 1 and len(symbols) > 0:
-            log.warning(
-                "Multi-interval configuration detected (%d symbols × %d intervals). "
-                "PositionManager tracks positions by symbol only, so a symbol cannot "
-                "hold independent positions across intervals simultaneously. "
-                "Only one position per symbol is possible regardless of which interval "
-                "triggers the signal. Use a single interval per symbol to avoid "
-                "unexpected signal interactions.",
-                len(symbols), len(resolved_intervals),
+        if len(resolved_intervals) > 1:
+            return (
+                False,
+                f"Multi-interval configuration is not supported: got {resolved_intervals!r}. "
+                "PositionManager tracks one position per symbol regardless of interval, so "
+                "signals from different intervals would race and conflict. "
+                "Use a single interval per bot instance.",
             )
 
         n_symbols = len(symbols)
