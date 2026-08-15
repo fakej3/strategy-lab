@@ -7,15 +7,19 @@
 
 {% if running_jobs %}
 <div class="alert alert-pass" style="margin-bottom:24px">
-  ⚡ {{ n_running }} job{{ 's' if n_running != 1 else '' }} running —
-  <a href="/jobs" style="color:inherit;font-weight:700">View progress →</a>
+  <span style="display:inline-flex;align-items:center;gap:8px">
+    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s ease-in-out infinite"></span>
+    {{ n_running }} job{{ 's' if n_running != 1 else '' }} running —
+    <a href="/jobs" style="color:inherit;font-weight:700">View progress →</a>
+  </span>
 </div>
+<style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}</style>
 {% endif %}
 
 <div class="tiles">
   <div class="tile">
     <div class="tile-val">{{ stats.total or 0 }}</div>
-    <div class="tile-label">Results</div>
+    <div class="tile-label">Total Results</div>
   </div>
   <div class="tile">
     <div class="tile-val">{{ (stats.promising or 0) + (stats.needs_imp or 0) }}</div>
@@ -38,17 +42,18 @@
     <div class="tile-label">Avg Sharpe</div>
   </div>
   <div class="tile">
-    <div class="tile-val">{{ n_running }}</div>
+    <div class="tile-val" style="{% if n_running > 0 %}color:var(--green){% endif %}">{{ n_running }}</div>
     <div class="tile-label">Running Now</div>
   </div>
 </div>
 
 <h2>Quick Actions</h2>
-<div style="display:flex;gap:12px;margin-bottom:32px;flex-wrap:wrap">
-  <a href="/research" class="btn btn-primary">▶ New Research Run</a>
-  <a href="/reports"  class="btn btn-secondary">📄 View Reports</a>
-  <a href="/history"  class="btn btn-secondary">🕐 Session History</a>
-  <a href="/strategies" class="btn btn-secondary">📊 Best Strategies</a>
+<div style="display:flex;gap:10px;margin-bottom:32px;flex-wrap:wrap">
+  <a href="/research"   class="btn btn-primary">New Research Run</a>
+  <a href="/reports"    class="btn btn-secondary">Reports</a>
+  <a href="/history"    class="btn btn-secondary">Session History</a>
+  <a href="/strategies" class="btn btn-secondary">Strategy Results</a>
+  <a href="/bot"        class="btn btn-secondary">Paper Trading</a>
 </div>
 
 {% if sessions %}

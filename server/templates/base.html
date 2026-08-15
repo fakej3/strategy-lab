@@ -4,258 +4,775 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}EdgeLab{% endblock %} — EdgeLab</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230e1318'/><polyline points='4,24 10,16 16,20 22,10 28,14' fill='none' stroke='%2336b9e8' stroke-width='2.5' stroke-linejoin='round' stroke-linecap='round'/></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230d1117'/><polyline points='4,24 10,16 16,20 22,10 28,14' fill='none' stroke='%2306b6d4' stroke-width='2.5' stroke-linejoin='round' stroke-linecap='round'/></svg>">
   <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{
-      /* Surfaces */
-      --bg:       #0a0d12;
-      --surface:  #0e1318;
-      --surface2: #131920;
-      --surface3: #181f28;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       DESIGN TOKENS
+    ═══════════════════════════════════════════════════════════════ */
+    :root {
+      /* Surfaces — 4 elevation levels */
+      --bg:          #080b10;
+      --surface:     #0d1117;
+      --surface2:    #121b25;
+      --surface3:    #192435;
+      --surface4:    #1f2e42;
+
       /* Borders */
-      --border:   #202731;
-      --border2:  #252d38;
+      --border:      #1c2b3a;
+      --border2:     #243548;
+      --border3:     #2e4460;
+
       /* Text */
-      --text:     #e6eaf0;
-      --text2:    #8b95a5;
-      --muted:    #596372;
-      /* Accent */
-      --accent:   #36b9e8;
-      --accent2:  #5bcaed;
-      /* Semantic — trading colors */
-      --green:    #18c784;
-      --red:      #ea3943;
-      --amber:    #f0b90b;
-      /* Semantic backgrounds */
-      --pass-bg:  rgba(24,199,132,.1);
-      --pass-fg:  #18c784;
-      --warn-bg:  rgba(240,185,11,.09);
-      --warn-fg:  #f0b90b;
-      --fail-bg:  rgba(234,57,67,.1);
-      --fail-fg:  #ea3943;
+      --text:        #d9e3ee;
+      --text2:       #8899ad;
+      --muted:       #49617a;
+
+      /* Accent — electric cyan */
+      --accent:      #06b6d4;
+      --accent2:     #22d3ee;
+      --accent-bg:   rgba(6,182,212,.08);
+      --accent-ring: rgba(6,182,212,.25);
+
+      /* Semantic trading colors */
+      --green:       #10b981;
+      --green2:      #34d399;
+      --green-bg:    rgba(16,185,129,.1);
+      --red:         #f43f5e;
+      --red2:        #fb7185;
+      --red-bg:      rgba(244,63,94,.1);
+      --amber:       #f59e0b;
+      --amber-bg:    rgba(245,158,11,.09);
+
+      /* ─ Semantic shorthands (kept for existing template compat) ─ */
+      --pass-bg:     rgba(16,185,129,.1);
+      --pass-fg:     #10b981;
+      --warn-bg:     rgba(245,158,11,.09);
+      --warn-fg:     #f59e0b;
+      --fail-bg:     rgba(244,63,94,.1);
+      --fail-fg:     #f43f5e;
+
       /* Typography */
-      --font-mono:'SFMono-Regular','SF Mono','Consolas','Liberation Mono',monospace;
+      --font-ui:     system-ui, -apple-system, 'Segoe UI', 'Roboto', sans-serif;
+      --font-mono:   'JetBrains Mono', 'Cascadia Code', 'SF Mono', 'Fira Code', 'Menlo', 'Consolas', monospace;
+
+      /* Geometry */
+      --radius-sm:   2px;
+      --radius:      4px;
+      --radius-md:   6px;
+      --radius-lg:   8px;
+
+      /* Sidebar */
+      --nav-w:       198px;
+
+      /* Motion */
+      --t:           .12s ease;
+      --t-md:        .2s ease;
     }
 
-    body{
-      background:var(--bg);color:var(--text);
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-      font-size:13px;line-height:1.55;
-      display:flex;min-height:100vh;
+    /* ═══════════════════════════════════════════════════════════════
+       BASE
+    ═══════════════════════════════════════════════════════════════ */
+    html { color-scheme: dark; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      line-height: 1.55;
+      display: flex;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Sidebar nav ──────────────────────────────────────────────── */
-    nav{
-      width:164px;flex-shrink:0;
-      background:var(--surface);
-      border-right:1px solid var(--border);
-      position:sticky;top:0;height:100vh;
-      overflow-y:auto;display:flex;flex-direction:column;
+    /* ═══════════════════════════════════════════════════════════════
+       SIDEBAR / NAV
+    ═══════════════════════════════════════════════════════════════ */
+    nav {
+      width: var(--nav-w);
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border2) transparent;
     }
-    .nav-logo{
-      padding:16px 14px 14px;
-      border-bottom:1px solid var(--border);
+    nav::-webkit-scrollbar { width: 3px; }
+    nav::-webkit-scrollbar-track { background: transparent; }
+    nav::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    /* Logo */
+    .nav-logo {
+      padding: 14px 14px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex-shrink: 0;
     }
-    .nav-logo-name{
-      font-size:13px;font-weight:700;letter-spacing:.04em;
-      color:var(--text);font-family:var(--font-mono);
+    .nav-logo-icon {
+      width: 28px; height: 28px;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
     }
-    .nav-logo-sub{
-      font-size:10px;color:var(--muted);margin-top:2px;
-      letter-spacing:.02em;
+    .nav-logo-icon svg { display: block; }
+    .nav-logo-text { min-width: 0; }
+    .nav-logo-name {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      color: var(--text);
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+    }
+    .nav-logo-sub {
+      font-size: 9px;
+      color: var(--muted);
+      margin-top: 1px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
     }
 
-    .nav-section{
-      padding:12px 14px 3px;
-      font-size:9px;font-weight:700;
-      text-transform:uppercase;letter-spacing:.1em;
-      color:var(--muted);
-    }
-    nav a{
-      display:block;padding:7px 14px;
-      color:var(--text2);text-decoration:none;font-size:12px;
-      border-left:2px solid transparent;
-      transition:color .12s,background .12s,border-color .12s;
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    }
-    nav a:hover{
-      color:var(--text);background:rgba(255,255,255,.03);
-    }
-    nav a.active{
-      color:var(--text);background:rgba(54,185,232,.07);
-      border-left-color:var(--accent);
-    }
-    .nav-bottom{margin-top:auto;border-top:1px solid var(--border);padding:8px 0}
-    .nav-notif{
-      display:inline-block;width:5px;height:5px;
-      border-radius:50%;background:var(--fail-fg);
-      vertical-align:middle;margin-left:4px;
+    /* Section labels */
+    .nav-section {
+      padding: 14px 14px 4px;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      color: var(--muted);
     }
 
-    /* ── Main content ─────────────────────────────────────────────── */
-    main{flex:1;padding:28px 36px;min-width:0;max-width:1280px}
-    h1{font-size:18px;font-weight:700;margin-bottom:4px;letter-spacing:-.3px}
-    .page-sub{color:var(--muted);font-size:12px;margin-bottom:24px}
-    h2{
-      font-size:10px;font-weight:700;text-transform:uppercase;
-      letter-spacing:.08em;color:var(--muted);
-      border-bottom:1px solid var(--border);
-      padding-bottom:6px;margin-bottom:14px;margin-top:28px;
+    /* Nav links */
+    nav a {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      color: var(--text2);
+      text-decoration: none;
+      font-size: 12.5px;
+      font-weight: 500;
+      border-left: 2px solid transparent;
+      border-radius: 0;
+      transition: color var(--t), background var(--t), border-color var(--t);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      position: relative;
     }
-    h2:first-child{margin-top:0}
+    nav a .nav-icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      opacity: .6;
+      transition: opacity var(--t);
+    }
+    nav a:hover {
+      color: var(--text);
+      background: rgba(255,255,255,.03);
+    }
+    nav a:hover .nav-icon { opacity: .9; }
+    nav a.active {
+      color: var(--text);
+      background: var(--accent-bg);
+      border-left-color: var(--accent);
+    }
+    nav a.active .nav-icon { opacity: 1; }
 
-    /* ── Tiles ────────────────────────────────────────────────────── */
-    .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
-      gap:12px;margin-bottom:24px}
-    .tile{
-      background:var(--surface);border:1px solid var(--border);
-      padding:14px 14px;
+    .nav-notif {
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--red);
+      margin-left: auto;
+      flex-shrink: 0;
     }
-    .tile-val{
-      font-size:22px;font-weight:700;color:var(--accent);
-      font-variant-numeric:tabular-nums;line-height:1;
-      font-family:var(--font-mono);
-    }
-    .tile-label{
-      font-size:10px;color:var(--muted);text-transform:uppercase;
-      letter-spacing:.07em;margin-top:5px;
-    }
-    .tile-sub{font-size:10px;color:var(--border2);margin-top:2px}
 
-    /* ── Tables ───────────────────────────────────────────────────── */
-    .table-wrap{overflow-x:auto}
-    table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
-    th{
-      background:var(--surface);color:var(--muted);
-      text-align:left;padding:7px 10px;
-      border-bottom:1px solid var(--border);
-      font-size:10px;text-transform:uppercase;letter-spacing:.06em;
-      white-space:nowrap;font-weight:600;
+    .nav-bottom {
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+      padding: 6px 0;
     }
-    td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
-    tr:hover td{background:rgba(255,255,255,.02)}
-    td.r,th.r{text-align:right}
-    td.mono{font-family:var(--font-mono);font-size:11px;color:var(--text2)}
-    .empty{color:var(--muted);font-size:12px;padding:18px 0;text-align:center}
 
-    /* ── Badges ───────────────────────────────────────────────────── */
-    .badge{
-      display:inline-block;padding:1px 6px;font-size:10px;
-      font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+    /* ═══════════════════════════════════════════════════════════════
+       MAIN CONTENT
+    ═══════════════════════════════════════════════════════════════ */
+    main {
+      flex: 1;
+      padding: 32px 40px;
+      min-width: 0;
+      max-width: 1360px;
     }
-    .badge-pass{background:var(--pass-bg);color:var(--pass-fg)}
-    .badge-warn{background:var(--warn-bg);color:var(--warn-fg)}
-    .badge-fail{background:var(--fail-bg);color:var(--fail-fg)}
-    .badge-blue{background:rgba(54,185,232,.12);color:var(--accent2)}
-    .badge-muted{background:var(--surface2);color:var(--text2)}
 
-    /* ── Buttons ──────────────────────────────────────────────────── */
-    .btn{
-      display:inline-block;padding:6px 14px;font-size:12px;
-      font-weight:600;text-decoration:none;border:none;cursor:pointer;
-      transition:opacity .12s;letter-spacing:.02em;
+    /* Page headers */
+    h1 {
+      font-size: 19px;
+      font-weight: 700;
+      margin-bottom: 3px;
+      letter-spacing: -.3px;
+      color: var(--text);
     }
-    .btn:hover{opacity:.82}
-    .btn-primary{background:var(--accent);color:#0a0d12}
-    .btn-secondary{
-      background:var(--surface2);color:var(--text);
-      border:1px solid var(--border2);
+    .page-sub {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 28px;
     }
-    .btn-danger{background:var(--fail-bg);color:var(--fail-fg);border:1px solid rgba(234,57,67,.3)}
-    .btn-sm{padding:3px 9px;font-size:11px}
 
-    /* ── Forms ────────────────────────────────────────────────────── */
-    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-    .form-grid.cols3{grid-template-columns:1fr 1fr 1fr}
-    .form-group{display:flex;flex-direction:column;gap:5px}
-    .form-group label{
-      font-size:10px;color:var(--muted);font-weight:600;
-      text-transform:uppercase;letter-spacing:.07em;
+    /* Section sub-headers */
+    h2 {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 7px;
+      margin-bottom: 16px;
+      margin-top: 32px;
     }
-    .form-group input,.form-group select,.form-group textarea{
-      background:var(--surface2);border:1px solid var(--border2);
-      color:var(--text);padding:7px 10px;
-      font-size:12px;outline:none;font-family:inherit;
-    }
-    .form-group input:focus,.form-group select:focus{
-      border-color:var(--accent);box-shadow:0 0 0 2px rgba(54,185,232,.1);
-    }
-    .form-group .hint{font-size:10px;color:var(--muted)}
-    .form-section{
-      background:var(--surface);border:1px solid var(--border);
-      padding:18px;margin-bottom:16px;
-    }
-    .form-section-title{font-size:12px;font-weight:700;margin-bottom:14px;color:var(--text)}
-    .checkbox-row{display:flex;align-items:center;gap:8px}
-    .checkbox-row input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
-    .checkbox-row label{font-size:12px;color:var(--text);cursor:pointer}
-    .full-width{grid-column:1/-1}
+    h2:first-child { margin-top: 0; }
 
-    /* ── Progress ─────────────────────────────────────────────────── */
-    .progress-bar-wrap{background:var(--surface2);height:4px;overflow:hidden;margin:6px 0}
-    .progress-bar{height:100%;background:var(--accent);transition:width .3s}
-
-    /* ── Code / log ───────────────────────────────────────────────── */
-    pre,code{font-family:var(--font-mono);font-size:11px;color:var(--text2)}
-    .log-box{
-      background:var(--surface);border:1px solid var(--border);
-      padding:12px 14px;max-height:380px;overflow-y:auto;
-      font-family:var(--font-mono);font-size:11px;line-height:1.65;
+    /* ═══════════════════════════════════════════════════════════════
+       METRIC TILES
+    ═══════════════════════════════════════════════════════════════ */
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px;
+      margin-bottom: 28px;
     }
-    .log-line-ok{color:var(--pass-fg)}
-    .log-line-warn{color:var(--warn-fg)}
-    .log-line-error{color:var(--fail-fg)}
-    .log-line-step{color:var(--accent);font-weight:600}
-    .log-line-info{color:var(--text2)}
+    .tile {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px 16px 14px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color var(--t);
+    }
+    .tile:hover { border-color: var(--border2); }
+    .tile::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, var(--accent) 0%, transparent 60%);
+      opacity: .35;
+    }
+    .tile-val {
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      line-height: 1.1;
+      font-family: var(--font-mono);
+      letter-spacing: -.03em;
+    }
+    .tile-val.accent { color: var(--accent); }
+    .tile-val.green  { color: var(--green); }
+    .tile-val.red    { color: var(--red); }
+    .tile-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-top: 7px;
+      font-weight: 600;
+    }
+    .tile-sub {
+      font-size: 11px;
+      color: var(--text2);
+      margin-top: 3px;
+    }
 
-    /* ── Alerts ───────────────────────────────────────────────────── */
-    .alert{padding:10px 14px;font-size:12px;margin-bottom:14px;border-left:3px solid}
-    .alert-warn{background:var(--warn-bg);color:var(--warn-fg);border-color:var(--warn-fg)}
-    .alert-fail{background:var(--fail-bg);color:var(--fail-fg);border-color:var(--fail-fg)}
-    .alert-pass{background:var(--pass-bg);color:var(--pass-fg);border-color:var(--pass-fg)}
+    /* ═══════════════════════════════════════════════════════════════
+       TABLES
+    ═══════════════════════════════════════════════════════════════ */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    th {
+      background: var(--surface);
+      color: var(--muted);
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      white-space: nowrap;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(255,255,255,.03);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.025); }
+    td.r, th.r { text-align: right; }
+    td.mono {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text2);
+    }
+    .empty {
+      color: var(--muted);
+      font-size: 12px;
+      padding: 24px 0;
+      text-align: center;
+    }
+    .empty a { color: var(--accent); text-decoration: none; }
+    .empty a:hover { color: var(--accent2); }
 
-    /* ── Responsive ───────────────────────────────────────────────── */
-    @media(max-width:768px){
-      nav{display:none}
-      main{padding:16px}
-      .form-grid,.form-grid.cols3{grid-template-columns:1fr}
+    /* ═══════════════════════════════════════════════════════════════
+       BADGES
+    ═══════════════════════════════════════════════════════════════ */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    .badge-pass   { background: var(--green-bg);  color: var(--green); }
+    .badge-warn   { background: var(--amber-bg);  color: var(--amber); }
+    .badge-fail   { background: var(--red-bg);    color: var(--red); }
+    .badge-blue   { background: var(--accent-bg); color: var(--accent2); }
+    .badge-muted  { background: var(--surface2);  color: var(--text2); border: 1px solid var(--border2); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       BUTTONS
+    ═══════════════════════════════════════════════════════════════ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      cursor: pointer;
+      text-decoration: none;
+      font-family: var(--font-ui);
+      letter-spacing: .02em;
+      transition: all var(--t);
+      white-space: nowrap;
+      line-height: 1;
+      outline: none;
+    }
+    .btn:focus-visible {
+      box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-ring);
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #04070b;
+      border-color: var(--accent);
+    }
+    .btn-primary:hover {
+      background: var(--accent2);
+      border-color: var(--accent2);
+    }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text2);
+      border-color: var(--border2);
+    }
+    .btn-secondary:hover {
+      background: var(--surface3);
+      border-color: var(--border3);
+      color: var(--text);
+    }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text2);
+      border-color: transparent;
+    }
+    .btn-ghost:hover {
+      background: var(--surface2);
+      color: var(--text);
+    }
+    .btn-danger {
+      background: var(--red-bg);
+      color: var(--red);
+      border-color: rgba(244,63,94,.2);
+    }
+    .btn-danger:hover {
+      background: rgba(244,63,94,.18);
+      border-color: rgba(244,63,94,.45);
+      color: var(--red2);
+    }
+    .btn-sm { padding: 4px 10px; font-size: 11px; }
+    .btn-xs { padding: 2px 7px;  font-size: 10px; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       FORMS
+    ═══════════════════════════════════════════════════════════════ */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .form-grid.cols3 { grid-template-columns: 1fr 1fr 1fr; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group label {
+      font-size: 10.5px;
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      color: var(--text);
+      padding: 8px 11px;
+      font-size: 12.5px;
+      outline: none;
+      font-family: var(--font-ui);
+      border-radius: var(--radius);
+      transition: border-color var(--t), box-shadow var(--t);
+      appearance: none;
+    }
+    .form-group select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%234b5e72' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-ring);
+    }
+    .form-group input::placeholder { color: var(--muted); }
+    .form-group .hint {
+      font-size: 10.5px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .form-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 14px;
+    }
+    .form-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--text2);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .form-section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .checkbox-row input[type=checkbox] {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--accent);
+      cursor: pointer;
+      padding: 0;
+      border: none;
+      background: none;
+      box-shadow: none;
+      border-radius: 0;
+      flex-shrink: 0;
+    }
+    .checkbox-row label {
+      font-size: 12px;
+      color: var(--text);
+      cursor: pointer;
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 400;
+    }
+    .full-width { grid-column: 1 / -1; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       PROGRESS
+    ═══════════════════════════════════════════════════════════════ */
+    .progress-bar-wrap {
+      background: var(--surface2);
+      border-radius: 2px;
+      height: 3px;
+      overflow: hidden;
+      margin: 6px 0;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 2px;
+      transition: width .4s ease;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       CODE / LOGS
+    ═══════════════════════════════════════════════════════════════ */
+    pre, code {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--text2);
+    }
+    .log-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.7;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border2) transparent;
+    }
+    .log-box::-webkit-scrollbar { width: 4px; }
+    .log-box::-webkit-scrollbar-track { background: transparent; }
+    .log-box::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+    .log-line-ok    { color: var(--green); }
+    .log-line-warn  { color: var(--amber); }
+    .log-line-error { color: var(--red); }
+    .log-line-step  { color: var(--accent2); font-weight: 600; }
+    .log-line-info  { color: var(--text2); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       ALERTS
+    ═══════════════════════════════════════════════════════════════ */
+    .alert {
+      padding: 11px 14px;
+      font-size: 12px;
+      margin-bottom: 16px;
+      border-left: 3px solid;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      line-height: 1.55;
+    }
+    .alert-warn { background: var(--amber-bg); color: var(--amber); border-color: var(--amber); }
+    .alert-fail { background: var(--red-bg);   color: var(--red);   border-color: var(--red); }
+    .alert-pass { background: var(--green-bg); color: var(--green); border-color: var(--green); }
+    .alert a { color: inherit; font-weight: 700; }
+
+    /* ═══════════════════════════════════════════════════════════════
+       EMPTY / ERROR STATES
+    ═══════════════════════════════════════════════════════════════ */
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+    }
+    .empty-state-icon {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 12px;
+      opacity: .25;
+    }
+    .empty-state-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text2);
+      margin-bottom: 4px;
+    }
+    .empty-state-desc {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       RESPONSIVE
+    ═══════════════════════════════════════════════════════════════ */
+    @media (max-width: 768px) {
+      nav { display: none; }
+      main { padding: 18px; }
+      .form-grid, .form-grid.cols3 { grid-template-columns: 1fr; }
+      .tiles { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
   {% block head %}{% endblock %}
 </head>
 <body>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SIDEBAR
+  ════════════════════════════════════════════════════════════════ -->
   <nav>
     <div class="nav-logo">
-      <div class="nav-logo-name">EDGELAB</div>
-      <div class="nav-logo-sub">Research Engine</div>
+      <div class="nav-logo-icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="1,12 4,8 7,10 11,4.5 15,7" fill="none" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="nav-logo-text">
+        <div class="nav-logo-name">EdgeLab</div>
+        <div class="nav-logo-sub">Research Engine</div>
+      </div>
     </div>
 
+    <!-- Research -->
     <div class="nav-section">Research</div>
-    <a href="/"         class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
-    <a href="/research" class="{% if request.url.path == '/research' %}active{% endif %}">New Run</a>
-    <a href="/jobs"     class="{% if '/jobs' in request.url.path %}active{% endif %}">
+
+    <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="1.5" y="1.5" width="4.5" height="4.5" rx=".6"/>
+        <rect x="8"   y="1.5" width="4.5" height="4.5" rx=".6"/>
+        <rect x="1.5" y="8"   width="4.5" height="4.5" rx=".6"/>
+        <rect x="8"   y="8"   width="4.5" height="4.5" rx=".6"/>
+      </svg>
+      Dashboard
+    </a>
+
+    <a href="/research" class="{% if request.url.path == '/research' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="7" cy="7" r="5.5"/>
+        <path d="M5.5 4.8L9.8 7l-4.3 2.2V4.8Z" fill="currentColor" stroke="none"/>
+      </svg>
+      New Run
+    </a>
+
+    <a href="/jobs" class="{% if '/jobs' in request.url.path %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 7.5h2l1.5-4 2.5 8L9.5 6l1 1.5H13"/>
+      </svg>
       Running Jobs{% if notifications|length > 0 %}<span class="nav-notif"></span>{% endif %}
     </a>
 
+    <!-- Results -->
     <div class="nav-section">Results</div>
-    <a href="/reports"    class="{% if request.url.path == '/reports' %}active{% endif %}">Reports</a>
-    <a href="/history"    class="{% if request.url.path == '/history' %}active{% endif %}">History</a>
-    <a href="/strategies" class="{% if request.url.path == '/strategies' %}active{% endif %}">Strategies</a>
 
+    <a href="/reports" class="{% if request.url.path == '/reports' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2.5" y="1.5" width="9" height="11" rx="1"/>
+        <line x1="4.5" y1="5"   x2="9.5" y2="5"/>
+        <line x1="4.5" y1="7.5" x2="9.5" y2="7.5"/>
+        <line x1="4.5" y1="10"  x2="7.5" y2="10"/>
+      </svg>
+      Reports
+    </a>
+
+    <a href="/history" class="{% if request.url.path == '/history' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="7" cy="7" r="5.5"/>
+        <path d="M7 4V7.5L9.5 9"/>
+      </svg>
+      History
+    </a>
+
+    <a href="/strategies" class="{% if request.url.path == '/strategies' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1.5" y="7"   width="2.5" height="5.5" rx=".4" fill="currentColor" opacity=".65"/>
+        <rect x="5.5" y="4"   width="2.5" height="8.5" rx=".4" fill="currentColor" opacity=".8"/>
+        <rect x="9.5" y="1.5" width="2.5" height="11"  rx=".4" fill="currentColor"/>
+        <line x1="1" y1="13" x2="13" y2="13" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+      </svg>
+      Strategies
+    </a>
+
+    <!-- Trading -->
     <div class="nav-section">Trading</div>
-    <a href="/bot" class="{% if request.url.path == '/bot' %}active{% endif %}">Paper Bot</a>
 
+    <a href="/bot" class="{% if request.url.path == '/bot' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- candle 1 -->
+        <line x1="3" y1="1.5" x2="3" y2="4"   stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <rect x="2" y="4" width="2" height="5" rx=".3" fill="currentColor"/>
+        <line x1="3" y1="9" x2="3" y2="11.5"  stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <!-- candle 2 -->
+        <line x1="7" y1="2.5" x2="7" y2="5"   stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <rect x="6" y="5" width="2" height="4" rx=".3" fill="currentColor" opacity=".65"/>
+        <line x1="7" y1="9" x2="7" y2="12"    stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <!-- candle 3 -->
+        <line x1="11" y1="1" x2="11" y2="3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <rect x="10" y="3.5" width="2" height="6" rx=".3" fill="currentColor" opacity=".85"/>
+        <line x1="11" y1="9.5" x2="11" y2="12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+      Paper Trading
+    </a>
+
+    <!-- Automation -->
     <div class="nav-section">Automation</div>
-    <a href="/scheduler" class="{% if request.url.path == '/scheduler' %}active{% endif %}">Scheduler</a>
 
+    <a href="/scheduler" class="{% if request.url.path == '/scheduler' %}active{% endif %}">
+      <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="1.5" y="2.5" width="11" height="10" rx="1"/>
+        <line x1="1.5" y1="5.5" x2="12.5" y2="5.5"/>
+        <line x1="4.5" y1="1.5" x2="4.5" y2="3.5"/>
+        <line x1="9.5" y1="1.5" x2="9.5" y2="3.5"/>
+        <rect x="4" y="7.5" width="2" height="2" rx=".3" fill="currentColor" stroke="none"/>
+        <rect x="8" y="7.5" width="2" height="2" rx=".3" fill="currentColor" stroke="none"/>
+      </svg>
+      Scheduler
+    </a>
+
+    <!-- Bottom -->
     <div class="nav-bottom">
-      <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}">Settings</a>
-      <a href="/logs"     class="{% if request.url.path == '/logs' %}active{% endif %}">Logs</a>
-      <a href="/logout">Sign out</a>
+      <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="7" cy="7" r="2"/>
+          <path d="M7 1.5v1M7 11.5v1M1.5 7h1M11.5 7h1M3.2 3.2l.7.7M10.1 10.1l.7.7M3.2 10.8l.7-.7M10.1 3.9l.7-.7"/>
+        </svg>
+        Settings
+      </a>
+
+      <a href="/logs" class="{% if request.url.path == '/logs' %}active{% endif %}">
+        <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="1.5" y="1.5" width="11" height="11" rx="1"/>
+          <path d="M4 5l1.5 1.5L4 8" stroke-width="1.1"/>
+          <line x1="7" y1="8" x2="10" y2="8"/>
+        </svg>
+        Logs
+      </a>
+
+      <a href="/logout">
+        <svg class="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 2.5h1.5a1 1 0 011 1v7a1 1 0 01-1 1H9"/>
+          <path d="M6 9.5L9 7 6 4.5"/>
+          <line x1="1.5" y1="7" x2="9" y2="7"/>
+        </svg>
+        Sign Out
+      </a>
     </div>
   </nav>
 
+  <!-- ═══════════════════════════════════════════════════════════════
+       MAIN
+  ════════════════════════════════════════════════════════════════ -->
   <main>
     {% block content %}{% endblock %}
   </main>

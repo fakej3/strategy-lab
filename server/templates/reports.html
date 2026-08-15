@@ -1,6 +1,62 @@
 {% extends "base.html" %}
 {% block title %}Reports{% endblock %}
 
+{% block head %}
+<style>
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 8px;
+}
+.report-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color var(--t);
+}
+.report-card:hover {
+  border-color: var(--border3);
+}
+.report-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.report-meta {
+  color: var(--muted);
+  font-size: 11px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.report-meta span::before {
+  content: '·';
+  margin-right: 6px;
+}
+.report-meta span:first-child::before { content: none; }
+.report-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.report-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <h1>Reports</h1>
 <p class="page-sub">Generated HTML research reports</p>
@@ -8,32 +64,25 @@
 {% if not files %}
 <p class="empty">No reports yet. <a href="/research" style="color:var(--accent)">Run research first →</a></p>
 {% else %}
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+<div class="report-grid">
 {% for f in files %}
-<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px">
-  <div style="font-weight:700;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-    {{ f.name }}
-  </div>
-  <div style="color:var(--muted);font-size:12px;margin-bottom:12px">
-    {{ f.modified }}
-    {% if f.symbol %} · {{ f.symbol }}{% endif %}
-    {% if f.interval %} {{ f.interval }}{% endif %}
-    &nbsp;·&nbsp; {{ f.size_kb }} KB
+<div class="report-card">
+  <div class="report-name" title="{{ f.name }}">{{ f.name }}</div>
+  <div class="report-meta">
+    <span>{{ f.modified }}</span>
+    {% if f.symbol %}<span>{{ f.symbol }}{% if f.interval %} {{ f.interval }}{% endif %}</span>{% endif %}
+    <span>{{ f.size_kb }} KB</span>
   </div>
   {% if f.n_passed != '' %}
-  <div style="margin-bottom:12px">
+  <div class="report-badges">
     <span class="badge badge-pass">{{ f.n_passed }} passed</span>
-    {% if f.sharpe %}&nbsp;<span class="badge badge-blue">Sharpe {{ "%.3f"|format(f.sharpe|float) }}</span>{% endif %}
+    {% if f.sharpe %}<span class="badge badge-blue">Sharpe {{ "%.3f"|format(f.sharpe|float) }}</span>{% endif %}
   </div>
   {% endif %}
-  <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <a href="/reports/view/{{ f.name }}" class="btn btn-primary btn-sm"
-       target="_blank">Open</a>
-    <a href="/reports/download/{{ f.name }}" class="btn btn-secondary btn-sm">
-      ⬇ Download
-    </a>
-    <form method="POST" action="/reports/delete/{{ f.name }}"
-          style="display:inline"
+  <div class="report-actions">
+    <a href="/reports/view/{{ f.name }}" class="btn btn-primary btn-sm" target="_blank">Open</a>
+    <a href="/reports/download/{{ f.name }}" class="btn btn-secondary btn-sm">Download</a>
+    <form method="POST" action="/reports/delete/{{ f.name }}" style="display:inline"
           onsubmit="return confirm('Delete {{ f.name }}?')">
       <button type="submit" class="btn btn-danger btn-sm">Delete</button>
     </form>

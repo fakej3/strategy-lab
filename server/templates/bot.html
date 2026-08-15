@@ -518,12 +518,17 @@ main  { padding:0 !important; max-width:none !important;
 .event-item.ev-disc   { border-left-color: var(--amber); }
 .event-item.ev-reconn { border-left-color: var(--accent); }
 .ev-time { color: var(--muted); }
-.ev-type { color: var(--text2); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.ev-type.buy   { color: var(--green); }
-.ev-type.sell  { color: var(--red); }
-.ev-type.fill  { color: var(--accent); }
-.ev-type.err   { color: var(--red); }
-.ev-type.disc  { color: var(--amber); }
+.ev-type {
+  color: var(--text2); font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; background: rgba(255,255,255,.045);
+  border-radius: 2px; padding: 0 4px; align-self: center;
+  white-space: nowrap; text-align: center;
+}
+.ev-type.buy   { color: var(--green);  background: var(--green-bg); }
+.ev-type.sell  { color: var(--red);    background: var(--red-bg); }
+.ev-type.fill  { color: var(--accent); background: var(--accent-bg); }
+.ev-type.err   { color: var(--red);    background: var(--red-bg); }
+.ev-type.disc  { color: var(--amber);  background: var(--amber-bg); }
 .ev-body { color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -689,6 +694,23 @@ main  { padding:0 !important; max-width:none !important;
   font-family: var(--font-mono);
 }
 
+/* Paper-trading info callout in stopped state */
+.stopped-info {
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-ring);
+  border-left: 3px solid var(--accent);
+  color: var(--text2);
+  font-size: 11px;
+  padding: 9px 14px;
+  margin-bottom: 20px;
+  border-radius: var(--radius);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: 820px;
+}
+.stopped-info strong { color: var(--accent); font-weight: 700; }
+
 /* Config form in stopped state — inherits global .form-group etc */
 .start-btn {
   padding: 7px 20px;
@@ -697,6 +719,7 @@ main  { padding:0 !important; max-width:none !important;
   color: var(--bg);
   font-size: 12px;
   font-weight: 700;
+  border-radius: var(--radius);
   letter-spacing: .05em;
   cursor: pointer;
   text-transform: uppercase;
@@ -786,6 +809,12 @@ main  { padding:0 !important; max-width:none !important;
       {% endif %}
 
       <div class="stopped-config-hdr">Configure Paper Bot</div>
+
+      <div class="stopped-info">
+        <span>&#9432;</span>
+        <span><strong>Paper Trading Mode</strong> — No real funds are used. Capital is simulated USDT.
+        Orders are tracked locally; no Binance API key is required for market data.</span>
+      </div>
 
       <form method="POST" action="/bot/start">
         <div class="form-grid cols3" style="max-width:820px">
@@ -911,6 +940,42 @@ main  { padding:0 !important; max-width:none !important;
 
     {# Right rail #}
     <div class="right-rail">
+
+      {# Strategy / signal summary panel — JS updates sr-signal, sr-status, sr-price,
+         sr-positions, sr-fills, signal-card, sc-dir, sc-sym #}
+      <div class="strat-panel">
+        <div class="rail-hdr">Strategy</div>
+        <div class="strat-name-row">
+          <div class="strat-name">{{ status.strategy or 'EMACrossover' }}</div>
+        </div>
+        <div class="strat-rows">
+          <div class="sr">
+            <span class="sk">Signal</span>
+            <span class="sv" id="sr-signal">HOLD</span>
+          </div>
+          <div class="sr">
+            <span class="sk">Status</span>
+            <span class="sv" id="sr-status">WATCHING</span>
+          </div>
+          <div class="sr">
+            <span class="sk">Mark Price</span>
+            <span class="sv" id="sr-price">—</span>
+          </div>
+          <div class="sr">
+            <span class="sk">Positions</span>
+            <span class="sv" id="sr-positions">{{ (status.open_positions or [])|length }}</span>
+          </div>
+          <div class="sr">
+            <span class="sk">Fills</span>
+            <span class="sv" id="sr-fills">{{ (status.recent_trades or [])|length }}</span>
+          </div>
+        </div>
+        <div class="signal-card" id="signal-card" style="display:none">
+          <div class="sc-label">Active Signal</div>
+          <div class="sc-dir" id="sc-dir">LONG</div>
+          <div class="sc-sym" id="sc-sym">—</div>
+        </div>
+      </div>
 
       {# Market Watch panel — one row per symbol×timeframe; click to focus chart #}
       <div class="mktwatch-panel">
