@@ -178,7 +178,9 @@
 
   function handleMessage(msg) {
     if (msg.type === 'step') {
-      setProgress(msg.pct || 0, 'Step ' + msg.n + ' — ' + msg.label, '');
+      const pct = msg.pct || 0;
+      const label = pct >= 100 ? 'Finalizing…' : 'Step ' + msg.n + ' — ' + msg.label;
+      setProgress(pct, label, '');
       appendLog('log-line-step', `  STEP ${msg.n} · ${msg.label}`);
     } else if (msg.type === 'section') {
       appendLog('log-line-info', msg.label);
