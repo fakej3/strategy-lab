@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,13 +16,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse, JSONResponse
 
 from research_db.storage import ResearchStorage
-from server.auth import AuthUser
+from server.auth import AuthUser, authenticate
 from server.background import job_manager, dict_to_config
 from server.bot_manager import bot_manager
 from server.jobs import get_available_strategies
 from server.notify import notification_manager
 
 router = APIRouter(prefix="/api")
+
+_SCHED_FILE = Path(__file__).parent / "schedules.json"
 
 _DB_PATH      = Path(os.environ.get("EDGELAB_DB",      "research.db"))
 _REPORTS_DIR  = Path(os.environ.get("EDGELAB_REPORTS", "reports"))
@@ -334,3 +337,131 @@ async def api_bot_set_active_pair(request: Request, _: AuthUser) -> JSONResponse
         raise HTTPException(status_code=422, detail="symbol and interval are required")
     bot_manager.set_active_pair(symbol, interval)
     return JSONResponse({"ok": True})
+
+
+# ── Auth JSON endpoints ────────────────────────────────────────────────────────
+
+@router.get("/auth/me")
+def api_auth_me(request: Request) -> JSONResponse:
+    """Return current session user, or 401 if not authenticated."""
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return JSONResponse({"username": user})
+
+
+@router.post("/auth/login")
+async def api_auth_login(request: Request) -> JSONResponse:
+    """Authenticate with JSON {username, password} and set session cookie."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    username = str(body.get("username", "")).strip()
+    password = str(body.get("password", ""))
+    if not authenticate(username, password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    request.session["user"] = username
+    return JSONResponse({"ok": True, "username": username})
+
+
+@router.post("/auth/logout")
+def api_auth_logout(request: Request) -> JSONResponse:
+    """Clear session cookie."""
+    request.session.clear()
+    return JSONResponse({"ok": True})
+
+
+# ── Scheduler JSON endpoints ───────────────────────────────────────────────────
+
+def _load_schedules() -> list[dict]:
+    if not _SCHED_FILE.exists():
+        return []
+    try:
+        return json.loads(_SCHED_FILE.read_text())
+    except Exception:
+        return []
+
+
+def _save_schedules(schedules: list[dict]) -> None:
+    _SCHED_FILE.write_text(json.dumps(schedules, indent=2))
+
+
+@router.get("/scheduler")
+def api_scheduler_list(_: AuthUser) -> JSONResponse:
+    return JSONResponse(_load_schedules())
+
+
+@router.post("/scheduler")
+async def api_scheduler_create(request: Request, _: AuthUser) -> JSONResponse:
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    schedule = {
+        "id":           str(uuid.uuid4()),
+        "name":         str(body.get("name", "Scheduled Research"))[:100],
+        "frequency":    str(body.get("frequency", "daily")),
+        "hour":         int(body.get("hour", 2)),
+        "minute":       int(body.get("minute", 0)),
+        "day_of_week":  int(body.get("day_of_week", 1)),
+        "day_of_month": int(body.get("day_of_month", 1)),
+        "enabled":      True,
+        "last_run":     None,
+        "config":       body.get("config", {}),
+    }
+    schedules = _load_schedules()
+    schedules.append(schedule)
+    _save_schedules(schedules)
+    return JSONResponse(schedule, status_code=201)
+
+
+@router.delete("/scheduler/{sched_id}")
+def api_scheduler_delete(sched_id: str, _: AuthUser) -> JSONResponse:
+    schedules = _load_schedules()
+    new = [s for s in schedules if s["id"] != sched_id]
+    if len(new) == len(schedules):
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    _save_schedules(new)
+    return JSONResponse({"ok": True})
+
+
+@router.post("/scheduler/{sched_id}/toggle")
+def api_scheduler_toggle(sched_id: str, _: AuthUser) -> JSONResponse:
+    schedules = _load_schedules()
+    for s in schedules:
+        if s["id"] == sched_id:
+            s["enabled"] = not s.get("enabled", True)
+            _save_schedules(schedules)
+            return JSONResponse(s)
+    raise HTTPException(status_code=404, detail="Schedule not found")
+
+
+@router.post("/scheduler/{sched_id}/run-now")
+def api_scheduler_run_now(sched_id: str, _: AuthUser) -> JSONResponse:
+    schedules = _load_schedules()
+    for s in schedules:
+        if s["id"] == sched_id:
+            job_id = job_manager.submit(s.get("config", {}))
+            return JSONResponse({"job_id": job_id})
+    raise HTTPException(status_code=404, detail="Schedule not found")
+
+
+# ── Settings JSON endpoint ─────────────────────────────────────────────────────
+
+_DB_PATH_SETTINGS     = Path(os.environ.get("EDGELAB_DB",      "research.db"))
+_REPORTS_DIR_SETTINGS = Path(os.environ.get("EDGELAB_REPORTS", "reports"))
+_DATA_DIR_SETTINGS    = Path(os.environ.get("EDGELAB_DATA_DIR","data/bars"))
+_LOG_PATH_SETTINGS    = Path(os.environ.get("EDGELAB_LOG",     "logs/research.log"))
+
+
+@router.get("/settings")
+def api_settings(_: AuthUser) -> JSONResponse:
+    env_vars = {k: v for k, v in sorted(os.environ.items()) if k.startswith("EDGELAB_")}
+    return JSONResponse({
+        "db_path":     str(_DB_PATH_SETTINGS),
+        "reports_dir": str(_REPORTS_DIR_SETTINGS),
+        "data_dir":    str(_DATA_DIR_SETTINGS),
+        "log_path":    str(_LOG_PATH_SETTINGS),
+        "env_vars":    env_vars,
+    })

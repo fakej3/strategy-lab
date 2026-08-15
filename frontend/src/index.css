@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    @apply h-full;
+  }
+  body {
+    @apply bg-bg text-text font-ui antialiased;
+  }
+  * {
+    @apply border-border;
+  }
+}
+
+@layer components {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #1c2b3a transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #1c2b3a; border-radius: 3px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #243447; }
+
+  .log-line-ok    { @apply text-green; }
+  .log-line-warn  { @apply text-amber; }
+  .log-line-error { @apply text-red; }
+  .log-line-step  { @apply text-accent font-semibold; }
+  .log-line-muted { @apply text-muted; }
+}

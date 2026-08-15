@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -61,6 +62,17 @@ def create_app() -> FastAPI:
     application.include_router(ws_module.router)
     _register_routes(application)
     _start_scheduler_thread()
+
+    # Serve React SPA static assets when dist/ exists
+    _spa_dist = Path(__file__).parent.parent / "frontend" / "dist"
+    if _spa_dist.is_dir():
+        application.mount("/assets", StaticFiles(directory=str(_spa_dist / "assets")), name="spa-assets")
+
+        @application.get("/app/{full_path:path}", response_class=HTMLResponse)
+        def spa_catchall(request: Request, full_path: str) -> HTMLResponse:
+            index = _spa_dist / "index.html"
+            return HTMLResponse(index.read_text())
+
     return application
 
 
