@@ -145,6 +145,18 @@ async def _main(args: argparse.Namespace) -> None:
     log.info("  DB:        %s", cfg.db_path)
     log.info("=" * 60)
 
+    from bot.paper_exchange import MIN_NOTIONAL
+    startup_notional = cfg.paper_capital * cfg.equity_fraction
+    if startup_notional < MIN_NOTIONAL:
+        log.warning(
+            "CONFIGURATION WARNING: starting_capital=%.2f × equity_fraction=%.3f "
+            "= %.2f USDT notional per trade, which is below the exchange minimum "
+            "of %.2f USDT. No entry orders will be placed until equity grows "
+            "above %.2f USDT. Increase --capital or equity_fraction.",
+            cfg.paper_capital, cfg.equity_fraction, startup_notional,
+            MIN_NOTIONAL, MIN_NOTIONAL / cfg.equity_fraction,
+        )
+
     # ── Core components ──────────────────────────────────────────────────────
     bus      = EventBus()
     storage  = BotStorage(cfg.db_path)

@@ -244,6 +244,24 @@ class BotEngine:
             log.warning("Entry sizing produced qty=0 for %s", symbol)
             return
 
+        # Pre-flight notional check: reject orders whose notional is below
+        # the exchange minimum BEFORE submission.  MARKET orders have no price
+        # at submission, so PaperExchange defers the check to fill time —
+        # which causes the order to be accepted, sit in the open book, and then
+        # be silently rejected on the next candle.  Checking here avoids
+        # accumulating rejected orphan orders and gives an actionable log line.
+        notional = qty * close_price
+        min_notional = self.orders.exchange.get_min_notional(symbol)
+        if min_notional > 0 and notional < min_notional:
+            log.warning(
+                "Skipping entry for %s: notional %.4f USDT is below the exchange "
+                "minimum of %.2f USDT (equity=%.2f equity_fraction=%.3f qty=%.5f "
+                "price=%.2f). Increase capital or equity_fraction to place trades.",
+                symbol, notional, min_notional,
+                equity, self.config.equity_fraction, qty, close_price,
+            )
+            return
+
         risk_ctx = RiskContext(
             symbol=symbol,
             side=SIDE_BUY,

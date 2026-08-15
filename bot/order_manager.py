@@ -190,6 +190,16 @@ class OrderManager:
                 self.storage.save_order(order.to_dict())
                 self.storage.save_fill(fill.to_dict())
 
+        # Sync fill-time rejections: market orders can be rejected inside
+        # process_candle (e.g. MIN_NOTIONAL check).  They don't produce a fill
+        # so the loop above skips them, but their status is now REJECTED.
+        # Remove them from _open so they are not counted as open orders.
+        for oid in list(self._open):
+            order = self._open[oid]
+            if order.symbol == symbol and order.status == STATUS_REJECTED:
+                self._open.pop(oid, None)
+                self.storage.save_order(order.to_dict())
+
         return fills
 
     # ── Queries ───────────────────────────────────────────────────────────────

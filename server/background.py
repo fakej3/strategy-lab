@@ -208,17 +208,39 @@ class JobManager:
                 "elapsed_secs": run.elapsed_secs,
                 "report_paths": {k: str(v) for k, v in run.report_paths.items()},
             }
-            self._finish(job_id, "done", result)
-            _put(q, {"type": "done", "success": True, "pct": 100, **result})
 
-            notification_manager.notify(
-                JOB_DONE,
-                "Research Complete",
-                f"Session {run.session_id[:8]} — "
-                f"{run.n_passed}/{run.n_tested} passed",
-                job_id=job_id,
-                session_id=run.session_id,
+            # Data integrity blocked all symbol/interval pairs — this is a
+            # failure, not a successful "zero-result" run.
+            data_blocked = (
+                run.n_tested == 0
+                and getattr(run, "n_data_failures", 0) > 0
             )
+            if data_blocked:
+                err_msg = (
+                    run.errors[-1] if run.errors
+                    else "Data integrity failure blocked all symbol/interval pairs"
+                )
+                self._finish(job_id, "failed", result, error=err_msg)
+                _put(q, {"type": "done", "success": False,
+                         "error": err_msg, **result})
+                notification_manager.notify(
+                    JOB_FAILED,
+                    "Research Failed",
+                    f"Job {job_id[:8]} failed: data integrity failure — "
+                    f"no strategies tested",
+                    job_id=job_id,
+                )
+            else:
+                self._finish(job_id, "done", result)
+                _put(q, {"type": "done", "success": True, "pct": 100, **result})
+                notification_manager.notify(
+                    JOB_DONE,
+                    "Research Complete",
+                    f"Session {run.session_id[:8]} — "
+                    f"{run.n_passed}/{run.n_tested} passed",
+                    job_id=job_id,
+                    session_id=run.session_id,
+                )
         except Exception:
             err = traceback.format_exc()
             self._finish(job_id, "failed", {}, error=err)

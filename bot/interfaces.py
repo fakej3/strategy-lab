@@ -113,6 +113,14 @@ class ExchangeAdapter(ABC):
     def restore_order(self, order: Any) -> None:
         """Re-register a previously-accepted open order (used on restart recovery)."""
 
+    def get_min_notional(self, symbol: str) -> float:
+        """Return the minimum order notional (quote currency) for *symbol*.
+
+        Returns 0.0 by default — subclasses override to enforce per-symbol limits.
+        PaperExchange delegates to its SymbolRules table.
+        """
+        return 0.0
+
 
 class MarketDataInterface(ABC):
     """Normalises exchange-specific REST/WebSocket market data APIs."""

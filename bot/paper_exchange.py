@@ -286,6 +286,10 @@ class PaperExchange(ExchangeAdapter):
         """Override per-symbol exchange rules (e.g. loaded from exchangeInfo)."""
         self._symbol_rules[symbol] = rules
 
+    def get_min_notional(self, symbol: str) -> float:
+        """Return the minimum order notional for *symbol* (from SymbolRules)."""
+        return self.get_symbol_rules(symbol).min_notional
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def submit_order(
@@ -435,6 +439,14 @@ class PaperExchange(ExchangeAdapter):
                 # protective order does not also execute.
                 if order.reduce_only:
                     self._cancel_reduce_only_orders(symbol)
+
+        # Remove orders that reached a terminal state during matching but were
+        # not removed inline (e.g. market orders rejected at fill time due to
+        # MIN_NOTIONAL — _try_fill returns None so the inline removal is skipped).
+        self._open_orders[symbol] = [
+            o for o in self._open_orders.get(symbol, [])
+            if o.status in (STATUS_NEW, STATUS_ACCEPTED, STATUS_PARTIALLY_FILLED)
+        ]
 
         return fills
 

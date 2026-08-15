@@ -113,6 +113,7 @@ class PipelineRun:
     n_passed: int                = 0
     n_rejected: int              = 0
     n_errors: int                = 0
+    n_data_failures: int         = 0   # symbol/interval pairs skipped by data integrity
     strategy_results: list[StrategyResult] = field(default_factory=list)
     report_paths: dict[str, Path]          = field(default_factory=dict)
     elapsed_secs: float                    = 0.0
@@ -172,17 +173,38 @@ class ResearchPipeline:
         else:
             run.elapsed_secs = time.perf_counter() - t0
             run.finished_at  = datetime.now(timezone.utc)
-            self.storage.update_session(
-                session_id,
-                status           = "complete",
-                finished_at      = run.finished_at.isoformat(),
-                n_strategies_run = run.n_tested,
-                n_passed         = run.n_passed,
-                n_rejected       = run.n_rejected,
-                n_errors         = run.n_errors,
-                elapsed_secs     = run.elapsed_secs,
-            )
-            self._print_summary(run)
+            # Treat as failure when every symbol/interval was blocked by data
+            # integrity problems — n_tested=0 with no strategies run is NOT
+            # a successful "zero-result" run, it is a data-quality failure.
+            if run.n_tested == 0 and run.n_data_failures > 0:
+                msg = (
+                    f"No strategies tested — data integrity failure blocked "
+                    f"all {run.n_data_failures} symbol/interval pair(s)"
+                )
+                run.errors.append(msg)
+                self.notify.error(msg)
+                self.storage.update_session(
+                    session_id,
+                    status           = "failed",
+                    finished_at      = run.finished_at.isoformat(),
+                    n_strategies_run = 0,
+                    n_passed         = 0,
+                    n_rejected       = 0,
+                    n_errors         = run.n_data_failures,
+                    elapsed_secs     = run.elapsed_secs,
+                )
+            else:
+                self.storage.update_session(
+                    session_id,
+                    status           = "complete",
+                    finished_at      = run.finished_at.isoformat(),
+                    n_strategies_run = run.n_tested,
+                    n_passed         = run.n_passed,
+                    n_rejected       = run.n_rejected,
+                    n_errors         = run.n_errors,
+                    elapsed_secs     = run.elapsed_secs,
+                )
+                self._print_summary(run)
 
         return run
 
@@ -206,6 +228,7 @@ class ResearchPipeline:
                     value_text  = f"{symbol}/{interval}",
                 )
                 if bars is None or bars.empty:
+                    run.n_data_failures += 1
                     continue
 
                 self.storage.log_event(
