@@ -12,84 +12,83 @@ export function Settings() {
   }, [])
 
   return (
-    <div className="p-6 max-w-3xl">
-      <h1 className="text-[18px] font-bold text-text mb-0.5">Settings</h1>
-      <p className="text-[12px] text-muted mb-5">Server configuration and environment</p>
+    <div className="flex flex-col h-full">
+      <div className="page-header shrink-0">
+        <div>
+          <span className="page-title">Settings</span>
+          <span className="ml-3 text-[10px] text-muted">Server configuration and environment</span>
+        </div>
+      </div>
 
-      {loading && <LoadingState />}
-      {!loading && s && (
-        <>
-          {s.using_default_creds && (
-            <div className="px-3 py-2.5 mb-5 bg-amber/10 border border-amber/30 rounded-md text-amber text-[11px]">
-              Default credentials in use. Generate a password hash and set{' '}
-              <code className="font-mono">EDGELAB_PASSWORD_HASH</code>.
-            </div>
-          )}
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-5 max-w-2xl">
+        {loading && <LoadingState />}
+        {!loading && s && (
+          <>
+            {s.using_default_creds && (
+              <div className="px-3 py-2 mb-4 border border-amber/25 bg-amber/5 text-amber text-[10px]">
+                Default credentials in use — set <code className="font-mono">EDGELAB_PASSWORD_HASH</code> to secure your instance.
+              </div>
+            )}
 
-          <h2 className="text-[13px] font-semibold text-text mb-3">Paths</h2>
-          <div className="bg-surface border border-border rounded-md overflow-hidden mb-5">
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider text-muted">Setting</th>
-                  <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider text-muted">Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ['Database',        s.db_path],
-                  ['Reports Dir',     s.reports_dir],
-                  ['Market Data Dir', s.data_dir],
-                  ['Log File',        s.log_path],
-                ].map(([k, v]) => (
-                  <tr key={k} className="border-b border-border last:border-0">
-                    <td className="px-3 py-2 text-muted">{k}</td>
-                    <td className="px-3 py-2 font-mono text-text">{v}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <h2 className="text-[13px] font-semibold text-text mb-3">Environment Variables</h2>
-          {Object.keys(s.env_vars).length === 0 ? (
-            <p className="text-muted text-[12px]">No EDGELAB_ environment variables are set.</p>
-          ) : (
-            <div className="bg-surface border border-border rounded-md overflow-hidden">
-              <table className="w-full text-[11px]">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider text-muted">Variable</th>
-                    <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider text-muted">Value</th>
-                  </tr>
-                </thead>
+            <div className="mb-5">
+              <div className="px-3 py-1.5 border-b border-border bg-surface">
+                <span className="section-label">Paths</span>
+              </div>
+              <table className="w-full table-dense border border-border border-t-0">
                 <tbody>
-                  {Object.entries(s.env_vars).map(([k, v]) => (
-                    <tr key={k} className="border-b border-border last:border-0">
-                      <td className="px-3 py-2 font-mono">{k}</td>
-                      <td className="px-3 py-2 font-mono text-muted">
-                        {/HASH|SECRET|PASSWORD/i.test(k) ? '*** (hidden)' : v}
-                      </td>
+                  {[
+                    ['Database',        s.db_path],
+                    ['Reports Dir',     s.reports_dir],
+                    ['Market Data Dir', s.data_dir],
+                    ['Log File',        s.log_path],
+                  ].map(([k, v]) => (
+                    <tr key={k}>
+                      <td className="text-muted w-36">{k}</td>
+                      <td className="font-mono text-text">{v}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
 
-          <h2 className="text-[13px] font-semibold text-text mt-6 mb-3">Set a Password</h2>
-          <div className="bg-surface border border-border rounded-md p-4 text-[11px] text-muted space-y-2">
-            <p><strong className="text-text">1. Generate a hash:</strong></p>
-            <pre className="bg-bg rounded p-2 text-[10px] overflow-x-auto font-mono">
-              {'python -c "from server.auth import hash_password; print(hash_password(\'yourpassword\'))"'}
-            </pre>
-            <p><strong className="text-text">2. Set before starting:</strong></p>
-            <pre className="bg-bg rounded p-2 text-[10px] overflow-x-auto font-mono">
-              {'export EDGELAB_USERNAME=admin\nexport EDGELAB_PASSWORD_HASH=<hash>\npython serve.py'}
-            </pre>
-          </div>
-        </>
-      )}
+            {Object.keys(s.env_vars).length > 0 && (
+              <div className="mb-5">
+                <div className="px-3 py-1.5 border-b border-border bg-surface">
+                  <span className="section-label">Environment Variables</span>
+                </div>
+                <table className="w-full table-dense border border-border border-t-0">
+                  <tbody>
+                    {Object.entries(s.env_vars).map(([k, v]) => (
+                      <tr key={k}>
+                        <td className="font-mono text-muted">{k}</td>
+                        <td className="font-mono text-text">
+                          {/HASH|SECRET|PASSWORD/i.test(k) ? '*** (hidden)' : v}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div>
+              <div className="px-3 py-1.5 border-b border-border bg-surface">
+                <span className="section-label">Set a Password</span>
+              </div>
+              <div className="p-3 border border-border border-t-0 text-[10px] text-muted space-y-2">
+                <p><span className="text-text font-semibold">1. Generate a hash:</span></p>
+                <pre className="bg-bg p-2 text-[9px] overflow-x-auto font-mono text-muted">
+                  {'python -c "from server.auth import hash_password; print(hash_password(\'yourpassword\'))"'}
+                </pre>
+                <p><span className="text-text font-semibold">2. Set before starting:</span></p>
+                <pre className="bg-bg p-2 text-[9px] overflow-x-auto font-mono text-muted">
+                  {'export EDGELAB_USERNAME=admin\nexport EDGELAB_PASSWORD_HASH=<hash>\npython serve.py'}
+                </pre>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

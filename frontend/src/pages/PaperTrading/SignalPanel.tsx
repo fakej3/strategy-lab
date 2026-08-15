@@ -22,7 +22,6 @@ export function SignalPanel({ signal, positions, markPrices, fillCount }: Props)
   const isLong  = dir.includes('BUY') || dir.includes('LONG')
   const isShort = dir.includes('SELL') || dir.includes('SHORT')
 
-  // Find position for the signaled symbol
   const activePos = signal?.symbol
     ? positions.find(p => p.symbol === signal.symbol) ?? null
     : positions[0] ?? null
@@ -39,43 +38,42 @@ export function SignalPanel({ signal, positions, markPrices, fillCount }: Props)
   }
 
   return (
-    <div className="flex flex-col h-full border-b border-border">
-      <div className="px-3 py-2 border-b border-border">
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-muted">
-          {signal?.strategy ?? 'Signal'}
-        </span>
+    <div className="flex flex-col h-full border-l border-border">
+      <div className="px-2.5 py-1.5 border-b border-border shrink-0">
+        <span className="section-label">{signal?.strategy ?? 'Signal'}</span>
       </div>
 
-      <div className="px-3 py-3 border-b border-border">
-        <div className={cn('text-[22px] font-bold leading-none mb-1',
+      {/* Direction indicator */}
+      <div className="px-2.5 py-2 border-b border-border shrink-0">
+        <div className={cn('text-[16px] font-bold leading-none font-mono mb-0.5',
           isLong ? 'text-green' : isShort ? 'text-red' : 'text-muted')}>
           {isLong ? 'LONG' : isShort ? 'SHORT' : 'FLAT'}
         </div>
         {signal?.symbol && (
-          <div className="text-[10px] text-muted font-mono">
+          <div className="text-[9px] text-muted font-mono">
             {signal.symbol}{signal.interval ? ` · ${signal.interval}` : ''}
           </div>
         )}
       </div>
 
-      <div className="px-3 py-2 border-b border-border flex flex-col gap-1.5">
-        {signal?.price != null && (
-          <Row label="Mark Price" value={fmtPrice(signal.price)} mono />
-        )}
+      {/* Stats */}
+      <div className="px-2.5 py-2 border-b border-border flex flex-col gap-1 shrink-0">
+        {signal?.price != null && <Row label="Mark" value={fmtPrice(signal.price)} mono />}
         <Row label="Positions" value={String(positions.length)} />
-        <Row label="Fills" value={String(fillCount)} />
+        <Row label="Fills"     value={String(fillCount)} />
       </div>
 
+      {/* Open position */}
       {activePos && (
-        <div className="px-3 py-2 border-b border-border bg-s2">
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-muted mb-1.5">Open Position</div>
-          <Row label="Symbol"  value={activePos.symbol} mono />
-          <Row label="Entry"   value={fmtPrice(activePos.entry_price)} mono />
-          <Row label="Size"    value={String(activePos.size)} mono />
+        <div className="px-2.5 py-2 border-b border-border bg-s2 flex flex-col gap-1 shrink-0">
+          <div className="section-label mb-0.5">Open Position</div>
+          <Row label="Symbol" value={activePos.symbol} mono />
+          <Row label="Entry"  value={fmtPrice(activePos.entry_price)} mono />
+          <Row label="Size"   value={String(activePos.size)} mono />
           {livePnl != null && (
-            <div className="flex items-center justify-between mt-1">
+            <div className="flex items-center justify-between mt-0.5">
               <span className="text-[9px] text-muted uppercase tracking-wider">P&L</span>
-              <span className={cn('text-[11px] font-mono font-semibold tabular-nums', livePnl >= 0 ? 'text-green' : 'text-red')}>
+              <span className={cn('text-[10px] font-mono font-semibold tabular-nums', livePnl >= 0 ? 'text-green' : 'text-red')}>
                 {fmtSign(livePnl)} ({fmtPct(livePct)})
               </span>
             </div>
@@ -89,7 +87,7 @@ export function SignalPanel({ signal, positions, markPrices, fillCount }: Props)
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[9px] text-muted uppercase tracking-wider">{label}</span>
+      <span className="text-[8px] text-muted uppercase tracking-wider">{label}</span>
       <span className={cn('text-[10px] text-text tabular-nums', mono && 'font-mono')}>{value}</span>
     </div>
   )

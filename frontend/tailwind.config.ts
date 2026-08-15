@@ -5,29 +5,29 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Backgrounds — deep navy, not black
-        bg:      '#0B0F19',
-        surface: '#0F1524',
-        s2:      '#141C2E',
-        s3:      '#1A2438',
-        // Borders — subtle blue-tinted
-        border:  '#1E2D45',
-        border2: '#263650',
-        border3: '#2E405E',
-        // Blue accent — interactive, links, active states
-        accent:     '#4D82F5',
-        'accent-dim': '#3A6ADE',
-        'accent-bg':  '#4D82F514',
-        // Semantic
-        green:   '#22C55E',
+        // Backgrounds — near-black charcoal
+        bg:      '#080C12',
+        surface: '#0C1018',
+        s2:      '#111822',
+        s3:      '#16202C',
+        // Borders — subtle, not blue-tinted
+        border:  '#1C2836',
+        border2: '#243444',
+        border3: '#2C4058',
+        // Amber accent — Bloomberg-style, single accent only
+        accent:      '#D4980A',
+        'accent-dim': '#BB8308',
+        'accent-bg':  '#D4980A12',
+        // Semantic — P&L and directional signals only
+        green:      '#22C55E',
         'green-dim': '#16A34A',
-        red:     '#F43F5E',
-        'red-dim': '#E11D48',
-        amber:   '#F59E0B',
+        red:        '#F43F5E',
+        'red-dim':  '#E11D48',
+        amber:      '#F59E0B',
         // Text hierarchy
-        text:    '#CDD5E0',
-        muted:   '#6878A0',
-        muted2:  '#48587A',
+        text:   '#C8D5E0',
+        muted:  '#5C7090',
+        muted2: '#3C5070',
       },
       fontFamily: {
         mono: ['"JetBrains Mono"', '"Fira Code"', 'ui-monospace', 'monospace'],
@@ -43,10 +43,10 @@ export default {
         xl:    ['18px', '28px'],
       },
       borderRadius: {
-        sm: '3px',
-        DEFAULT: '5px',
-        md: '7px',
-        lg: '10px',
+        sm: '2px',
+        DEFAULT: '3px',
+        md: '4px',
+        lg: '6px',
       },
     },
   },

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { ExternalLink, Download, Trash2 } from 'lucide-react'
 import { reportsApi } from '../api/reports'
 import { EmptyState, LoadingState, ErrorState } from '../components/ui/EmptyState'
-import { Button } from '../components/ui/Button'
-import { Link } from 'react-router-dom'
 import type { Report } from '../types'
 
 export function Reports() {
-  const [files, setFiles]   = useState<Report[]>([])
+  const [files, setFiles]     = useState<Report[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError]   = useState('')
+  const [error, setError]     = useState('')
 
   const load = () =>
     reportsApi.list()
@@ -24,48 +24,96 @@ export function Reports() {
   }
 
   return (
-    <div className="p-6 max-w-5xl">
-      <h1 className="text-[18px] font-bold text-text mb-0.5">Reports</h1>
-      <p className="text-[12px] text-muted mb-5">Generated HTML research reports</p>
-
-      {loading && <LoadingState />}
-      {error   && <ErrorState message={error} />}
-      {!loading && !error && files.length === 0 && (
-        <EmptyState message="No reports yet." action={<Link to="/research" className="text-accent text-sm hover:underline">Run research first →</Link>} />
-      )}
-      {!loading && files.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {files.map(f => (
-            <div key={f.name} className="bg-surface border border-border rounded-md p-4 flex flex-col gap-2 hover:border-border2 transition-colors">
-              <div className="font-semibold text-[12px] text-text truncate" title={f.name}>{f.name}</div>
-              <div className="flex gap-2 text-[10px] text-muted flex-wrap">
-                <span>{f.modified}</span>
-                {f.symbol && <span>· {f.symbol}{f.interval ? ` ${f.interval}` : ''}</span>}
-                <span>· {f.size_kb} KB</span>
-              </div>
-              {f.n_passed != null && (
-                <div className="flex gap-2 items-center">
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-green/15 text-green border border-green/30 font-semibold">{f.n_passed} passed</span>
-                  {f.sharpe != null && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 font-semibold">Sharpe {Number(f.sharpe).toFixed(3)}</span>
-                  )}
-                </div>
-              )}
-              <div className="flex gap-2 mt-1 flex-wrap">
-                <a href={reportsApi.viewUrl(f.name)} target="_blank" rel="noopener noreferrer"
-                   className="px-2.5 py-1 text-[11px] rounded bg-accent text-bg font-semibold hover:bg-accent-dim transition-colors">
-                  Open
-                </a>
-                <a href={reportsApi.downloadUrl(f.name)}
-                   className="px-2.5 py-1 text-[11px] rounded bg-s2 border border-border text-text hover:bg-s3 transition-colors">
-                  Download
-                </a>
-                <Button variant="danger" size="sm" onClick={() => deleteReport(f.name)}>Delete</Button>
-              </div>
-            </div>
-          ))}
+    <div className="flex flex-col h-full">
+      <div className="page-header shrink-0">
+        <div>
+          <span className="page-title">Reports</span>
+          <span className="ml-3 text-[10px] text-muted">Generated HTML research reports</span>
         </div>
-      )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {loading && <div className="p-5"><LoadingState /></div>}
+        {error   && <div className="p-5"><ErrorState message={error} /></div>}
+        {!loading && !error && files.length === 0 && (
+          <div className="p-5">
+            <EmptyState
+              message="No reports yet."
+              action={<Link to="/research" className="text-accent text-xs hover:underline">Run research first →</Link>}
+            />
+          </div>
+        )}
+        {!loading && files.length > 0 && (
+          <table className="w-full table-dense">
+            <thead>
+              <tr className="border-b border-border bg-surface sticky top-0">
+                <th>Report</th>
+                <th>Modified</th>
+                <th>Market</th>
+                <th className="text-right">Size</th>
+                <th className="text-right">Passed</th>
+                <th className="text-right">Sharpe</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {files.map(f => (
+                <tr key={f.name}>
+                  <td className="font-mono text-accent max-w-[280px]">
+                    <a
+                      href={reportsApi.viewUrl(f.name)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:underline truncate block"
+                      title={f.name}
+                    >
+                      {f.name}
+                    </a>
+                  </td>
+                  <td className="text-muted">{f.modified}</td>
+                  <td className="font-mono text-muted">
+                    {f.symbol ? `${f.symbol}${f.interval ? ` ${f.interval}` : ''}` : '—'}
+                  </td>
+                  <td className="text-right font-mono text-muted">{f.size_kb} KB</td>
+                  <td className="text-right font-mono">
+                    {f.n_passed != null ? <span className="text-green">{f.n_passed}</span> : '—'}
+                  </td>
+                  <td className="text-right font-mono">
+                    {f.sharpe != null ? Number(f.sharpe).toFixed(3) : '—'}
+                  </td>
+                  <td>
+                    <div className="flex items-center gap-2 justify-end">
+                      <a
+                        href={reportsApi.viewUrl(f.name)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-muted hover:text-accent transition-colors"
+                        title="Open"
+                      >
+                        <ExternalLink size={12} />
+                      </a>
+                      <a
+                        href={reportsApi.downloadUrl(f.name)}
+                        className="text-muted hover:text-text transition-colors"
+                        title="Download"
+                      >
+                        <Download size={12} />
+                      </a>
+                      <button
+                        onClick={() => deleteReport(f.name)}
+                        className="text-muted hover:text-red transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { FlaskConical } from 'lucide-react'
 import { jobsApi } from '../api/jobs'
 import { StatusBadge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -8,8 +9,8 @@ import { fmtTime, fmtElapsed } from '../lib/format'
 import type { Job } from '../types'
 
 export function JobQueue() {
-  const [jobs, setJobs]   = useState<Job[]>([])
-  const [loading, setL]   = useState(true)
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [loading, setL] = useState(true)
 
   const load = () => jobsApi.list().then(setJobs).finally(() => setL(false))
   useEffect(() => { load() }, [])
@@ -20,45 +21,57 @@ export function JobQueue() {
   }
 
   return (
-    <div className="p-6 max-w-5xl">
-      <h1 className="text-[18px] font-bold text-text mb-0.5">Job Queue</h1>
-      <p className="text-[12px] text-muted mb-5">All research jobs — running, completed, and failed</p>
-
-      <div className="mb-4">
-        <Link to="/research" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[12px] font-semibold bg-accent text-bg hover:bg-accent-dim transition-colors">
-          New Research Run
+    <div className="flex flex-col h-full">
+      <div className="page-header shrink-0">
+        <div>
+          <span className="page-title">Job Queue</span>
+          <span className="ml-3 text-[10px] text-muted">Research jobs — running, completed, failed</span>
+        </div>
+        <Link
+          to="/research"
+          className="inline-flex items-center gap-1.5 px-3 py-1 bg-accent text-bg text-[11px] font-semibold rounded hover:bg-accent-dim transition-colors"
+        >
+          <FlaskConical size={11} />
+          New Run
         </Link>
       </div>
 
-      {loading && <LoadingState />}
-      {!loading && jobs.length === 0 && (
-        <EmptyState message="No jobs yet." action={<Link to="/research" className="text-accent text-sm hover:underline">Start a research run →</Link>} />
-      )}
-      {!loading && jobs.length > 0 && (
-        <div className="bg-surface border border-border rounded-md overflow-x-auto">
-          <table className="w-full text-[11px]">
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {loading && <div className="p-5"><LoadingState /></div>}
+        {!loading && jobs.length === 0 && (
+          <div className="p-5">
+            <EmptyState message="No jobs yet." action={<Link to="/research" className="text-accent text-xs hover:underline">Start a research run →</Link>} />
+          </div>
+        )}
+        {!loading && jobs.length > 0 && (
+          <table className="w-full table-dense">
             <thead>
-              <tr className="border-b border-border">
-                {['Job ID', 'Status', 'Started', 'Finished', 'Tested', 'Passed', 'Duration', ''].map(h => (
-                  <th key={h} className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider text-muted">{h}</th>
-                ))}
+              <tr className="border-b border-border bg-surface sticky top-0">
+                <th>Job ID</th>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Finished</th>
+                <th className="text-right">Tested</th>
+                <th className="text-right">Passed</th>
+                <th className="text-right">Duration</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {jobs.map(j => (
-                <tr key={j.job_id} className="border-b border-border last:border-0 hover:bg-s2">
-                  <td className="px-3 py-2 font-mono text-accent">
-                    <Link to={`/jobs/${j.job_id}`}>{j.job_id.slice(0, 16)}</Link>
+                <tr key={j.job_id}>
+                  <td className="font-mono text-accent">
+                    <Link to={`/jobs/${j.job_id}`} className="hover:underline">{j.job_id.slice(0, 16)}</Link>
                   </td>
-                  <td className="px-3 py-2"><StatusBadge status={j.status} /></td>
-                  <td className="px-3 py-2 text-muted">{fmtTime(j.started_at)}</td>
-                  <td className="px-3 py-2 text-muted">{fmtTime(j.finished_at)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{j.n_tested}</td>
-                  <td className="px-3 py-2 text-right font-mono">{j.n_passed}</td>
-                  <td className="px-3 py-2 text-right font-mono text-muted">{fmtElapsed(j.elapsed_secs)}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex gap-1.5">
-                      <Link to={`/jobs/${j.job_id}`} className="px-2 py-0.5 rounded bg-s2 border border-border text-[10px] text-text hover:bg-s3">
+                  <td><StatusBadge status={j.status} /></td>
+                  <td className="text-muted">{fmtTime(j.started_at)}</td>
+                  <td className="text-muted">{fmtTime(j.finished_at)}</td>
+                  <td className="text-right font-mono">{j.n_tested}</td>
+                  <td className="text-right font-mono text-green">{j.n_passed}</td>
+                  <td className="text-right font-mono text-muted">{fmtElapsed(j.elapsed_secs)}</td>
+                  <td>
+                    <div className="flex gap-1 justify-end">
+                      <Link to={`/jobs/${j.job_id}`} className="px-2 py-0.5 text-[9px] font-semibold text-muted border border-border hover:border-border2 hover:text-text transition-colors">
                         View
                       </Link>
                       {j.status === 'running' && (
@@ -70,8 +83,8 @@ export function JobQueue() {
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

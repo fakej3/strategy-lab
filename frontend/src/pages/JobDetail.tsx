@@ -10,11 +10,6 @@ import type { Job, JobWsMessage } from '../types'
 
 interface LogLine { cls: string; text: string }
 
-function renderBar(pct: number): string {
-  const filled = Math.round(pct / 5)
-  return '█'.repeat(filled) + '░'.repeat(20 - filled) + `  ${pct}%`
-}
-
 export function JobDetail() {
   const { jobId } = useParams<{ jobId: string }>()
   const navigate  = useNavigate()
@@ -38,7 +33,6 @@ export function JobDetail() {
     }).finally(() => setL(false))
   }, [jobId])
 
-  // Elapsed timer
   useEffect(() => {
     if (job?.status !== 'running') return
     const t = setInterval(() => setElapsed(s => s + 1), 1000)
@@ -99,101 +93,103 @@ export function JobDetail() {
     navigate(`/jobs/${job_id}`)
   }
 
-  if (loading) return <div className="p-6"><LoadingState /></div>
-  if (!job) return <div className="p-6 text-muted text-sm">Job not found.</div>
+  if (loading) return <div className="flex flex-col h-full"><div className="page-header shrink-0"><span className="page-title">Job Detail</span></div><div className="p-5"><LoadingState /></div></div>
+  if (!job) return <div className="flex flex-col h-full"><div className="page-header shrink-0"><span className="page-title">Job Detail</span></div><div className="p-5 text-muted text-xs">Job not found.</div></div>
 
   const isTerminal = ['done', 'failed', 'cancelled'].includes(job.status)
 
   return (
-    <div className="p-6 max-w-3xl">
-      <div className="flex items-center gap-3 mb-1">
-        <h1 className="text-[18px] font-bold text-text">Job {job.job_id.slice(0, 16)}</h1>
-        <StatusBadge status={job.status} />
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="page-header shrink-0">
+        <div className="flex items-center gap-3">
+          <Link to="/jobs" className="text-[10px] text-muted hover:text-text">← Jobs</Link>
+          <span className="text-muted2">/</span>
+          <span className="page-title font-mono">{job.job_id.slice(0, 16)}</span>
+          <StatusBadge status={job.status} />
+        </div>
+        <div className="flex gap-1.5">
+          {!isTerminal && <Button variant="danger" size="xs" onClick={cancelJob}>Stop</Button>}
+          {isTerminal  && <Button variant="secondary" size="xs" onClick={restartJob}>Restart</Button>}
+        </div>
       </div>
-      <p className="text-[12px] text-muted mb-5">
-        Started: {fmtTime(job.started_at)}
-        {job.finished_at && ` · Finished: ${fmtTime(job.finished_at)}`}
-        {job.elapsed_secs != null && ` · Duration: ${fmtElapsed(job.elapsed_secs)}`}
-      </p>
 
-      {/* Progress card */}
-      <div className="bg-surface border border-border rounded-md p-5 mb-5">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <div className="text-[15px] font-bold text-text">{stageLabel || 'Pending'}</div>
-            {stageSub && <div className="text-[11px] text-muted mt-0.5">{stageSub}</div>}
-            {job.session_id && (
-              <div className="text-[10px] text-muted mt-0.5 font-mono">Session: {job.session_id.slice(0, 16)}</div>
-            )}
+      {/* Meta row */}
+      <div className="flex items-center gap-5 px-5 py-2 border-b border-border bg-surface text-[10px] text-muted shrink-0">
+        <span>Started: <span className="text-text font-mono">{fmtTime(job.started_at)}</span></span>
+        {job.finished_at && <span>Finished: <span className="text-text font-mono">{fmtTime(job.finished_at)}</span></span>}
+        {job.elapsed_secs != null && <span>Duration: <span className="text-text font-mono">{fmtElapsed(job.elapsed_secs)}</span></span>}
+        {job.status === 'running' && <span>Elapsed: <span className="text-accent font-mono">{elapsed}s</span></span>}
+        {job.session_id && <span className="ml-auto font-mono text-muted2">{job.session_id.slice(0, 16)}</span>}
+      </div>
+
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        {/* Progress section */}
+        <div className="px-5 py-3 border-b border-border shrink-0">
+          <div className="flex items-center gap-4 mb-2">
+            <div className="flex-1">
+              <div className="text-[13px] font-semibold text-text">{stageLabel || 'Pending'}</div>
+              {stageSub && <div className="text-[10px] text-muted mt-0.5">{stageSub}</div>}
+            </div>
+            <div className="text-[22px] font-bold font-mono tabular-nums text-accent leading-none">
+              {isTerminal && job.status !== 'done' ? '—' : `${pct}%`}
+            </div>
           </div>
-          <div className="text-[36px] font-bold text-accent font-mono tabular-nums leading-none">
-            {isTerminal && job.status !== 'done' ? '—' : `${pct}%`}
+          <div className="h-0.5 bg-s3 overflow-hidden mb-1">
+            <div
+              className="h-full bg-accent transition-all duration-500"
+              style={{ width: `${pct}%` }}
+            />
           </div>
         </div>
 
-        {/* Progress bar */}
-        <div className="h-1 bg-s3 rounded-full overflow-hidden mb-2">
-          <div
-            className="h-full bg-accent rounded-full transition-all duration-500"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div className="font-mono text-[11px] text-accent tracking-wide">{renderBar(pct)}</div>
-
-        {job.status === 'running' && (
-          <div className="text-[10px] text-muted mt-2">Elapsed: {elapsed}s</div>
-        )}
-      </div>
-
-      {/* Results */}
-      {job.status === 'done' && (
-        <div className="mb-5">
-          <div className="grid grid-cols-4 gap-3 mb-4">
+        {/* Results row (done only) */}
+        {job.status === 'done' && (
+          <div className="flex items-center gap-0 border-b border-border shrink-0">
             {[
-              ['Passed Gate',       job.n_passed],
-              ['Tested',            job.n_tested],
-              ['Rejected',          (job.n_tested ?? 0) - (job.n_passed ?? 0)],
-              ['Duration',          fmtElapsed(job.elapsed_secs)],
-            ].map(([label, val]) => (
-              <div key={String(label)} className="bg-s2 border border-border rounded-md px-3 py-2.5">
-                <div className="text-[10px] text-muted uppercase tracking-wider font-semibold">{label}</div>
-                <div className="text-[18px] font-bold text-text font-mono mt-0.5">{val}</div>
+              ['Passed Gate', job.n_passed, 'text-green'],
+              ['Tested',      job.n_tested, 'text-text'],
+              ['Rejected',    (job.n_tested ?? 0) - (job.n_passed ?? 0), 'text-red'],
+              ['Duration',    fmtElapsed(job.elapsed_secs), 'text-muted'],
+            ].map(([label, val, cls]) => (
+              <div key={String(label)} className="flex-1 px-5 py-2.5 border-r border-border last:border-0">
+                <div className="text-[9px] font-semibold uppercase tracking-widest text-muted mb-1">{label}</div>
+                <div className={`text-[18px] font-bold font-mono tabular-nums ${cls}`}>{val}</div>
               </div>
             ))}
+            <div className="px-5 py-2.5 flex flex-col gap-1 justify-center">
+              <Link to="/reports"    className="px-2.5 py-1 text-[10px] font-semibold bg-accent text-bg hover:bg-accent-dim transition-colors">Reports</Link>
+              <Link to="/strategies" className="px-2.5 py-1 text-[10px] text-muted border border-border hover:border-border2 hover:text-text transition-colors">Strategies</Link>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Link to="/reports"    className="px-3 py-1.5 rounded-md bg-accent text-bg text-[12px] font-semibold hover:bg-accent-dim">View Reports</Link>
-            <Link to="/strategies" className="px-3 py-1.5 rounded-md bg-s2 border border-border text-[12px] hover:bg-s3">Strategies</Link>
+        )}
+
+        {/* Error block */}
+        {job.status === 'failed' && job.error && (
+          <div className="mx-5 mt-3 px-3 py-2.5 bg-red/8 border border-red/25 shrink-0">
+            <div className="text-red text-[10px] font-semibold mb-1">Pipeline failed:</div>
+            <pre className="text-[10px] text-red/70 whitespace-pre-wrap font-mono">{job.error.slice(0, 1000)}</pre>
+          </div>
+        )}
+
+        {/* Log */}
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="flex items-center px-5 py-1.5 border-b border-border shrink-0 bg-surface">
+            <span className="section-label">Live Log</span>
+          </div>
+          <div
+            ref={logRef}
+            className="flex-1 min-h-0 overflow-y-auto scrollbar-thin bg-bg p-3"
+          >
+            {logLines.length === 0 ? (
+              <div className="text-muted text-[10px] font-mono">
+                {job.status === 'running' ? '  Connecting to job stream…' : `  Job is ${job.status}`}
+              </div>
+            ) : logLines.map((l, i) => (
+              <div key={i} className={`font-mono text-[10px] leading-[1.6] py-px ${l.cls}`}>{l.text}</div>
+            ))}
           </div>
         </div>
-      )}
-      {job.status === 'failed' && job.error && (
-        <div className="mb-5 px-3 py-3 bg-red/10 border border-red/30 rounded-md">
-          <div className="text-red text-[11px] font-semibold mb-1">Pipeline failed:</div>
-          <pre className="text-[10px] text-red/80 whitespace-pre-wrap font-mono">{job.error.slice(0, 1000)}</pre>
-        </div>
-      )}
-
-      {/* Log */}
-      <h2 className="text-[13px] font-semibold text-text mb-2">Live Log</h2>
-      <div
-        ref={logRef}
-        className="bg-surface border border-border rounded-md p-3 h-64 overflow-y-auto scrollbar-thin mb-4"
-      >
-        {logLines.length === 0 ? (
-          <div className="text-muted text-[11px] font-mono">
-            {job.status === 'running' ? '  Connecting to job stream…' : `  Job is ${job.status}`}
-          </div>
-        ) : logLines.map((l, i) => (
-          <div key={i} className={`font-mono text-[11px] leading-[1.6] py-px ${l.cls}`}>{l.text}</div>
-        ))}
-      </div>
-
-      {/* Controls */}
-      <div className="flex gap-2 flex-wrap">
-        <Link to="/jobs" className="px-3 py-1.5 rounded-md bg-s2 border border-border text-[12px] hover:bg-s3">← All Jobs</Link>
-        {!isTerminal && <Button variant="danger" size="sm" onClick={cancelJob}>Stop Job</Button>}
-        {isTerminal  && <Button variant="secondary" size="sm" onClick={restartJob}>Restart</Button>}
       </div>
     </div>
   )

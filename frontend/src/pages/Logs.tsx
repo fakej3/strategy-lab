@@ -11,8 +11,8 @@ function lineClass(line: string): string {
 }
 
 export function Logs() {
-  const [lines, setLines]   = useState<string[]>([])
-  const [count, setCount]   = useState(200)
+  const [lines, setLines]     = useState<string[]>([])
+  const [count, setCount]     = useState(200)
   const [loading, setLoading] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
 
@@ -30,34 +30,34 @@ export function Logs() {
   }, [lines])
 
   return (
-    <div className="p-6 flex flex-col h-full min-h-0 max-w-5xl">
-      <h1 className="text-[18px] font-bold text-text mb-0.5">Logs</h1>
-      <p className="text-[12px] text-muted mb-4">Research engine log — last {lines.length} lines</p>
-
-      <div className="flex gap-2 mb-3 flex-wrap">
-        {[200, 500, 2000].map(n => (
-          <Button key={n} variant={count === n ? 'primary' : 'secondary'} size="sm" onClick={() => load(n)}>
-            Last {n}
-          </Button>
-        ))}
-        <Button variant="secondary" size="sm" onClick={() => load(count)} loading={loading}>Refresh</Button>
+    <div className="flex flex-col h-full">
+      <div className="page-header shrink-0">
+        <div>
+          <span className="page-title">Logs</span>
+          <span className="ml-3 text-[10px] text-muted">Research engine log — {lines.length} lines</span>
+        </div>
+        <div className="flex gap-1.5">
+          {[200, 500, 2000].map(n => (
+            <Button key={n} variant={count === n ? 'primary' : 'secondary'} size="xs" onClick={() => load(n)}>
+              {n}
+            </Button>
+          ))}
+          <Button variant="secondary" size="xs" onClick={() => load(count)} loading={loading}>Refresh</Button>
+        </div>
       </div>
 
-      {lines.length === 0 ? (
-        <div className="text-muted text-sm">Log file is empty or not found.</div>
-      ) : (
-        <div
-          ref={boxRef}
-          className="flex-1 min-h-0 overflow-y-auto bg-surface border border-border rounded-md p-3 scrollbar-thin"
-          style={{ maxHeight: 'calc(100vh - 200px)' }}
-        >
-          {lines.map((line, i) => (
-            <div key={i} className={`font-mono text-[11px] leading-[1.6] break-all py-px ${lineClass(line)}`}>
-              {line || ' '}
-            </div>
-          ))}
-        </div>
-      )}
+      <div
+        ref={boxRef}
+        className="flex-1 overflow-y-auto scrollbar-thin bg-bg p-3"
+      >
+        {lines.length === 0 ? (
+          <div className="text-muted text-[10px] font-mono">Log file is empty or not found.</div>
+        ) : lines.map((line, i) => (
+          <div key={i} className={`font-mono text-[10px] leading-[1.6] break-all py-px ${lineClass(line)}`}>
+            {line || ' '}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

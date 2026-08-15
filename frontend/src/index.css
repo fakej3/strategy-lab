@@ -12,7 +12,6 @@
   * {
     @apply border-border;
   }
-  /* Prevent horizontal overflow at the page level */
   body { overflow-x: hidden; }
 }
 
@@ -20,12 +19,12 @@
   /* Scrollbars */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #1E2D45 transparent;
+    scrollbar-color: #1C2836 transparent;
   }
-  .scrollbar-thin::-webkit-scrollbar { width: 5px; height: 5px; }
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; height: 4px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { background: #1E2D45; border-radius: 3px; }
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #263650; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #1C2836; border-radius: 2px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #243444; }
 
   /* Log line colors */
   .log-line-ok    { @apply text-green; }
@@ -34,12 +33,12 @@
   .log-line-step  { @apply text-accent font-semibold; }
   .log-line-muted { @apply text-muted; }
 
-  /* Table helpers */
+  /* Dense table preset */
   .table-dense th {
-    @apply px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted text-left;
+    @apply px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted text-left whitespace-nowrap;
   }
   .table-dense td {
-    @apply px-3 py-2 text-[11px];
+    @apply px-3 py-1.5 text-[11px];
   }
   .table-dense tr {
     @apply border-b border-border last:border-0;
@@ -48,16 +47,43 @@
     @apply hover:bg-s2 transition-colors;
   }
 
-  /* Focus ring for interactive elements */
-  .focus-ring {
-    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:ring-offset-0;
+  /* Page layout primitives */
+  .page-header {
+    @apply flex items-center justify-between px-5 h-10 border-b border-border shrink-0 bg-surface;
+  }
+  .page-title {
+    @apply text-[12px] font-semibold text-text tracking-tight;
+  }
+  .page-sub {
+    @apply text-[10px] text-muted;
+  }
+  .page-body {
+    @apply flex-1 overflow-y-auto scrollbar-thin p-5;
   }
 
-  /* Section label — tiny all-caps divider */
+  /* Section label */
   .section-label {
-    @apply text-[10px] font-semibold uppercase tracking-widest text-muted2;
+    @apply text-[9px] font-semibold uppercase tracking-widest text-muted2;
   }
 
   /* Number/price display */
   .num { @apply font-mono tabular-nums; }
+
+  /* Focus ring */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:ring-offset-0;
+  }
+
+  /* Form field preset */
+  .field-input {
+    @apply bg-bg border border-border rounded px-2.5 py-1.5 text-[11px] text-text
+           placeholder:text-muted2 focus:outline-none focus:border-accent w-full;
+  }
+  .field-label {
+    @apply text-[9px] font-semibold uppercase tracking-wider text-muted;
+  }
+  .field-select {
+    @apply bg-bg border border-border rounded px-2.5 py-1.5 text-[11px] text-text
+           focus:outline-none focus:border-accent;
+  }
 }

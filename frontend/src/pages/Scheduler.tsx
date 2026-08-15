@@ -44,15 +44,15 @@ export function Scheduler() {
       day_of_week:  Number(fd.get('day_of_week') ?? 1),
       day_of_month: Number(fd.get('day_of_month') ?? 1),
       config: {
-        symbols:         fd.get('symbols'),
-        intervals:       fd.get('intervals'),
-        start_date:      fd.get('start_date'),
-        end_date:        fd.get('end_date'),
-        starting_capital:fd.get('starting_capital'),
-        run_walk_forward:fd.has('run_walk_forward'),
-        run_monte_carlo: fd.has('run_monte_carlo'),
-        run_robustness:  fd.has('run_robustness'),
-        fast_mode:       fd.has('fast_mode'),
+        symbols:          fd.get('symbols'),
+        intervals:        fd.get('intervals'),
+        start_date:       fd.get('start_date'),
+        end_date:         fd.get('end_date'),
+        starting_capital: fd.get('starting_capital'),
+        run_walk_forward: fd.has('run_walk_forward'),
+        run_monte_carlo:  fd.has('run_monte_carlo'),
+        run_robustness:   fd.has('run_robustness'),
+        fast_mode:        fd.has('fast_mode'),
       },
     }
     await schedulerApi.create(body)
@@ -63,42 +63,55 @@ export function Scheduler() {
   const today = new Date().toISOString().slice(0, 10)
 
   return (
-    <div className="p-6 max-w-3xl">
-      <h1 className="text-[18px] font-bold text-text mb-0.5">Research Scheduler</h1>
-      <p className="text-[12px] text-muted mb-5">Automate research runs on a recurring schedule</p>
+    <div className="flex flex-col h-full">
+      <div className="page-header shrink-0">
+        <div>
+          <span className="page-title">Research Scheduler</span>
+          <span className="ml-3 text-[10px] text-muted">Automate research runs on a recurring schedule</span>
+        </div>
+      </div>
 
-      {loading && <LoadingState />}
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {loading && <div className="p-5"><LoadingState /></div>}
 
-      {!loading && schedules.length === 0 && <EmptyState message="No schedules configured." />}
+        {!loading && schedules.length === 0 && (
+          <div className="p-5">
+            <EmptyState message="No schedules configured." />
+          </div>
+        )}
 
-      {!loading && schedules.length > 0 && (
-        <>
-          <h2 className="text-[13px] font-semibold text-text mb-3">Active Schedules</h2>
-          <div className="bg-surface border border-border rounded-md overflow-x-auto mb-6">
-            <table className="w-full text-[11px]">
+        {!loading && schedules.length > 0 && (
+          <div>
+            <div className="px-5 py-2 border-b border-border">
+              <span className="section-label">Active Schedules</span>
+            </div>
+            <table className="w-full table-dense">
               <thead>
-                <tr className="border-b border-border">
-                  {['Name', 'Frequency', 'Time (UTC)', 'Status', 'Last Run', ''].map(h => (
-                    <th key={h} className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider text-muted">{h}</th>
-                  ))}
+                <tr className="border-b border-border bg-surface">
+                  <th>Name</th>
+                  <th>Frequency</th>
+                  <th>Time (UTC)</th>
+                  <th>Status</th>
+                  <th>Last Run</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {schedules.map(s => (
-                  <tr key={s.id} className="border-b border-border last:border-0 hover:bg-s2">
-                    <td className="px-3 py-2 font-semibold">{s.name}</td>
-                    <td className="px-3 py-2 text-muted capitalize">{s.frequency}</td>
-                    <td className="px-3 py-2 font-mono">
-                      {String(s.hour).padStart(2,'0')}:{String(s.minute).padStart(2,'0')} UTC
-                      {s.frequency === 'weekly'  && ` (${DAYS[s.day_of_week ?? 0]})`}
-                      {s.frequency === 'monthly' && ` (day ${s.day_of_month})`}
+                  <tr key={s.id}>
+                    <td className="font-semibold">{s.name}</td>
+                    <td className="text-muted capitalize">{s.frequency}</td>
+                    <td className="font-mono">
+                      {String(s.hour).padStart(2,'0')}:{String(s.minute).padStart(2,'0')}
+                      {s.frequency === 'weekly'  && ` ${DAYS[s.day_of_week ?? 0]}`}
+                      {s.frequency === 'monthly' && ` day ${s.day_of_month}`}
                     </td>
-                    <td className="px-3 py-2">
+                    <td>
                       {s.enabled ? <Badge variant="pass">Enabled</Badge> : <Badge variant="muted">Disabled</Badge>}
                     </td>
-                    <td className="px-3 py-2 text-muted">{s.last_run ? s.last_run.slice(0, 16) : '—'}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex gap-1.5">
+                    <td className="text-muted font-mono">{s.last_run ? s.last_run.slice(0, 16) : '—'}</td>
+                    <td>
+                      <div className="flex gap-1 justify-end">
                         <Button size="xs" variant="secondary" onClick={() => runNow(s.id)}>Run Now</Button>
                         <Button size="xs" variant="secondary" onClick={() => toggle(s.id)}>
                           {s.enabled ? 'Disable' : 'Enable'}
@@ -111,85 +124,87 @@ export function Scheduler() {
               </tbody>
             </table>
           </div>
-        </>
-      )}
+        )}
 
-      {!loading && (
-        <>
-          <h2 className="text-[13px] font-semibold text-text mb-3">Create New Schedule</h2>
-          <form onSubmit={create} className="flex flex-col gap-4">
-            <section className="bg-surface border border-border rounded-md p-4">
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <Field label="Schedule Name" name="name" placeholder="Nightly BTC Research" required />
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Frequency</label>
-                  <select name="frequency" value={freq} onChange={e => setFreq(e.target.value)}
-                    className="bg-bg border border-border rounded px-2.5 py-1.5 text-[12px] text-text focus:outline-none focus:border-accent">
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
-                </div>
-                <Field label="Hour (UTC)" name="hour" type="number" min="0" max="23" defaultValue="2" />
-                <Field label="Minute" name="minute" type="number" min="0" max="59" defaultValue="0" />
-                {freq === 'weekly' && (
+        {!loading && (
+          <div className="p-5 max-w-2xl">
+            <div className="px-3 py-1.5 border-b border-border bg-surface mb-0">
+              <span className="section-label">Create New Schedule</span>
+            </div>
+            <form onSubmit={create} className="border border-border border-t-0">
+              <div className="p-4 border-b border-border">
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <Field label="Schedule Name" name="name" placeholder="Nightly Research" required />
                   <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Day of Week</label>
-                    <select name="day_of_week" className="bg-bg border border-border rounded px-2.5 py-1.5 text-[12px] text-text focus:outline-none focus:border-accent">
-                      {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                    <label className="field-label">Frequency</label>
+                    <select name="frequency" value={freq} onChange={e => setFreq(e.target.value)} className="field-select">
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
                     </select>
                   </div>
-                )}
-                {freq === 'monthly' && (
-                  <Field label="Day of Month" name="day_of_month" type="number" min="1" max="28" defaultValue="1" />
-                )}
+                  <Field label="Hour (UTC)" name="hour"   type="number" min="0" max="23" defaultValue="2" />
+                  <Field label="Minute"     name="minute" type="number" min="0" max="59" defaultValue="0" />
+                  {freq === 'weekly' && (
+                    <div className="flex flex-col gap-1">
+                      <label className="field-label">Day of Week</label>
+                      <select name="day_of_week" className="field-select">
+                        {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {freq === 'monthly' && (
+                    <Field label="Day of Month" name="day_of_month" type="number" min="1" max="28" defaultValue="1" />
+                  )}
+                </div>
               </div>
-            </section>
 
-            <section className="bg-surface border border-border rounded-md p-4">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-muted mb-3">Research Configuration</div>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <Field label="Symbols"   name="symbols"   defaultValue="BTCUSDT" />
-                <Field label="Intervals" name="intervals" defaultValue="1h" />
-                <Field label="Start Date" name="start_date" type="date" defaultValue="2024-01-01" />
-                <Field label="End Date"   name="end_date"   type="date" defaultValue={today} />
-                <Field label="Starting Capital" name="starting_capital" type="number" defaultValue="100000" />
+              <div className="p-4 border-b border-border">
+                <div className="section-label mb-3">Research Config</div>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <Field label="Symbols"         name="symbols"           defaultValue="BTCUSDT" />
+                  <Field label="Intervals"        name="intervals"         defaultValue="1h" />
+                  <Field label="Start Date"       name="start_date"        type="date" defaultValue="2024-01-01" />
+                  <Field label="End Date"         name="end_date"          type="date" defaultValue={today} />
+                  <Field label="Starting Capital" name="starting_capital"  type="number" defaultValue="100000" />
+                </div>
+                <div className="flex gap-4 flex-wrap">
+                  {[
+                    { name: 'run_walk_forward', label: 'Walk-Forward' },
+                    { name: 'run_monte_carlo',  label: 'Monte Carlo' },
+                    { name: 'run_robustness',   label: 'Robustness' },
+                    { name: 'fast_mode',        label: 'Fast Mode' },
+                  ].map(({ name, label }) => (
+                    <label key={name} className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" name={name} defaultChecked={name !== 'fast_mode'} className="accent-accent w-3 h-3" />
+                      <span className="text-[11px] text-text">{label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-              <div className="flex gap-4 flex-wrap">
-                {[
-                  { name: 'run_walk_forward', label: 'Walk-Forward' },
-                  { name: 'run_monte_carlo',  label: 'Monte Carlo' },
-                  { name: 'run_robustness',   label: 'Robustness' },
-                  { name: 'fast_mode',        label: 'Fast Mode' },
-                ].map(({ name, label }) => (
-                  <label key={name} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" name={name} defaultChecked={name !== 'fast_mode'} className="accent-accent" />
-                    <span className="text-[12px] text-text">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
 
-            <Button type="submit" variant="primary" size="md">Create Schedule</Button>
-          </form>
-        </>
-      )}
+              <div className="p-4">
+                <Button type="submit" variant="primary" size="sm">Create Schedule</Button>
+              </div>
+            </form>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
-function Field({ label, name, type = 'text', defaultValue, placeholder, hint, min, max, required }: {
-  label: string; name: string; type?: string; defaultValue?: string; placeholder?: string; hint?: string; min?: string; max?: string; required?: boolean
+function Field({ label, name, type = 'text', defaultValue, placeholder, min, max, required }: {
+  label: string; name: string; type?: string; defaultValue?: string; placeholder?: string; min?: string; max?: string; required?: boolean
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-[10px] font-semibold uppercase tracking-wider text-muted">{label}</label>
+      <label className="field-label">{label}</label>
       <input
         type={type} name={name} defaultValue={defaultValue} placeholder={placeholder}
         min={min} max={max} required={required}
-        className="bg-bg border border-border rounded px-2.5 py-1.5 text-[12px] text-text placeholder:text-muted2 focus:outline-none focus:border-accent"
+        className="field-input"
       />
-      {hint && <div className="text-[10px] text-muted2">{hint}</div>}
     </div>
   )
 }

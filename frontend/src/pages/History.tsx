@@ -15,39 +15,51 @@ export function History() {
   }, [])
 
   return (
-    <div className="p-6 max-w-5xl">
-      <h1 className="text-[18px] font-bold text-text mb-0.5">Session History</h1>
-      <p className="text-[12px] text-muted mb-5">All completed research sessions</p>
+    <div className="flex flex-col h-full">
+      <div className="page-header shrink-0">
+        <div>
+          <span className="page-title">Session History</span>
+          <span className="ml-3 text-[10px] text-muted">All completed research sessions</span>
+        </div>
+      </div>
 
-      {loading && <LoadingState />}
-      {!loading && sessions.length === 0 && (
-        <EmptyState message="No sessions yet." action={<Link to="/research" className="text-accent text-sm hover:underline">Run research first →</Link>} />
-      )}
-      {!loading && sessions.length > 0 && (
-        <div className="bg-surface border border-border rounded-md overflow-x-auto">
-          <table className="w-full text-[11px]">
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {loading && <div className="p-5"><LoadingState /></div>}
+        {!loading && sessions.length === 0 && (
+          <div className="p-5">
+            <EmptyState
+              message="No sessions yet."
+              action={<Link to="/research" className="text-accent text-xs hover:underline">Run research first →</Link>}
+            />
+          </div>
+        )}
+        {!loading && sessions.length > 0 && (
+          <table className="w-full table-dense">
             <thead>
-              <tr className="border-b border-border">
-                {['Session ID', 'Started', 'Status', 'Tested', 'Passed', 'Duration'].map(h => (
-                  <th key={h} className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-wider text-muted">{h}</th>
-                ))}
+              <tr className="border-b border-border bg-surface sticky top-0">
+                <th>Session ID</th>
+                <th>Started</th>
+                <th>Status</th>
+                <th className="text-right">Tested</th>
+                <th className="text-right">Passed</th>
+                <th className="text-right">Duration</th>
               </tr>
             </thead>
             <tbody>
               {sessions.map(s => (
-                <tr key={s.session_id} className="border-b border-border last:border-0 hover:bg-s2">
-                  <td className="px-3 py-2 font-mono text-muted">{s.session_id.slice(0, 16)}</td>
-                  <td className="px-3 py-2 text-muted">{fmtTime(s.started_at)}</td>
-                  <td className="px-3 py-2"><StatusBadge status={s.status} /></td>
-                  <td className="px-3 py-2 text-right font-mono">{s.n_strategies_run}</td>
-                  <td className="px-3 py-2 text-right font-mono">{s.n_passed}</td>
-                  <td className="px-3 py-2 text-right font-mono text-muted">{fmtElapsed(s.elapsed_secs)}</td>
+                <tr key={s.session_id}>
+                  <td className="font-mono text-muted">{s.session_id.slice(0, 20)}</td>
+                  <td className="text-muted">{fmtTime(s.started_at)}</td>
+                  <td><StatusBadge status={s.status} /></td>
+                  <td className="text-right font-mono">{s.n_strategies_run}</td>
+                  <td className="text-right font-mono text-green">{s.n_passed}</td>
+                  <td className="text-right font-mono text-muted">{fmtElapsed(s.elapsed_secs)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

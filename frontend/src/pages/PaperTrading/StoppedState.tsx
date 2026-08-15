@@ -38,54 +38,55 @@ export function StoppedState({ strategies, error, onStarted }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Stopped top bar */}
-      <div className="flex items-center gap-2 px-5 py-3 bg-surface border-b border-border">
-        <span className="w-2 h-2 rounded-full bg-muted" />
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted">Stopped</span>
-        <div className="ml-auto text-[11px] text-muted">EdgeLab · Paper Trading</div>
+      <div className="flex items-center gap-2 px-4 h-10 bg-surface border-b border-border shrink-0">
+        <span className="w-1.5 h-1.5 rounded-full bg-muted2" />
+        <span className="text-[9px] font-semibold uppercase tracking-widest text-muted">Stopped</span>
+        <span className="ml-auto text-[9px] text-muted2 font-mono">EdgeLab · Paper Trading</span>
       </div>
 
-      {/* Config form */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-xl">
-          <h1 className="text-[16px] font-bold text-text mb-1">Configure Paper Bot</h1>
+      <div className="flex-1 overflow-y-auto p-5">
+        <div className="max-w-lg">
+          <div className="text-[13px] font-semibold text-text mb-3">Configure Paper Bot</div>
 
           {err && (
-            <div className="px-3 py-2.5 mb-4 bg-red/10 border border-red/30 rounded-md text-red text-[11px]">{err}</div>
+            <div className="px-3 py-2 mb-3 border border-red/25 bg-red/8 text-red text-[10px]">{err}</div>
           )}
 
-          <div className="mb-4 px-3 py-2.5 bg-accent/8 border border-accent/20 rounded-md text-[11px] text-accent/80">
-            <strong className="text-accent">Paper Trading Mode</strong> — No real funds are used. Capital is simulated USDT.
-            Orders are tracked locally; no Binance API key required for market data.
+          <div className="px-3 py-2 mb-4 border border-accent/20 bg-accent-bg text-[10px] text-muted">
+            <span className="text-accent font-semibold">Paper Trading —</span> No real funds used. Capital is simulated USDT. No Binance API key required.
           </div>
 
-          <form onSubmit={submit} className="flex flex-col gap-4">
-            <div className="bg-surface border border-border rounded-md p-4">
-              <div className="grid grid-cols-3 gap-3 mb-3">
-                <Field label="Capital (USDT)" name="capital" type="number" defaultValue="200" hint="Paper capital — no real funds" />
-                <Field label="Symbol(s)" name="symbols" defaultValue="BTCUSDT" hint="Comma-separated" />
-                <Field label="Interval(s)" name="intervals" defaultValue="1h" hint="e.g. 1m,5m,1h" />
+          <form onSubmit={submit} className="flex flex-col gap-3">
+            <div className="border border-border">
+              <div className="px-3 py-1.5 border-b border-border bg-surface">
+                <span className="section-label">Configuration</span>
               </div>
-              <div className="flex items-end gap-4">
+              <div className="p-3 grid grid-cols-3 gap-3">
+                <Field label="Capital (USDT)" name="capital" type="number" defaultValue="200" />
+                <Field label="Symbol(s)"      name="symbols"    defaultValue="BTCUSDT" hint="Comma-sep." />
+                <Field label="Interval(s)"    name="intervals"  defaultValue="1h" hint="e.g. 1m,1h" />
+              </div>
+              <div className="px-3 pb-3 flex items-end gap-4">
                 <div className="flex flex-col gap-1 flex-1">
-                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted">Strategy</label>
-                  <select name="strategy"
-                    className="bg-bg border border-border rounded px-2.5 py-1.5 text-[12px] text-text focus:outline-none focus:border-accent">
+                  <label className="field-label">Strategy</label>
+                  <select name="strategy" className="field-select">
                     {strategies.map(s => (
                       <option key={s.name} value={s.name}>{s.name}</option>
                     ))}
                   </select>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer pb-1.5">
-                  <input type="checkbox" name="recover" defaultChecked className="accent-accent" />
-                  <span className="text-[12px] text-text">Recover open orders on restart</span>
+                <label className="flex items-center gap-2 cursor-pointer pb-0.5">
+                  <input type="checkbox" name="recover" defaultChecked className="accent-accent w-3 h-3" />
+                  <span className="text-[10px] text-muted">Recover open orders</span>
                 </label>
               </div>
             </div>
 
-            <Button type="submit" variant="primary" size="md" loading={loading} disabled={strategies.length === 0}>
-              ▶ Start Bot
-            </Button>
+            <div>
+              <Button type="submit" variant="primary" size="sm" loading={loading} disabled={strategies.length === 0}>
+                Start Bot
+              </Button>
+            </div>
           </form>
         </div>
       </div>
@@ -98,10 +99,9 @@ function Field({ label, name, type = 'text', defaultValue, hint }: {
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-[10px] font-semibold uppercase tracking-wider text-muted">{label}</label>
-      <input type={type} name={name} defaultValue={defaultValue}
-        className="bg-bg border border-border rounded px-2.5 py-1.5 text-[12px] text-text focus:outline-none focus:border-accent" />
-      {hint && <div className="text-[10px] text-muted2">{hint}</div>}
+      <label className="field-label">{label}</label>
+      <input type={type} name={name} defaultValue={defaultValue} className="field-input" />
+      {hint && <div className="text-[9px] text-muted2">{hint}</div>}
     </div>
   )
 }
