@@ -24,8 +24,8 @@ export function MarketWatch({ items, activeKey, onSelect }: Props) {
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {items.map(item => {
-          const isActive = item.key === activeKey
-          const isPos    = item.change >= 0
+          const isActive    = item.key === activeKey
+          const changeColor = item.change > 0 ? 'text-green' : item.change < 0 ? 'text-red' : 'text-muted'
           return (
             <button
               key={item.key}
@@ -47,7 +47,7 @@ export function MarketWatch({ items, activeKey, onSelect }: Props) {
                 <span className="text-[9px] font-mono tabular-nums text-text">
                   {item.price > 0 ? fmtPrice(item.price) : '—'}
                 </span>
-                <span className={cn('text-[9px] font-mono tabular-nums', isPos ? 'text-green' : 'text-red')}>
+                <span className={cn('text-[9px] font-mono tabular-nums', changeColor)}>
                   {fmtChange(item.change)}
                 </span>
               </div>

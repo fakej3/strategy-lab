@@ -1,5 +1,5 @@
 import { cn } from '../../lib/cn'
-import { fmtPrice, fmtSign, fmtPct } from '../../lib/format'
+import { fmtPrice, fmtSign, fmtPct, pnlClass } from '../../lib/format'
 import type { OpenPosition } from '../../types'
 
 interface Signal {
@@ -11,19 +11,22 @@ interface Signal {
 }
 
 interface Props {
+  strategy: string
+  activeKey: string
   signal: Signal | null
   positions: OpenPosition[]
   markPrices: Record<string, number>
-  fillCount: number
 }
 
-export function SignalPanel({ signal, positions, markPrices, fillCount }: Props) {
-  const dir = signal?.signal?.toUpperCase() ?? 'FLAT'
+export function SignalPanel({ strategy, activeKey, signal, positions, markPrices }: Props) {
+  const [activeSymbol, activeInterval] = activeKey.split('|')
+
+  const dir     = signal?.signal?.toUpperCase() ?? ''
   const isLong  = dir.includes('BUY') || dir.includes('LONG')
   const isShort = dir.includes('SELL') || dir.includes('SHORT')
 
-  const activePos = signal?.symbol
-    ? positions.find(p => p.symbol === signal.symbol) ?? null
+  const activePos = activeSymbol
+    ? positions.find(p => p.symbol === activeSymbol) ?? null
     : positions[0] ?? null
 
   const markPrice = activePos ? (markPrices[activePos.symbol] ?? null) : null
@@ -39,46 +42,63 @@ export function SignalPanel({ signal, positions, markPrices, fillCount }: Props)
 
   return (
     <div className="flex flex-col h-full border-l border-border">
-      <div className="px-2.5 py-1.5 border-b border-border shrink-0">
-        <span className="section-label">{signal?.strategy ?? 'Signal'}</span>
-      </div>
-
-      {/* Direction indicator */}
+      {/* Header: strategy name + instrument */}
       <div className="px-2.5 py-2 border-b border-border shrink-0">
-        <div className={cn('text-[16px] font-bold leading-none font-mono mb-0.5',
-          isLong ? 'text-green' : isShort ? 'text-red' : 'text-muted')}>
-          {isLong ? 'LONG' : isShort ? 'SHORT' : 'FLAT'}
+        <div className="text-[11px] font-semibold text-text leading-tight truncate">
+          {strategy || 'Signal'}
         </div>
-        {signal?.symbol && (
-          <div className="text-[9px] text-muted font-mono">
-            {signal.symbol}{signal.interval ? ` · ${signal.interval}` : ''}
+        {activeKey && (
+          <div className="text-[9px] text-muted font-mono mt-0.5">
+            {activeSymbol} · {activeInterval?.toUpperCase()}
           </div>
         )}
       </div>
 
-      {/* Stats */}
-      <div className="px-2.5 py-2 border-b border-border flex flex-col gap-1 shrink-0">
-        {signal?.price != null && <Row label="Mark" value={fmtPrice(signal.price)} mono />}
-        <Row label="Positions" value={String(positions.length)} />
-        <Row label="Fills"     value={String(fillCount)} />
+      {/* Direction indicator */}
+      <div className="px-2.5 py-2.5 border-b border-border shrink-0">
+        <div className={cn('text-[15px] font-bold leading-none font-mono',
+          activePos
+            ? (activePos.direction === 'long' ? 'text-green' : 'text-red')
+            : (isLong ? 'text-green' : isShort ? 'text-red' : 'text-muted'))}>
+          {activePos
+            ? activePos.direction.toUpperCase()
+            : (isLong ? 'LONG' : isShort ? 'SHORT' : 'FLAT')}
+        </div>
+        {!activePos && signal?.signal && (
+          <div className="text-[9px] text-muted font-mono mt-1 truncate">
+            Last: {signal.signal.toUpperCase()}
+          </div>
+        )}
       </div>
 
-      {/* Open position */}
-      {activePos && (
-        <div className="px-2.5 py-2 border-b border-border bg-s2 flex flex-col gap-1 shrink-0">
-          <div className="section-label mb-0.5">Open Position</div>
-          <Row label="Symbol" value={activePos.symbol} mono />
-          <Row label="Entry"  value={fmtPrice(activePos.entry_price)} mono />
-          <Row label="Size"   value={String(activePos.size)} mono />
+      {/* Position details when open */}
+      {activePos ? (
+        <div className="px-2.5 py-2.5 flex flex-col gap-1.5 shrink-0">
+          <div className="text-[8px] font-semibold uppercase tracking-wider text-muted mb-0.5">Position</div>
+          <Row label="Entry" value={fmtPrice(activePos.entry_price)} mono />
+          <Row label="Size"  value={String(activePos.size)} mono />
+          {markPrice != null && <Row label="Mark" value={fmtPrice(markPrice)} mono />}
           {livePnl != null && (
-            <div className="flex items-center justify-between mt-0.5">
-              <span className="text-[9px] text-muted uppercase tracking-wider">P&L</span>
-              <span className={cn('text-[10px] font-mono font-semibold tabular-nums', livePnl >= 0 ? 'text-green' : 'text-red')}>
-                {fmtSign(livePnl)} ({fmtPct(livePct)})
-              </span>
+            <div className="mt-1.5 pt-1.5 border-t border-border/60">
+              <div className="text-[8px] uppercase tracking-wider text-muted mb-1">Live P&L</div>
+              <div className={cn('text-[14px] font-mono font-bold tabular-nums leading-none', pnlClass(livePnl))}>
+                {fmtSign(livePnl)}
+              </div>
+              {livePct != null && (
+                <div className={cn('text-[10px] font-mono tabular-nums mt-0.5', pnlClass(livePct))}>
+                  {fmtPct(livePct)}
+                </div>
+              )}
             </div>
           )}
         </div>
+      ) : (
+        /* Flat: show last signal price if available */
+        signal?.price != null && (
+          <div className="px-2.5 py-2.5 shrink-0">
+            <Row label="Signal px" value={fmtPrice(signal.price)} mono />
+          </div>
+        )
       )}
     </div>
   )

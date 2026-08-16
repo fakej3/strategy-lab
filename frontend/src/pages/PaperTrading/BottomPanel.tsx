@@ -14,13 +14,17 @@ interface Props {
 export function BottomPanel({ positions, fills, logMessages, markPrices }: Props) {
   const [tab, setTab] = useState('positions')
 
+  const activityCount = logMessages.filter(m =>
+    m.type === 'signal' || m.type === 'fill' || m.type === 'order' || m.type === 'error'
+  ).length
+
   return (
     <div className="flex flex-col h-full">
       <Tabs
         tabs={[
           { id: 'positions', label: 'Positions', count: positions.length },
           { id: 'fills',     label: 'Fills',     count: fills.length },
-          { id: 'activity',  label: 'Activity' },
+          { id: 'activity',  label: 'Activity',  count: activityCount },
           { id: 'log',       label: 'Log' },
         ]}
         active={tab}

@@ -6,7 +6,7 @@ import { BottomPanel } from './BottomPanel'
 import { StopModal } from './StopModal'
 import { Button } from '../../components/ui/Button'
 import { Badge } from '../../components/ui/Badge'
-import { fmtPrice, fmtSign, pnlClass } from '../../lib/format'
+import { fmtPrice, fmtSign, fmtChange, pnlClass } from '../../lib/format'
 import { cn } from '../../lib/cn'
 import { botApi } from '../../api/bot'
 import { useBot } from '../../hooks/useBot'
@@ -20,17 +20,23 @@ interface Props {
 export function TradingTerminal({ initialStatus, onStopped }: Props) {
   const chartRef = useRef<ChartHandle>(null)
 
-  const [status,     setStatus]     = useState<BotStatus>(initialStatus)
-  const [positions,  setPositions]  = useState<OpenPosition[]>(initialStatus.open_positions ?? [])
-  const [fills,      setFills]      = useState<Fill[]>(initialStatus.recent_trades ?? [])
-  const [markPrices, setMarkPrices] = useState<Record<string, number>>({})
-  const [watchItems, setWatchItems] = useState<WatchItem[]>([])
-  const [activeKey,  setActiveKey]  = useState<string>('')
-  const [signal,     setSignal]     = useState<BotWsMessage & { type: 'signal' } | null>(null)
+  const [status,      setStatus]      = useState<BotStatus>(initialStatus)
+  const [positions,   setPositions]   = useState<OpenPosition[]>(initialStatus.open_positions ?? [])
+  const [fills,       setFills]       = useState<Fill[]>(initialStatus.recent_trades ?? [])
+  const [markPrices,  setMarkPrices]  = useState<Record<string, number>>({})
+  const [watchItems,  setWatchItems]  = useState<WatchItem[]>([])
+  const [activeKey,   setActiveKey]   = useState<string>('')
+  const [signal,      setSignal]      = useState<BotWsMessage & { type: 'signal' } | null>(null)
   const [allMessages, setAllMessages] = useState<BotWsMessage[]>([])
   const [fillCount,   setFillCount]   = useState(initialStatus.recent_trades?.length ?? 0)
-  const [showStop, setShowStop]       = useState(false)
-  const [candlesSub, setCandlesSub]   = useState<string>('')
+  const [showStop,    setShowStop]    = useState(false)
+  const [candlesSub,  setCandlesSub]  = useState<string>('')
+
+  const [activeSymbol, activeInterval] = activeKey.split('|')
+  const activePrice      = markPrices[activeSymbol ?? ''] ?? 0
+  const activeWatchItem  = watchItems.find(w => w.key === activeKey)
+  const activeChange     = activeWatchItem?.change ?? 0
+  const changeColor      = activeChange > 0 ? 'text-green' : activeChange < 0 ? 'text-red' : 'text-muted'
 
   const totalPnl = positions.reduce((sum, p) => {
     const mark = markPrices[p.symbol]
@@ -126,9 +132,6 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
     chartRef.current?.setPosition(pos)
   }, [positions, activeKey])
 
-  const totalEquity = status.capital ?? 0
-  const totalValue  = totalEquity + totalPnl
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Top bar */}
@@ -140,21 +143,25 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
           </span>
         </div>
         <Badge variant={status.running ? 'pass' : 'muted'}>{status.running ? 'Running' : 'Stopped'}</Badge>
+        {activeKey && (
+          <span className="text-[11px] font-mono font-semibold text-text">
+            {activeSymbol}<span className="text-muted mx-0.5">·</span>{activeInterval?.toUpperCase()}
+          </span>
+        )}
         {status.strategy && (
           <span className="text-[9px] text-muted font-mono">{status.strategy}</span>
         )}
 
         {/* Portfolio metrics */}
         <div className="flex items-center gap-4 ml-auto">
-          <Metric label="Capital"   value={`$${fmtPrice(totalEquity)}`} />
-          <Metric label="Open PnL"  value={fmtSign(totalPnl)}
+          <Metric label="Capital"  value={`$${fmtPrice(status.capital ?? 0)}`} />
+          <Metric label="Open PnL" value={fmtSign(totalPnl)}
             className={positions.length > 0 ? pnlClass(totalPnl) : 'text-muted'} />
-          <Metric label="Equity"    value={`$${fmtPrice(totalValue)}`} />
           <Metric label="Positions" value={String(positions.length)} />
           <Metric label="Fills"     value={String(fillCount)} />
         </div>
 
-        <Button variant="danger" size="xs" onClick={() => setShowStop(true)}>Stop</Button>
+        <Button variant="danger" size="sm" onClick={() => setShowStop(true)}>Stop</Button>
       </div>
 
       {/* Main 3-column body */}
@@ -164,23 +171,55 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
           <MarketWatch items={watchItems} activeKey={activeKey} onSelect={setActiveKey} />
         </div>
 
-        {/* Center: chart — full height */}
-        <div className="flex flex-1 min-w-0 min-h-0">
-          <TradingChart ref={chartRef} className="flex-1" />
+        {/* Center: chart identity header + chart canvas */}
+        <div className="flex flex-col flex-1 min-w-0 min-h-0">
+          {/* Chart header bar */}
+          <div className="flex items-center gap-3 px-3 h-8 shrink-0 border-b border-border bg-surface">
+            <span className="text-[13px] font-semibold font-mono text-text">
+              {activeSymbol || '—'}
+              <span className="text-muted mx-1">·</span>
+              {activeInterval?.toUpperCase() || '—'}
+            </span>
+            {activePrice > 0 ? (
+              <>
+                <span className="text-[13px] font-mono tabular-nums text-text">{fmtPrice(activePrice)}</span>
+                <span className={cn('text-[11px] font-mono tabular-nums', changeColor)}>
+                  {fmtChange(activeChange)}
+                </span>
+              </>
+            ) : (
+              <span className="text-[10px] text-muted2">—</span>
+            )}
+          </div>
+
+          {/* Chart + connecting overlay */}
+          <div className="relative flex-1 min-h-0">
+            <TradingChart ref={chartRef} className="absolute inset-0" />
+            {activePrice === 0 && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
+                <span className="w-2 h-2 rounded-full bg-muted animate-pulse mb-2.5" />
+                <span className="text-[11px] text-muted">Connecting to market data…</span>
+                <span className="text-[10px] text-muted mt-1">
+                  Waiting for {activeSymbol || '…'} · {activeInterval?.toUpperCase() || '…'}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right: signal panel */}
         <div className="w-[152px] shrink-0 overflow-hidden">
           <SignalPanel
+            strategy={status.strategy ?? ''}
+            activeKey={activeKey}
             signal={signal}
             positions={positions}
             markPrices={markPrices}
-            fillCount={fillCount}
           />
         </div>
       </div>
 
-      {/* Bottom panel: positions / fills / log */}
+      {/* Bottom panel: positions / fills / activity / log */}
       <div className="border-t border-border bg-surface shrink-0" style={{ height: '210px' }}>
         <BottomPanel
           positions={positions}
@@ -203,8 +242,8 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
 function Metric({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
     <div className="flex flex-col items-end">
-      <span className="text-[8px] font-semibold uppercase tracking-wider text-muted">{label}</span>
-      <span className={cn('text-[10px] font-mono font-semibold tabular-nums', className ?? 'text-text')}>{value}</span>
+      <span className="text-[9px] font-semibold uppercase tracking-wider text-muted">{label}</span>
+      <span className={cn('text-[12px] font-mono font-semibold tabular-nums', className ?? 'text-text')}>{value}</span>
     </div>
   )
 }
