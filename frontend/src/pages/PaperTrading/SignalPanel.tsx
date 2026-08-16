@@ -8,6 +8,7 @@ interface Signal {
   symbol?: string
   interval?: string
   price?: number
+  ts?: string
 }
 
 interface Props {
@@ -93,12 +94,22 @@ export function SignalPanel({ strategy, activeKey, signal, positions, markPrices
           )}
         </div>
       ) : (
-        /* Flat: show last signal price if available */
-        signal?.price != null && (
-          <div className="px-2.5 py-2.5 shrink-0">
+        /* Flat: show current market price + last signal details */
+        <div className="px-2.5 py-2.5 flex flex-col gap-1.5 shrink-0">
+          {activeSymbol && markPrices[activeSymbol] != null && (
+            <Row label="Market" value={fmtPrice(markPrices[activeSymbol]!)} mono />
+          )}
+          {signal?.price != null && (
             <Row label="Signal px" value={fmtPrice(signal.price)} mono />
-          </div>
-        )
+          )}
+          {signal?.ts && (
+            <Row
+              label="Signal at"
+              value={new Date(signal.ts).toLocaleTimeString('en', { hour12: false })}
+              mono
+            />
+          )}
+        </div>
       )}
     </div>
   )

@@ -14,9 +14,10 @@ interface Props {
   items: WatchItem[]
   activeKey: string
   onSelect: (key: string) => void
+  symbolErrors: Record<string, string>
 }
 
-export function MarketWatch({ items, activeKey, onSelect }: Props) {
+export function MarketWatch({ items, activeKey, onSelect, symbolErrors }: Props) {
   return (
     <div className="flex flex-col h-full border-r border-border">
       <div className="px-2.5 py-1.5 border-b border-border shrink-0">
@@ -25,6 +26,7 @@ export function MarketWatch({ items, activeKey, onSelect }: Props) {
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {items.map(item => {
           const isActive    = item.key === activeKey
+          const hasError    = item.symbol in symbolErrors
           const changeColor = item.change > 0 ? 'text-green' : item.change < 0 ? 'text-red' : 'text-muted'
           return (
             <button
@@ -38,7 +40,10 @@ export function MarketWatch({ items, activeKey, onSelect }: Props) {
               )}
             >
               <div className="flex items-center justify-between mb-0.5">
-                <span className={cn('text-[10px] font-semibold font-mono', isActive ? 'text-accent' : 'text-text')}>
+                <span className={cn(
+                  'text-[10px] font-semibold font-mono',
+                  hasError ? 'text-red/70' : isActive ? 'text-accent' : 'text-text'
+                )}>
                   {item.symbol}
                 </span>
                 <span className="text-[8px] text-muted">{item.interval}</span>
@@ -51,12 +56,16 @@ export function MarketWatch({ items, activeKey, onSelect }: Props) {
                   {fmtChange(item.change)}
                 </span>
               </div>
-              {item.signal && (
+              {hasError ? (
+                <div className="text-[8px] mt-0.5 font-mono text-red/60 truncate">
+                  backfill failed
+                </div>
+              ) : item.signal ? (
                 <div className={cn('text-[8px] mt-0.5 font-mono uppercase',
                   item.signal.includes('BUY') || item.signal.includes('LONG') ? 'text-green' : 'text-red')}>
                   {item.signal}
                 </div>
-              )}
+              ) : null}
             </button>
           )
         })}

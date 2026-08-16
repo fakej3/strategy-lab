@@ -119,41 +119,58 @@ function FillsTab({ fills }: { fills: Fill[] }) {
   )
 }
 
+function fmtTs(ts: string | undefined): string {
+  if (!ts) return ''
+  try {
+    return new Date(ts).toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return ''
+  }
+}
+
 function ActivityTab({ messages }: { messages: BotWsMessage[] }) {
-  const entries: Array<{ id: number; text: string; color: string }> = []
+  const entries: Array<{ id: number; time: string; label: string; detail: string; color: string }> = []
   let id = 0
 
   for (const msg of messages) {
     switch (msg.type) {
       case 'signal': {
-        const dir = msg.signal.toUpperCase()
+        const dir    = msg.signal.toUpperCase()
         const isLong = dir.includes('BUY') || dir.includes('LONG')
         entries.push({
-          id: id++,
-          color: isLong ? 'text-green' : 'text-red',
-          text: `SIG  ${msg.signal.toUpperCase().padEnd(8)}  ${msg.symbol}  ${msg.interval}`,
+          id:     id++,
+          time:   fmtTs(msg.ts),
+          label:  'SIG',
+          detail: `${msg.signal.toUpperCase()}  ${msg.symbol}·${msg.interval}${msg.price != null ? `  @ ${fmtPrice(msg.price)}` : ''}`,
+          color:  isLong ? 'text-green' : 'text-red',
         })
         break
       }
       case 'fill':
         entries.push({
-          id: id++,
-          color: msg.side.toUpperCase() === 'BUY' ? 'text-green' : 'text-red',
-          text: `FILL ${msg.side.toUpperCase().padEnd(4)}  ${msg.size} @ ${fmtPrice(msg.fill_price)}  (${msg.symbol})`,
+          id:     id++,
+          time:   fmtTs(msg.ts),
+          label:  'FILL',
+          detail: `${msg.side.toUpperCase()}  ${msg.size} @ ${fmtPrice(msg.fill_price)}  ${msg.symbol}`,
+          color:  msg.side.toUpperCase() === 'BUY' ? 'text-green' : 'text-red',
         })
         break
       case 'order':
         entries.push({
-          id: id++,
-          color: 'text-accent',
-          text: `ORD  ${(msg.side ?? '').toUpperCase().padEnd(4)}  ${msg.order_id ?? ''}`,
+          id:     id++,
+          time:   fmtTs(msg.ts),
+          label:  'ORD',
+          detail: `${(msg.side ?? '').toUpperCase()}  ${msg.order_id ?? ''}`,
+          color:  'text-accent',
         })
         break
       case 'error':
         entries.push({
-          id: id++,
-          color: 'text-red',
-          text: `ERR  ${(msg as { type: string; message: string }).message}`,
+          id:     id++,
+          time:   fmtTs(msg.ts),
+          label:  'ERR',
+          detail: (msg as { type: string; message: string }).message,
+          color:  'text-red',
         })
         break
     }
@@ -166,8 +183,12 @@ function ActivityTab({ messages }: { messages: BotWsMessage[] }) {
   return (
     <div className="font-mono text-[10px] px-2 py-1">
       {[...entries].reverse().map(e => (
-        <div key={e.id} className={cn('py-0.5 border-b border-border/30 last:border-0 truncate', e.color)}>
-          {e.text}
+        <div key={e.id} className="flex items-baseline gap-2 py-0.5 border-b border-border/30 last:border-0">
+          {e.time && (
+            <span className="text-muted shrink-0 tabular-nums">{e.time}</span>
+          )}
+          <span className={cn('shrink-0 font-semibold', e.color)}>{e.label}</span>
+          <span className={cn('truncate', e.color)}>{e.detail}</span>
         </div>
       ))}
     </div>

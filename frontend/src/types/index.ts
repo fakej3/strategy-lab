@@ -147,20 +147,21 @@ export interface Candle {
 }
 
 // Bot WebSocket message types
+// All event-bus messages carry `ts` (ISO string) from the backend bridge.
 export type BotWsMessage =
-  | { type: 'candle';       symbol: string; interval: string; time: number; open: number; high: number; low: number; close: number; volume: number }
-  | { type: 'tick';         symbol: string; interval: string; close: number; change: number }
-  | { type: 'signal';       symbol: string; interval: string; signal: string; price?: number; strategy?: string }
-  | { type: 'fill';         symbol: string; side: string; fill_price: number; size: number; fee?: number; timestamp?: string; pnl?: number }
-  | { type: 'order';        symbol: string; side?: string; order_id?: string; [key: string]: unknown }
-  | { type: 'position';     symbol: string; direction: string; size: number; entry_price: number }
-  | { type: 'rejected';     symbol: string; reason: string }
-  | { type: 'risk_rejected'; symbol: string; reason: string }
-  | { type: 'error';        source?: string; message: string }
-  | { type: 'log';          message: string }
+  | { type: 'candle';       symbol: string; interval: string; time: number; open: number; high: number; low: number; close: number; volume: number; ts?: string }
+  | { type: 'tick';         symbol: string; interval: string; close: number; change: number; ts?: string }
+  | { type: 'signal';       symbol: string; interval: string; signal: string; price?: number; strategy?: string; ts?: string }
+  | { type: 'fill';         symbol: string; side: string; fill_price: number; size: number; fee?: number; timestamp?: string; pnl?: number; ts?: string }
+  | { type: 'order';        symbol: string; side?: string; order_id?: string; ts?: string; [key: string]: unknown }
+  | { type: 'position';     symbol: string; direction: string; size: number; entry_price: number; ts?: string }
+  | { type: 'rejected';     symbol: string; reason: string; ts?: string }
+  | { type: 'risk_rejected'; symbol: string; reason: string; ts?: string }
+  | { type: 'error';        source?: string; message: string; ts?: string }
+  | { type: 'log';          message: string; ts?: string }
   | { type: 'status';       [key: string]: unknown }
-  | { type: 'disconnect';   symbol: string; reason: string }
-  | { type: 'reconnect';    symbol: string; attempt: number }
+  | { type: 'disconnect';   symbol: string; reason: string; ts?: string }
+  | { type: 'reconnect';    symbol: string; backfilled?: number; attempt?: number; ts?: string }
   | { type: 'ping' }
 
 // ── Scheduler ─────────────────────────────────────────────────────────────────
