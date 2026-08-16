@@ -45,31 +45,26 @@ export function StoppedState({ strategies, error, onStarted }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-5">
-        <div className="max-w-lg">
-          <div className="text-[13px] font-semibold text-text mb-3">Configure Paper Bot</div>
+        {err && (
+          <div className="px-3 py-2 mb-4 border border-red/25 bg-red/8 text-red text-[10px]">{err}</div>
+        )}
 
-          {err && (
-            <div className="px-3 py-2 mb-3 border border-red/25 bg-red/8 text-red text-[10px]">{err}</div>
-          )}
-
-          <div className="px-3 py-2 mb-4 border border-accent/20 bg-accent-bg text-[10px] text-muted">
-            <span className="text-accent font-semibold">Paper Trading —</span> No real funds used. Capital is simulated USDT. No Binance API key required.
-          </div>
-
-          <form onSubmit={submit} className="flex flex-col gap-3">
+        <form id="botcfg" onSubmit={submit}>
+          <div className="grid grid-cols-[1fr_260px] gap-5">
+            {/* Left: config panel */}
             <div className="border border-border">
               <div className="px-3 py-1.5 border-b border-border bg-surface">
                 <span className="section-label">Configuration</span>
               </div>
               <div className="p-3 grid grid-cols-3 gap-3">
-                <Field label="Capital (USDT)" name="capital" type="number" defaultValue="200" />
-                <Field label="Symbol(s)"      name="symbols"    defaultValue="BTCUSDT" hint="Comma-sep." />
-                <Field label="Interval(s)"    name="intervals"  defaultValue="1h" hint="e.g. 1m,1h" />
+                <Field label="Capital (USDT)" name="capital"   type="number" defaultValue="200" />
+                <Field label="Symbol(s)"      name="symbols"   defaultValue="BTCUSDT" hint="Comma-separated" />
+                <Field label="Interval(s)"    name="intervals" defaultValue="1h" hint="e.g. 1m, 1h, 4h" />
               </div>
               <div className="px-3 pb-3 flex items-end gap-4">
                 <div className="flex flex-col gap-1 flex-1">
                   <label className="field-label">Strategy</label>
-                  <select name="strategy" className="field-select">
+                  <select name="strategy" className="field-select w-full">
                     {strategies.map(s => (
                       <option key={s.name} value={s.name}>{s.name}</option>
                     ))}
@@ -82,13 +77,25 @@ export function StoppedState({ strategies, error, onStarted }: Props) {
               </div>
             </div>
 
-            <div>
-              <Button type="submit" variant="primary" size="sm" loading={loading} disabled={strategies.length === 0}>
+            {/* Right: info + launch */}
+            <div className="flex flex-col gap-3">
+              <div className="border border-accent/20 bg-accent-bg px-3 py-3 text-[10px] text-muted leading-relaxed">
+                <div className="text-accent font-semibold text-[11px] mb-1">Paper Trading</div>
+                No real funds used. Capital is simulated USDT. No Binance API key required.
+              </div>
+              <Button
+                form="botcfg"
+                type="submit"
+                variant="primary"
+                size="sm"
+                loading={loading}
+                disabled={strategies.length === 0}
+              >
                 Start Bot
               </Button>
             </div>
-          </form>
-        </div>
+          </div>
+        </form>
       </div>
     </div>
   )

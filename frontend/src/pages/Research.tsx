@@ -73,7 +73,7 @@ export function Research() {
         )}
 
         <form onSubmit={submit} className="p-5">
-          <div className="grid grid-cols-[1fr_260px] gap-5 max-w-5xl">
+          <div className="grid grid-cols-[1fr_300px] gap-5">
             {/* Left column: config */}
             <div className="flex flex-col gap-4">
 

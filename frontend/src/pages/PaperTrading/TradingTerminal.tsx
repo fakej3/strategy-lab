@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { TradingChart, type ChartHandle } from './TradingChart'
 import { MarketWatch, type WatchItem } from './MarketWatch'
 import { SignalPanel } from './SignalPanel'
-import { ActivityFeed } from './ActivityFeed'
 import { BottomPanel } from './BottomPanel'
 import { StopModal } from './StopModal'
 import { Button } from '../../components/ui/Button'
@@ -165,14 +164,9 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
           <MarketWatch items={watchItems} activeKey={activeKey} onSelect={setActiveKey} />
         </div>
 
-        {/* Center: chart + activity feed */}
-        <div className="flex flex-col flex-1 min-w-0">
-          <div className="flex min-h-0" style={{ flex: '8 1 0' }}>
-            <TradingChart ref={chartRef} className="flex-1" />
-          </div>
-          <div className="border-t border-border" style={{ flex: '2 1 0', minHeight: 0 }}>
-            <ActivityFeed messages={allMessages} />
-          </div>
+        {/* Center: chart — full height */}
+        <div className="flex flex-1 min-w-0 min-h-0">
+          <TradingChart ref={chartRef} className="flex-1" />
         </div>
 
         {/* Right: signal panel */}
@@ -187,7 +181,7 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
       </div>
 
       {/* Bottom panel: positions / fills / log */}
-      <div className="border-t border-border bg-surface shrink-0" style={{ height: '180px' }}>
+      <div className="border-t border-border bg-surface shrink-0" style={{ height: '210px' }}>
         <BottomPanel
           positions={positions}
           fills={fills}
