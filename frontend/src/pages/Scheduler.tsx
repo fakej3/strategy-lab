@@ -120,7 +120,7 @@ export function Scheduler() {
             Loading…
           </div>
         ) : (
-          <div className="p-5 flex flex-col gap-4 max-w-3xl">
+          <div className="p-5 flex flex-col gap-4">
 
             {/* Existing schedules */}
             {schedules.length > 0 && (
@@ -133,29 +133,29 @@ export function Scheduler() {
 
             {/* Empty state */}
             {schedules.length === 0 && !showForm && (
-              <div className="flex flex-col items-center gap-4 py-16 bg-surface border border-dashed border-border rounded-xl text-center">
-                <div className="w-12 h-12 rounded-xl bg-s3 flex items-center justify-center">
-                  <Calendar size={20} className="text-muted2" />
+              <div className="flex items-start gap-5 p-5 bg-surface border border-border rounded-xl">
+                <div className="w-9 h-9 rounded-lg bg-s3 border border-border flex items-center justify-center shrink-0">
+                  <Calendar size={15} className="text-muted2" />
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-text mb-1">No automation configured</div>
-                  <div className="text-xs text-muted max-w-[280px] leading-relaxed">
-                    Schedule recurring research runs. EdgeLab will backtest your strategy automatically at the set time.
+                  <div className="text-xs text-muted leading-relaxed mb-4 max-w-sm">
+                    Schedule recurring research runs. EdgeLab will backtest your strategy automatically and store results for review.
                   </div>
+                  <button
+                    onClick={() => setShowForm(true)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-accent text-bg text-xs font-semibold rounded-md hover:bg-accent-dim transition-colors"
+                  >
+                    <Plus size={12} />
+                    Create First Schedule
+                  </button>
                 </div>
-                <button
-                  onClick={() => setShowForm(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-accent text-bg text-xs font-semibold rounded-md hover:bg-accent-dim transition-colors"
-                >
-                  <Plus size={12} />
-                  Create First Schedule
-                </button>
               </div>
             )}
 
             {/* New schedule form */}
             {showForm && (
-              <div className="bg-surface border border-accent/20 rounded-xl overflow-hidden">
+              <div className="bg-surface border border-accent/20 rounded-xl overflow-hidden max-w-3xl">
                 <button
                   onClick={() => setShowForm(false)}
                   className="w-full flex items-center justify-between px-5 py-3 border-b border-border hover:bg-s2 transition-colors"
