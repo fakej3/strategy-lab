@@ -65,7 +65,7 @@ def _stats_grid(
     return f"""
     <section class="stats-grid">
       {tile("Session", session_id[:12], f"{_html.escape(symbol)} · {_html.escape(interval)}")}
-      {tile("Period", f"{start_date}", f"→ {end_date}")}
+      {tile("Period", _html.escape(str(start_date)), f"→ {_html.escape(str(end_date))}")}
       {tile("Tested", str(n_tested), "strategies")}
       {tile("Passed", str(n_pass), "quality gate")}
       {tile("Rejected", str(n_reject), "below threshold")}
@@ -382,8 +382,8 @@ def _bootstrap_section(results: list[StrategyResult]) -> str:
     if not table_rows:
         return ""
 
-    n_sim = d.get("n_simulations", "?")
-    n_tr  = d.get("n_trades", "?")
+    n_sim = _html.escape(str(d.get("n_simulations", "?")))
+    n_tr  = _html.escape(str(d.get("n_trades", "?")))
 
     return f"""
     <section>

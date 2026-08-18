@@ -221,36 +221,36 @@ class JobManager:
                     run.errors[-1] if run.errors
                     else "Data integrity failure blocked all symbol/interval pairs"
                 )
-                self._finish(job_id, "failed", result, error=err_msg)
-                _put(q, {"type": "done", "success": False,
-                         "error": err_msg, **result})
-                notification_manager.notify(
-                    JOB_FAILED,
-                    "Research Failed",
-                    f"Job {job_id[:8]} failed: data integrity failure — "
-                    f"no strategies tested",
-                    job_id=job_id,
-                )
+                if self._finish(job_id, "failed", result, error=err_msg):
+                    _put(q, {"type": "done", "success": False,
+                             "error": err_msg, **result})
+                    notification_manager.notify(
+                        JOB_FAILED,
+                        "Research Failed",
+                        f"Job {job_id[:8]} failed: data integrity failure — "
+                        f"no strategies tested",
+                        job_id=job_id,
+                    )
             else:
-                self._finish(job_id, "done", result)
-                _put(q, {"type": "done", "success": True, "pct": 100, **result})
-                notification_manager.notify(
-                    JOB_DONE,
-                    "Research Complete",
-                    f"Session {run.session_id[:8]} — "
-                    f"{run.n_passed}/{run.n_tested} passed",
-                    job_id=job_id,
-                    session_id=run.session_id,
-                )
+                if self._finish(job_id, "done", result):
+                    _put(q, {"type": "done", "success": True, "pct": 100, **result})
+                    notification_manager.notify(
+                        JOB_DONE,
+                        "Research Complete",
+                        f"Session {run.session_id[:8]} — "
+                        f"{run.n_passed}/{run.n_tested} passed",
+                        job_id=job_id,
+                        session_id=run.session_id,
+                    )
         except Exception:
             err = traceback.format_exc()
-            self._finish(job_id, "failed", {}, error=err)
-            _put(q, {"type": "done", "success": False, "error": err[-600:]})
-            notification_manager.notify(
-                JOB_FAILED, "Research Failed",
-                f"Job {job_id[:8]} failed: {err.splitlines()[-1]}",
-                job_id=job_id,
-            )
+            if self._finish(job_id, "failed", {}, error=err):
+                _put(q, {"type": "done", "success": False, "error": err[-600:]})
+                notification_manager.notify(
+                    JOB_FAILED, "Research Failed",
+                    f"Job {job_id[:8]} failed: {err.splitlines()[-1]}",
+                    job_id=job_id,
+                )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -263,10 +263,13 @@ class JobManager:
                     setattr(info, k, v)
 
     def _finish(self, job_id: str, status: str,
-                result: dict, error: str = "") -> None:
+                result: dict, error: str = "") -> bool:
+        """Apply terminal status. Returns False (no-op) if already cancelled."""
         with self._lock:
             info = self._jobs.get(job_id)
             if info:
+                if info.status == "cancelled":
+                    return False
                 info.status      = status
                 info.finished_at = datetime.now(timezone.utc).isoformat()
                 info.error       = error
@@ -274,6 +277,8 @@ class JobManager:
                           "n_rejected", "elapsed_secs", "report_paths"):
                     if k in result:
                         setattr(info, k, result[k])
+                return True
+        return False
 
 
 def _put(q: queue.Queue, msg: dict) -> None:

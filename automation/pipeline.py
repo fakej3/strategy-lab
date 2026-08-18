@@ -468,7 +468,7 @@ class ResearchPipeline:
                 n_workers = self.cfg.n_workers,
                 verbose   = self.cfg.verbose,
             )
-            results = runner.run(bars, job_dicts)
+            results = runner.run(bars, job_dicts, cancel_event=self.cancel_event)
 
         ok = sum(1 for r in results if r.get("ok"))
         self.notify.ok(f"{ok}/{n} backtests succeeded")

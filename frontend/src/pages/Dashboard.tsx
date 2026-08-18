@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FlaskConical, TrendingUp, BarChart2, CandlestickChart, ArrowRight, CheckCircle2 } from 'lucide-react'
+import {
+  FlaskConical, BarChart2, CandlestickChart,
+  ArrowRight, Activity, Zap,
+} from 'lucide-react'
 import { statsApi } from '../api/stats'
 import { jobsApi } from '../api/jobs'
 import { botApi } from '../api/bot'
 import { StatusBadge } from '../components/ui/Badge'
-import { fmtTime, fmtElapsed, fmt } from '../lib/format'
+import { fmtTime, fmtElapsed, fmt, fmtSign } from '../lib/format'
 import { cn } from '../lib/cn'
 import type { Stats, Job, BotStatus } from '../types'
 
@@ -27,8 +30,9 @@ export function Dashboard() {
     }).finally(() => setLoading(false))
   }, [])
 
-  const running = jobs.filter(j => j.status === 'running')
-  const recent  = jobs.slice(0, 8)
+  const running     = jobs.filter(j => j.status === 'running')
+  const recent      = jobs.slice(0, 8)
+  const activeCount = running.length + (bot?.running ? 1 : 0)
 
   return (
     <div className="flex flex-col h-full">
@@ -44,30 +48,6 @@ export function Dashboard() {
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {/* Active-work strip */}
-        {!loading && (running.length > 0 || bot?.running) && (
-          <div className="flex items-center gap-3 px-6 py-2.5 border-b border-amber/15 bg-amber/5">
-            <span className="w-2 h-2 rounded-full bg-amber animate-pulse shrink-0" />
-            <div className="flex items-center gap-5 text-sm">
-              {running.length > 0 && (
-                <span className="text-amber">
-                  {running.length} research job{running.length > 1 ? 's' : ''} running
-                </span>
-              )}
-              {bot?.running && (
-                <span className="text-amber">
-                  Paper trading · {bot.strategy}
-                </span>
-              )}
-            </div>
-            {running.length > 0 && (
-              <Link to="/jobs" className="ml-auto text-xs font-semibold text-amber flex items-center gap-1 hover:opacity-80">
-                View jobs <ArrowRight size={12} />
-              </Link>
-            )}
-          </div>
-        )}
-
         {loading ? (
           <div className="flex items-center justify-center gap-3 py-24 text-muted">
             <span className="w-5 h-5 border-2 border-border border-t-accent rounded-full animate-spin" />
@@ -75,38 +55,46 @@ export function Dashboard() {
           </div>
         ) : (
           <div className="p-6 flex flex-col gap-6 max-w-5xl">
-            {/* Stats tiles */}
+
+            {/* Section A — System status bar */}
+            {(running.length > 0 || bot?.running) && (
+              <SystemStatusBar running={running} bot={bot} />
+            )}
+
+            {/* Section B — Stats tiles */}
             {stats && (
               <div className="grid grid-cols-4 gap-3">
                 <StatTile
-                  label="Total Results"
+                  label="Total Strategies"
                   value={stats.total ?? 0}
-                  icon={<BarChart2 size={15} />}
-                  sub="backtested strategies"
+                  sub="backtested results"
                 />
                 <StatTile
                   label="Best Sharpe"
                   value={stats.best_sharpe != null ? fmt(stats.best_sharpe, 2) : '—'}
-                  icon={<TrendingUp size={15} />}
-                  accent
+                  colorClass="text-accent"
                   sub="top performer"
                 />
                 <StatTile
-                  label="Passed Gate"
+                  label="Gate Passed"
                   value={(stats.promising ?? 0) + (stats.needs_imp ?? 0)}
-                  positive
+                  colorClass="text-green"
                   sub="promising + needs work"
                 />
                 <StatTile
-                  label="Running"
-                  value={running.length}
-                  pulse={running.length > 0}
-                  sub={running.length > 0 ? 'active right now' : 'no active jobs'}
+                  label="Active"
+                  value={activeCount}
+                  colorClass={activeCount > 0 ? 'text-green' : undefined}
+                  sub={activeCount > 0 ? `running now` : 'none running'}
+                  pulse={activeCount > 0}
                 />
               </div>
             )}
 
-            {/* Recent research jobs */}
+            {/* Section C — Bot status card */}
+            {bot?.running && <BotCard bot={bot} />}
+
+            {/* Section D — Recent research */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-text">Recent Research</h2>
@@ -143,42 +131,52 @@ export function Dashboard() {
                       className="flex items-center gap-4 px-4 py-3 bg-surface border border-border rounded-lg hover:border-border2 hover:bg-s2 transition-colors group"
                     >
                       <StatusBadge status={j.status} />
-                      <span className="font-mono text-xs text-muted shrink-0">{j.job_id.slice(0, 14)}…</span>
-                      <span className="text-sm text-muted flex-1 min-w-0 truncate">{fmtTime(j.started_at)}</span>
+                      <span className="font-mono text-xs text-muted shrink-0">
+                        {j.job_id.slice(0, 12)}…
+                      </span>
+                      <span className="text-xs text-muted flex-1 min-w-0 truncate">
+                        {fmtTime(j.started_at)}
+                      </span>
                       {j.n_tested != null && (
                         <span className="text-xs font-mono shrink-0">
                           <span className="text-green font-semibold">{j.n_passed ?? 0}</span>
-                          <span className="text-muted2"> / {j.n_tested} passed</span>
+                          <span className="text-muted2"> / {j.n_tested}</span>
                         </span>
                       )}
                       {j.elapsed_secs != null && (
-                        <span className="text-xs text-muted font-mono shrink-0">{fmtElapsed(j.elapsed_secs)}</span>
+                        <span className="text-xs text-muted font-mono shrink-0">
+                          {fmtElapsed(j.elapsed_secs)}
+                        </span>
                       )}
-                      <ArrowRight size={14} className="text-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                      <ArrowRight
+                        size={13}
+                        className="text-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      />
                     </Link>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Quick navigation tiles */}
+            {/* Section E — Quick actions */}
             {stats != null && (stats.total ?? 0) > 0 && (
               <div className="grid grid-cols-2 gap-3">
-                <QuickLink
+                <QuickTile
                   to="/strategies"
-                  icon={<BarChart2 size={17} className="text-accent" />}
+                  icon={<BarChart2 size={20} className="text-accent" />}
                   label="Strategy Results"
-                  sub={`${stats.total ?? 0} backtested · ${(stats.promising ?? 0) + (stats.needs_imp ?? 0)} passed`}
+                  sub={`${stats.total ?? 0} backtested · ${(stats.promising ?? 0) + (stats.needs_imp ?? 0)} passed gate`}
                 />
-                <QuickLink
+                <QuickTile
                   to="/paper-trading"
-                  icon={<CandlestickChart size={17} className={bot?.running ? 'text-green' : 'text-muted'} />}
+                  icon={<CandlestickChart size={20} className={bot?.running ? 'text-green' : 'text-muted'} />}
                   label="Paper Trading"
                   sub={bot?.running ? `Running · ${bot.strategy}` : 'Configure and launch'}
                   active={bot?.running}
                 />
               </div>
             )}
+
           </div>
         )}
       </div>
@@ -186,42 +184,136 @@ export function Dashboard() {
   )
 }
 
-function StatTile({
-  label, value, sub, icon, accent, positive, negative, pulse,
-}: {
-  label: string
-  value: string | number
-  sub?: string
-  icon?: React.ReactNode
-  accent?: boolean
-  positive?: boolean
-  negative?: boolean
-  pulse?: boolean
-}) {
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function SystemStatusBar({ running, bot }: { running: Job[]; bot: BotStatus | null }) {
   return (
-    <div className="bg-surface border border-border rounded-xl px-5 py-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-muted">{label}</span>
-        <span className="text-muted opacity-50">{icon}</span>
+    <div className="flex items-center gap-6 px-4 py-2.5 bg-surface border border-border rounded-xl">
+      <div className="flex items-center gap-1.5 shrink-0">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse" />
+        <span className="text-[10px] font-semibold tracking-widest text-muted2 uppercase">Live</span>
       </div>
-      <div className={cn(
-        'text-4xl font-bold font-mono tabular-nums leading-none',
-        accent   && 'text-accent',
-        positive && 'text-green',
-        negative && 'text-red',
-        !accent && !positive && !negative && 'text-text',
-      )}>
-        {value}
-        {pulse && (
-          <span className="ml-2 inline-block w-2 h-2 rounded-full bg-green animate-pulse align-middle" />
+
+      <div className="flex items-center gap-6 flex-1 min-w-0">
+        {running.length > 0 && (
+          <span className="flex items-center gap-1.5 text-xs text-amber">
+            <Activity size={12} className="shrink-0" />
+            {running.length} research job{running.length > 1 ? 's' : ''} running
+          </span>
+        )}
+        {bot?.running && (
+          <span className="flex items-center gap-1.5 text-xs text-green">
+            <Zap size={12} className="shrink-0" />
+            Paper trading · {bot.strategy}
+          </span>
         )}
       </div>
-      {sub && <div className="text-xs text-muted2 mt-2">{sub}</div>}
+
+      {running.length > 0 && (
+        <Link
+          to="/jobs"
+          className="shrink-0 text-xs font-semibold text-accent flex items-center gap-1 hover:opacity-80"
+        >
+          View jobs <ArrowRight size={11} />
+        </Link>
+      )}
     </div>
   )
 }
 
-function QuickLink({
+function StatTile({
+  label, value, sub, colorClass, pulse,
+}: {
+  label: string
+  value: string | number
+  sub?: string
+  colorClass?: string
+  pulse?: boolean
+}) {
+  return (
+    <div className="bg-surface border border-border rounded-xl px-5 py-5">
+      <div className="text-xs text-muted mb-2">{label}</div>
+      <div className={cn(
+        'text-3xl font-bold font-mono tabular-nums leading-none flex items-center gap-2',
+        colorClass ?? 'text-text',
+      )}>
+        {value}
+        {pulse && (
+          <span className="inline-block w-2 h-2 rounded-full bg-green animate-pulse" />
+        )}
+      </div>
+      {sub && <div className="text-xs text-muted2 mt-1.5">{sub}</div>}
+    </div>
+  )
+}
+
+function BotCard({ bot }: { bot: BotStatus }) {
+  const upnl = bot.unrealized_pnl
+  const rpnl = bot.realized_pnl
+
+  return (
+    <div className="bg-surface border border-green/20 rounded-xl p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 flex-1 min-w-0">
+          {/* Strategy + symbols */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="w-2 h-2 rounded-full bg-green animate-pulse shrink-0" />
+            <span className="text-sm font-semibold text-text">{bot.strategy}</span>
+            {bot.symbols?.length > 0 && (
+              <span className="text-xs text-muted px-2 py-0.5 bg-s3 border border-border rounded-full font-mono">
+                {bot.symbols.join(' · ')}
+              </span>
+            )}
+          </div>
+
+          {/* Metrics */}
+          <div className="flex items-center gap-6 flex-wrap">
+            <BotMetric label="Capital"        value={`$${fmt(bot.capital, 0)}`} />
+            <BotMetric label="Equity"         value={`$${fmt(bot.equity, 0)}`} />
+            <BotMetric
+              label="Unrealized PnL"
+              value={fmtSign(upnl)}
+              colorClass={upnl > 0 ? 'text-green' : upnl < 0 ? 'text-red' : 'text-muted'}
+            />
+            <BotMetric
+              label="Realized PnL"
+              value={fmtSign(rpnl)}
+              colorClass={rpnl > 0 ? 'text-green' : rpnl < 0 ? 'text-red' : 'text-muted'}
+            />
+            {(bot.open_positions?.length ?? 0) > 0 && (
+              <BotMetric label="Positions" value={String(bot.open_positions.length)} />
+            )}
+          </div>
+        </div>
+
+        {/* CTA */}
+        <Link
+          to="/paper-trading"
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-green border border-green/25 rounded-lg hover:bg-green/10 transition-colors"
+        >
+          View Terminal <ArrowRight size={12} />
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function BotMetric({
+  label, value, colorClass,
+}: {
+  label: string
+  value: string
+  colorClass?: string
+}) {
+  return (
+    <div>
+      <div className="text-[10px] font-semibold tracking-widest text-muted2 uppercase mb-0.5">{label}</div>
+      <div className={cn('text-sm font-mono font-semibold', colorClass ?? 'text-text')}>{value}</div>
+    </div>
+  )
+}
+
+function QuickTile({
   to, icon, label, sub, active,
 }: {
   to: string
@@ -234,12 +326,12 @@ function QuickLink({
     <Link
       to={to}
       className={cn(
-        'flex items-center gap-4 px-4 py-4 bg-surface border rounded-xl hover:bg-s2 transition-colors group',
+        'flex items-center gap-4 px-5 py-5 bg-surface border rounded-xl hover:bg-s2 transition-colors group',
         active ? 'border-green/20' : 'border-border hover:border-border2',
       )}
     >
       <div className={cn(
-        'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
+        'w-11 h-11 rounded-xl flex items-center justify-center shrink-0',
         active ? 'bg-green/10' : 'bg-s3',
       )}>
         {icon}
@@ -253,5 +345,3 @@ function QuickLink({
   )
 }
 
-// Prevent unused import warning
-void CheckCircle2

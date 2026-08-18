@@ -52,7 +52,7 @@
     @apply flex items-center justify-between px-6 h-12 border-b border-border shrink-0 bg-surface;
   }
   .page-title {
-    @apply text-base font-semibold text-text;
+    @apply text-sm font-semibold text-text tracking-wide;
   }
   .page-sub {
     @apply text-sm text-muted;
@@ -61,9 +61,9 @@
     @apply flex-1 overflow-y-auto scrollbar-thin p-6;
   }
 
-  /* ── Section label — readable, not microscopic ─────────────── */
+  /* ── Section label ─────────────────────────────────────────── */
   .section-label {
-    @apply text-xs font-medium text-muted;
+    @apply text-[10px] font-semibold uppercase tracking-widest text-muted2;
   }
 
   /* ── Monospaced numeric display ────────────────────────────── */
@@ -76,14 +76,70 @@
 
   /* ── Form presets ───────────────────────────────────────────── */
   .field-input {
-    @apply bg-s2 border border-border rounded-md px-3 py-2 text-sm text-text
-           placeholder:text-muted2 focus:outline-none focus:border-accent w-full transition-colors;
+    @apply bg-s2 border border-border rounded-lg px-3 py-2.5 text-sm text-text
+           placeholder:text-muted2 focus:outline-none focus:border-accent/60 focus:bg-s3 w-full transition-all;
   }
   .field-label {
     @apply text-xs font-medium text-muted;
   }
   .field-select {
-    @apply bg-s2 border border-border rounded-md px-3 py-2 text-sm text-text
-           focus:outline-none focus:border-accent transition-colors;
+    @apply bg-s2 border border-border rounded-lg px-3 py-2.5 text-sm text-text
+           focus:outline-none focus:border-accent/60 transition-all;
+  }
+
+  /* ── Skeleton loading ─────────────────────────────────────── */
+  .skeleton {
+    @apply bg-s2 rounded animate-pulse;
+  }
+
+  /* ── Card ────────────────────────────────────────────────────── */
+  .card {
+    @apply bg-surface border border-border rounded-xl;
+  }
+  .card-hover {
+    @apply hover:border-border2 hover:bg-s2 transition-all duration-200;
+  }
+
+  /* ── Metric display ─────────────────────────────────────────── */
+  .metric-value {
+    @apply text-2xl font-bold font-mono tabular-nums text-text leading-none;
+  }
+  .metric-label {
+    @apply text-[10px] font-semibold uppercase tracking-widest text-muted2;
+  }
+
+  /* ── Pill / chip ──────────────────────────────────────────── */
+  .pill {
+    @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+  .pill-active {
+    @apply bg-accent text-bg;
+  }
+  .pill-inactive {
+    @apply bg-s3 border border-border text-muted hover:text-text hover:border-border2 transition-colors;
+  }
+
+  /* ── Status dot ───────────────────────────────────────────── */
+  .status-dot-live {
+    @apply inline-block w-1.5 h-1.5 rounded-full bg-green animate-pulse;
+  }
+  .status-dot-idle {
+    @apply inline-block w-1.5 h-1.5 rounded-full bg-muted2;
+  }
+
+  /* ── Terminal / code surface ──────────────────────────────── */
+  .terminal {
+    @apply bg-bg font-mono text-xs text-muted leading-relaxed;
+  }
+
+  /* ── Step connector ──────────────────────────────────────── */
+  .step-active {
+    @apply border-accent bg-accent/10 text-accent;
+  }
+  .step-done {
+    @apply border-green/40 bg-green/10 text-green;
+  }
+  .step-idle {
+    @apply border-border bg-s2 text-muted2;
   }
 }

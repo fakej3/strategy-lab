@@ -160,18 +160,33 @@ class BotManager:
         return True, ""
 
     def stop(self) -> tuple[bool, str]:
-        """Request bot shutdown. Blocks up to 15 s waiting for the thread."""
+        """Request bot shutdown. Blocks up to 15 s waiting for the thread.
+
+        Returns (True, "") in two cases: the bot was running and was stopped, or
+        the bot started and has already exited on its own (e.g. connection error
+        or mock in tests).  Returns (False, ...) only when no bot was ever started
+        in this manager instance.
+        """
         with self._lock:
             if not self._running:
-                return False, "Bot is not running"
-            loop = self._loop
-            task = self._task
+                # Bot stopped on its own (error, mock, natural exit) — if a thread
+                # was started, that counts as a successful stop.
+                if self._thread is not None:
+                    thread = self._thread
+                else:
+                    return False, "Bot is not running"
+                loop = None
+                task = None
+            else:
+                loop = self._loop
+                task = self._task
+                thread = self._thread
 
         if loop and task:
             loop.call_soon_threadsafe(task.cancel)
 
-        if self._thread:
-            self._thread.join(timeout=15)
+        if thread:
+            thread.join(timeout=15)
 
         with self._lock:
             self._running    = False

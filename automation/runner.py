@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import multiprocessing
+import threading
 import traceback
 from typing import Any
 
@@ -82,11 +83,15 @@ class ParallelRunner:
         self,
         bars: pd.DataFrame,
         job_dicts: list[dict[str, Any]],
+        cancel_event: "threading.Event | None" = None,
     ) -> list[dict[str, Any]]:
         """Run all jobs, return list of result dicts (same order as input).
 
         Failed jobs produce ``{"ok": False, "error": "...", "job_dict": ...}``.
-        The overall pipeline never stops because of individual failures.
+        When cancel_event is set while jobs are running, the pool is terminated
+        and an empty list is returned — workers already executing a backtest may
+        complete their current iteration before the OS delivers SIGTERM, but no
+        new work starts and the caller receives no partial results.
         """
         if not job_dicts:
             return []
@@ -101,12 +106,26 @@ class ParallelRunner:
         self.notify.info(f"Spawning {workers} worker(s) for {n} job(s) …")
 
         ctx = multiprocessing.get_context("spawn")
+        cancelled = False
         with ctx.Pool(
             processes   = workers,
             initializer = _pool_init,
             initargs    = (bars_bytes,),
         ) as pool:
-            results = pool.map(_worker_fn, job_dicts)
+            async_result = pool.map_async(_worker_fn, job_dicts)
+            while True:
+                try:
+                    results = async_result.get(timeout=0.25)
+                    break
+                except multiprocessing.TimeoutError:
+                    if cancel_event and cancel_event.is_set():
+                        pool.terminate()
+                        cancelled = True
+                        break
+
+        if cancelled:
+            self.notify.info("Cancelled — parallel backtests terminated.")
+            return []
 
         ok    = sum(1 for r in results if r.get("ok"))
         fail  = n - ok

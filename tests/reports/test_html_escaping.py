@@ -189,22 +189,27 @@ class TestChartSectionScriptInjection:
         assert BREAK not in html
 
     def test_angle_brackets_unicode_escaped_in_script(self):
-        """< and > in JSON embedded in <script> must appear as \\u003c / \\u003e."""
+        """< and > inside strategy labels embedded in <script> must be \\u003c/\\u003e."""
         html = _html(
-            strategy_class    = "SafeStrat",
+            strategy_class    = "Strat<Compare>",
             gate_decision     = "PROMISING",
             equity_curve_json = json.dumps([100.0, 110.0]),
         )
-        # If the chart section is present (it will be for PROMISING + equity data),
-        # verify the data_js doesn't contain literal < or > (only </>)
-        if "eqCanvas" in html:
-            script_start = html.find("const datasets =")
-            script_end   = html.find("</script>", script_start)
-            if script_start != -1 and script_end != -1:
-                data_block = html[script_start:script_end]
-                # Should not have literal < or > in the JSON data portion
-                # (angle brackets in strategy labels would be escaped)
-                pass  # basic presence check — more specific check below
+        assert "eqCanvas" in html, "Expected chart section for PROMISING + equity data"
+        script_start = html.find("const datasets =")
+        script_end   = html.find("</script>", script_start)
+        assert script_start != -1, "Could not find 'const datasets =' in HTML"
+        assert script_end   != -1, "Could not find closing </script> after datasets"
+        data_block = html[script_start:script_end]
+        # Literal angle brackets from the strategy name must not appear in the JS block
+        assert "<Compare>" not in data_block, (
+            "Literal angle brackets found in script data block — "
+            "JSON must be escaped with .replace('<','\\u003c').replace('>','\\u003e')"
+        )
+        # The unicode-escaped form must be present in the data block
+        assert "\\u003c" in data_block, (
+            "Expected '\\u003c' encoding for '<' in script data block"
+        )
 
     def test_xss_payload_in_equity_label_escaped(self):
         """Strategy name containing XSS embedded in chart label must be escaped."""

@@ -1,6 +1,7 @@
 """Tests for server/background.py — dict_to_config, JobManager, QueueNotifier."""
 from __future__ import annotations
 
+import multiprocessing
 import queue
 import time
 from datetime import date
@@ -310,3 +311,198 @@ class TestCancellationPropagation:
                 "cancel_event was not set after mgr.cancel() — "
                 "cancellation does not propagate to the pipeline"
             )
+
+
+class TestCancellationStatusRace:
+    """_finish() must not overwrite 'cancelled' status set by cancel()."""
+
+    def _make_blocking_pipeline(self, pipeline_started, allow_return,
+                                return_n_passed=3):
+        """Pipeline that signals when started, then blocks until told to return."""
+        class BlockingPipeline:
+            def __init__(self, cfg):
+                self.cfg = cfg
+                self.cancel_event = None
+                self.notify = None
+
+            def execute(self):
+                pipeline_started.set()
+                allow_return.wait(timeout=5.0)
+                run = MagicMock()
+                run.session_id    = "sess-race"
+                run.n_tested      = 10
+                run.n_passed      = return_n_passed
+                run.n_rejected    = 10 - return_n_passed
+                run.elapsed_secs  = 0.5
+                run.report_paths  = {}
+                run.n_data_failures = 0
+                return run
+        return BlockingPipeline
+
+    def test_finish_does_not_overwrite_cancelled_with_done(self):
+        """cancel() sets 'cancelled'; pipeline returning after that must not flip to 'done'."""
+        import threading
+
+        pipeline_started = threading.Event()
+        allow_return     = threading.Event()
+        PipelineCls      = self._make_blocking_pipeline(pipeline_started, allow_return,
+                                                        return_n_passed=3)
+
+        mgr = JobManager()
+        with patch("server.background.ResearchPipeline", PipelineCls):
+            job_id = mgr.submit({"fast_mode": "on"})
+            assert pipeline_started.wait(timeout=5.0), "Pipeline never started"
+
+            # Cancel while pipeline is still blocked in execute()
+            assert mgr.cancel(job_id) is True
+            assert mgr.get_job(job_id).status == "cancelled"
+
+            # Let pipeline's execute() return (simulates step 4 finishing after cancel)
+            allow_return.set()
+            # Give background thread time to call _finish()
+            time.sleep(0.4)
+
+        info = mgr.get_job(job_id)
+        assert info is not None
+        assert info.status == "cancelled", (
+            f"Expected 'cancelled', got '{info.status}' — "
+            "_finish('done') must not overwrite cancellation"
+        )
+        # Partial results from the completed pipeline must not be exposed
+        assert info.n_passed == 0, (
+            "Cancelled job must not populate n_passed from pipeline results"
+        )
+
+    def test_finish_does_not_overwrite_cancelled_with_failed(self):
+        """cancel(); pipeline raises → final status stays 'cancelled', not 'failed'."""
+        import threading
+
+        pipeline_started = threading.Event()
+        allow_raise      = threading.Event()
+
+        class RaisingPipeline:
+            def __init__(self, cfg):
+                self.cfg = cfg
+                self.cancel_event = None
+                self.notify = None
+
+            def execute(self):
+                pipeline_started.set()
+                allow_raise.wait(timeout=5.0)
+                raise RuntimeError("Pipeline crashed after cancel was requested")
+
+        mgr = JobManager()
+        with patch("server.background.ResearchPipeline", RaisingPipeline):
+            job_id = mgr.submit({"fast_mode": "on"})
+            assert pipeline_started.wait(timeout=5.0), "Pipeline never started"
+
+            assert mgr.cancel(job_id) is True
+            assert mgr.get_job(job_id).status == "cancelled"
+
+            allow_raise.set()
+            time.sleep(0.4)
+
+        info = mgr.get_job(job_id)
+        assert info is not None
+        assert info.status == "cancelled", (
+            f"Expected 'cancelled', got '{info.status}' — "
+            "_finish('failed') must not overwrite cancellation"
+        )
+
+
+class TestStep4Cancellation:
+    """Cancellation while step 4 is running: pool terminates, job stays cancelled."""
+
+    def test_cancel_during_step4_job_stays_cancelled(self):
+        """Cancel while execute() is blocked (simulating step 4) → status stays 'cancelled'."""
+        import threading
+
+        step4_started = threading.Event()
+        allow_return  = threading.Event()
+
+        class Step4Pipeline:
+            """Simulates a pipeline blocked in the parallel backtest phase."""
+            def __init__(self, cfg):
+                self.cfg = cfg
+                self.cancel_event = None
+                self.notify = None
+
+            def execute(self):
+                step4_started.set()
+                # Block until test releases — represents pool.map_async() polling
+                allow_return.wait(timeout=5.0)
+                run = MagicMock()
+                run.session_id     = "sess-s4"
+                run.n_tested       = 8
+                run.n_passed       = 4
+                run.n_rejected     = 4
+                run.elapsed_secs   = 2.0
+                run.report_paths   = {}
+                run.n_data_failures = 0
+                return run
+
+        mgr = JobManager()
+        with patch("server.background.ResearchPipeline", Step4Pipeline):
+            job_id = mgr.submit({"fast_mode": "on"})
+            assert step4_started.wait(timeout=5.0), "Pipeline never reached step 4"
+
+            mgr.cancel(job_id)
+            assert mgr.get_job(job_id).status == "cancelled"
+
+            # Step 4 "finishes" — pool.map returns results after termination delay
+            allow_return.set()
+            time.sleep(0.4)
+
+        info = mgr.get_job(job_id)
+        assert info is not None
+        assert info.status == "cancelled", (
+            f"Expected 'cancelled', got '{info.status}' — "
+            "step 4 completing after cancel must not change job status to 'done'"
+        )
+        assert info.n_passed == 0, (
+            "Cancelled job must not show step-4 results as n_passed"
+        )
+
+    def test_parallel_runner_cancel_event_terminates_pool(self):
+        """ParallelRunner.run() returns [] and terminates pool when cancel_event fires."""
+        import threading
+        from automation.runner import ParallelRunner
+        import pandas as pd
+
+        cancel = threading.Event()
+        runner = ParallelRunner(n_workers=2, verbose=False)
+
+        mock_pool    = MagicMock()
+        mock_async   = MagicMock()
+        call_count   = [0]
+
+        def fake_get(timeout):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                cancel.set()           # simulate cancel arriving during first poll
+                raise multiprocessing.TimeoutError()
+            # Should not reach here
+            return [{"ok": True}]
+
+        mock_async.get    = fake_get
+        mock_pool.map_async.return_value = mock_async
+        mock_pool.__enter__ = lambda s: s
+        mock_pool.__exit__  = MagicMock(return_value=False)
+
+        import multiprocessing as mp
+        mock_ctx = MagicMock()
+        mock_ctx.Pool.return_value = mock_pool
+
+        job_dicts = [{"strategy_class": f"X{i}"} for i in range(5)]
+
+        with patch("automation.runner.multiprocessing.get_context",
+                   return_value=mock_ctx):
+            results = runner.run(pd.DataFrame({"c": [1.0]}), job_dicts,
+                                 cancel_event=cancel)
+
+        assert results == [], (
+            f"Expected empty list when cancelled, got {results}"
+        )
+        assert mock_pool.terminate.called, (
+            "pool.terminate() must be called when cancel_event fires"
+        )

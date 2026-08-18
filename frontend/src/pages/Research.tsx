@@ -1,12 +1,15 @@
 import { useEffect, useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FlaskConical, Zap, BarChart2, Microscope } from 'lucide-react'
+import { Zap, BarChart2, Microscope, ChevronDown, FlaskConical, Plus, X } from 'lucide-react'
 import { botApi } from '../api/bot'
 import { jobsApi } from '../api/jobs'
 import { cn } from '../lib/cn'
 import type { AvailableStrategy } from '../types'
 
 type Preset = 'quick' | 'standard' | 'deep'
+
+const INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d']
+const POPULAR_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT']
 
 interface AnalysisConfig {
   runWalkForward: boolean
@@ -21,46 +24,38 @@ interface AnalysisConfig {
 }
 
 const PRESETS: Record<Preset, AnalysisConfig> = {
-  quick: {
-    runWalkForward: false, trainBars: 1008, testBars: 336,
-    runMonteCarlo:  false, nSimulations: 200,
-    runRobustness:  false, neighborSteps: 1,
-    workers: 4, fastMode: true,
-  },
-  standard: {
-    runWalkForward: true,  trainBars: 1008, testBars: 336,
-    runMonteCarlo:  true,  nSimulations: 500,
-    runRobustness:  false, neighborSteps: 1,
-    workers: 4, fastMode: false,
-  },
-  deep: {
-    runWalkForward: true,  trainBars: 1008, testBars: 336,
-    runMonteCarlo:  true,  nSimulations: 1000,
-    runRobustness:  true,  neighborSteps: 2,
-    workers: 8, fastMode: false,
-  },
+  quick:    { runWalkForward: false, trainBars: 1008, testBars: 336, runMonteCarlo: false, nSimulations: 200, runRobustness: false, neighborSteps: 1, workers: 4, fastMode: true },
+  standard: { runWalkForward: true,  trainBars: 1008, testBars: 336, runMonteCarlo: true,  nSimulations: 500, runRobustness: false, neighborSteps: 1, workers: 4, fastMode: false },
+  deep:     { runWalkForward: true,  trainBars: 1008, testBars: 336, runMonteCarlo: true,  nSimulations: 1000, runRobustness: true, neighborSteps: 2, workers: 8, fastMode: false },
 }
 
-const PRESET_META: Record<Preset, { label: string; icon: React.ElementType; sub: string }> = {
-  quick:    { label: 'Quick',    icon: Zap,        sub: 'Fast pass, no deep analysis' },
-  standard: { label: 'Standard', icon: BarChart2,  sub: 'Walk-forward + Monte Carlo' },
-  deep:     { label: 'Deep',     icon: Microscope, sub: 'All analyses, more workers' },
+const PRESET_INFO: Record<Preset, { label: string; icon: React.ElementType; sub: string; time: string }> = {
+  quick:    { label: 'Quick',    icon: Zap,        sub: 'Fast pass, no deep analysis', time: '~1 min' },
+  standard: { label: 'Standard', icon: BarChart2,  sub: 'Walk-forward + Monte Carlo',  time: '~5 min' },
+  deep:     { label: 'Deep',     icon: Microscope, sub: 'All analyses, all workers',   time: '~15 min' },
 }
 
 export function Research() {
   const navigate = useNavigate()
-  const [strategies, setStrategies] = useState<AvailableStrategy[]>([])
-  const [selected,   setSelected]   = useState<string[]>([])
-  const [preset,     setPreset]      = useState<Preset>('standard')
-  const [analysis,   setAnalysis]    = useState<AnalysisConfig>(PRESETS.standard)
-  const [loading,    setLoading]     = useState(false)
-  const [error,      setError]       = useState('')
-  const today = new Date().toISOString().slice(0, 10)
+  const today    = new Date().toISOString().slice(0, 10)
+
+  const [strategies,    setStrategies]    = useState<AvailableStrategy[]>([])
+  const [selected,      setSelected]      = useState<string[]>([])
+  const [preset,        setPreset]        = useState<Preset>('standard')
+  const [analysis,      setAnalysis]      = useState<AnalysisConfig>(PRESETS.standard)
+  const [symbols,       setSymbols]       = useState<string[]>(['BTCUSDT'])
+  const [symbolInput,   setSymbolInput]   = useState('')
+  const [interval,      setInterval]      = useState('1h')
+  const [startDate,     setStartDate]     = useState('2024-01-01')
+  const [endDate,       setEndDate]       = useState(today)
+  const [showAdvanced,  setShowAdvanced]  = useState(false)
+  const [loading,       setLoading]       = useState(false)
+  const [error,         setError]         = useState('')
 
   useEffect(() => {
     botApi.availableStrategies().then(s => {
       setStrategies(s)
-      if (s.length) setSelected([s[0].name])
+      if (s.length) setSelected(s.map(x => x.name))
     })
   }, [])
 
@@ -69,15 +64,29 @@ export function Research() {
     setAnalysis(PRESETS[p])
   }
 
+  function addSymbol(sym: string) {
+    const s = sym.toUpperCase().trim()
+    if (s && !symbols.includes(s)) setSymbols(prev => [...prev, s])
+    setSymbolInput('')
+  }
+
+  function removeSymbol(sym: string) {
+    if (symbols.length > 1) setSymbols(prev => prev.filter(s => s !== sym))
+  }
+
+  function toggleStrategy(name: string) {
+    setSelected(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name])
+  }
+
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError('')
     const fd = new FormData(e.currentTarget)
     const body: Record<string, unknown> = {
-      symbols:          String(fd.get('symbols') ?? 'BTCUSDT'),
-      intervals:        String(fd.get('intervals') ?? '1h'),
-      start_date:       fd.get('start_date'),
-      end_date:         fd.get('end_date'),
+      symbols:          symbols.join(','),
+      intervals:        interval,
+      start_date:       startDate,
+      end_date:         endDate,
       starting_capital: Number(fd.get('starting_capital') ?? 100000),
       fee_rate:         Number(fd.get('fee_rate') ?? 0.001),
       slippage_pct:     Number(fd.get('slippage') ?? 0.0005),
@@ -108,203 +117,268 @@ export function Research() {
     }
   }
 
-  function toggleStrategy(name: string) {
-    setSelected(prev =>
-      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
-    )
-  }
+  const canRun = selected.length > 0 && symbols.length > 0
 
   return (
     <div className="flex flex-col h-full">
       <div className="page-header">
-        <span className="page-title">Research Run</span>
+        <div>
+          <span className="page-title">Research</span>
+          <span className="text-muted2 mx-2">·</span>
+          <span className="text-xs text-muted">Find strategies worth trading</span>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {error && (
-          <div className="mx-6 mt-4 px-4 py-3 bg-red/8 border border-red/20 rounded-lg text-red text-sm">{error}</div>
-        )}
-
         <form onSubmit={submit}>
-          <div className="p-6">
-            {/* Preset selector */}
-            <div className="mb-6">
-              <div className="flex items-center gap-2 mb-3">
-                <label className="section-label">Analysis Depth</label>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {(Object.entries(PRESET_META) as [Preset, typeof PRESET_META[Preset]][]).map(([key, meta]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => applyPreset(key)}
-                    className={cn(
-                      'flex items-start gap-3 px-4 py-3 rounded-lg border text-left transition-colors',
-                      preset === key
-                        ? 'border-accent bg-accent-bg text-accent'
-                        : 'border-border bg-surface hover:border-border2 text-muted hover:text-text',
-                    )}
-                  >
-                    <meta.icon size={16} className="mt-0.5 shrink-0" />
-                    <div>
-                      <div className={cn('text-sm font-semibold', preset === key ? 'text-accent' : 'text-text')}>
-                        {meta.label}
-                      </div>
-                      <div className="text-xs mt-0.5">{meta.sub}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div className="max-w-3xl mx-auto px-6 py-8 flex flex-col gap-7">
 
-            <div className="grid grid-cols-[1fr_280px] gap-6">
-              {/* Left: config panels */}
-              <div className="flex flex-col gap-5">
-                {/* Market Data */}
-                <ConfigSection title="Market Data">
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field label="Symbols" name="symbols" defaultValue="BTCUSDT" hint="Comma-separated" />
-                    <Field label="Intervals" name="intervals" defaultValue="1h" hint="e.g. 1m, 1h, 4h" />
-                    <Field label="Start Date" name="start_date" type="date" defaultValue="2024-01-01" />
-                    <Field label="End Date"   name="end_date"   type="date" defaultValue={today} />
-                  </div>
-                </ConfigSection>
+            {error && (
+              <div className="px-4 py-3 bg-red/8 border border-red/20 rounded-xl text-red text-sm">{error}</div>
+            )}
 
-                {/* Portfolio */}
-                <ConfigSection title="Portfolio">
-                  <div className="grid grid-cols-3 gap-4">
-                    <Field label="Capital (USD)" name="starting_capital" type="number" defaultValue="100000" />
-                    <Field label="Fee Rate"       name="fee_rate"        type="number" step="0.0001" defaultValue="0.001" hint="0.001 = 0.1%" />
-                    <Field label="Slippage"       name="slippage"        type="number" step="0.0001" defaultValue="0.0005" />
-                    <Field label="Stop Loss"      name="stop_loss"       type="number" step="0.01"   hint="e.g. 0.05 = 5%" />
-                    <Field label="Take Profit"    name="take_profit"     type="number" step="0.01"   hint="e.g. 0.15 = 15%" />
-                    <Field label="Min Trades"     name="min_trades"      type="number" defaultValue="10" />
-                  </div>
-                </ConfigSection>
+            {/* STEP 1: Market */}
+            <section>
+              <StepHeader n={1} label="Market" sub="What to test" />
+              <div className="mt-4 flex flex-col gap-5">
 
-                {/* Quality Gate */}
-                <ConfigSection title="Quality Gate">
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field label="Max Drawdown" name="max_dd" type="number" step="0.01" defaultValue="0.35" hint="Reject if DD exceeds this (e.g. 0.35 = 35%)" />
-                  </div>
-                </ConfigSection>
-
-                {/* Analysis (controlled by preset) */}
-                <ConfigSection title="Analysis">
-                  <div className="grid grid-cols-2 gap-5">
-                    {/* Walk-Forward */}
-                    <div className="flex flex-col gap-3">
-                      <label className="flex items-center gap-2.5 cursor-pointer">
-                        <ToggleCheck
-                          checked={analysis.runWalkForward}
-                          onChange={v => setAnalysis(a => ({ ...a, runWalkForward: v }))}
-                        />
-                        <span className="text-sm text-text font-medium">Walk-Forward</span>
-                      </label>
-                      {analysis.runWalkForward && (
-                        <div className="grid grid-cols-2 gap-3 pl-6">
-                          <NumField label="Train bars" value={analysis.trainBars}
-                            onChange={v => setAnalysis(a => ({ ...a, trainBars: v }))} />
-                          <NumField label="Test bars" value={analysis.testBars}
-                            onChange={v => setAnalysis(a => ({ ...a, testBars: v }))} />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Monte Carlo */}
-                    <div className="flex flex-col gap-3">
-                      <label className="flex items-center gap-2.5 cursor-pointer">
-                        <ToggleCheck
-                          checked={analysis.runMonteCarlo}
-                          onChange={v => setAnalysis(a => ({ ...a, runMonteCarlo: v }))}
-                        />
-                        <span className="text-sm text-text font-medium">Monte Carlo</span>
-                      </label>
-                      {analysis.runMonteCarlo && (
-                        <div className="pl-6">
-                          <NumField label="Simulations" value={analysis.nSimulations}
-                            onChange={v => setAnalysis(a => ({ ...a, nSimulations: v }))} />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Robustness */}
-                    <div className="flex flex-col gap-3">
-                      <label className="flex items-center gap-2.5 cursor-pointer">
-                        <ToggleCheck
-                          checked={analysis.runRobustness}
-                          onChange={v => setAnalysis(a => ({ ...a, runRobustness: v }))}
-                        />
-                        <span className="text-sm text-text font-medium">Robustness Testing</span>
-                      </label>
-                      {analysis.runRobustness && (
-                        <div className="pl-6">
-                          <NumField label="Neighbor steps" value={analysis.neighborSteps}
-                            onChange={v => setAnalysis(a => ({ ...a, neighborSteps: v }))} />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Workers + Fast Mode */}
-                    <div className="flex flex-col gap-3">
-                      <NumField label="Workers" value={analysis.workers}
-                        onChange={v => setAnalysis(a => ({ ...a, workers: v }))} />
-                      <label className="flex items-center gap-2.5 cursor-pointer">
-                        <ToggleCheck
-                          checked={analysis.fastMode}
-                          onChange={v => setAnalysis(a => ({ ...a, fastMode: v }))}
-                        />
-                        <span className="text-sm text-text">Fast Mode</span>
-                      </label>
-                    </div>
-                  </div>
-                </ConfigSection>
-              </div>
-
-              {/* Right: strategy selection + launch */}
-              <div className="flex flex-col gap-4">
-                <ConfigSection title="Strategies">
-                  <div className="flex flex-col gap-2">
-                    {strategies.length === 0 && (
-                      <p className="text-sm text-muted">Loading strategies…</p>
-                    )}
-                    {strategies.map(s => (
-                      <label key={s.name} className="flex items-start gap-3 cursor-pointer group rounded-md px-3 py-2 hover:bg-s3 transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={selected.includes(s.name)}
-                          onChange={() => toggleStrategy(s.name)}
-                          className="mt-0.5 w-3.5 h-3.5 accent-amber shrink-0"
-                        />
-                        <div>
-                          <div className="text-sm text-text group-hover:text-accent transition-colors font-medium">{s.name}</div>
-                          <div className="text-xs text-muted mt-0.5">
-                            {Object.keys(s.param_space ?? {}).length} param{Object.keys(s.param_space ?? {}).length !== 1 ? 's' : ''}
-                          </div>
-                        </div>
-                      </label>
+                {/* Symbol chips */}
+                <div>
+                  <label className="field-label block mb-2">Symbols</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {symbols.map(s => (
+                      <span key={s} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-accent/10 border border-accent/20 text-accent text-xs font-mono font-semibold rounded-lg">
+                        {s}
+                        {symbols.length > 1 && (
+                          <button type="button" onClick={() => removeSymbol(s)} className="opacity-60 hover:opacity-100">
+                            <X size={10} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {/* Quick add */}
+                    {POPULAR_SYMBOLS.filter(s => !symbols.includes(s)).slice(0, 3).map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => addSymbol(s)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-s2 border border-border text-muted text-xs font-mono rounded-lg hover:border-border2 hover:text-text transition-colors"
+                      >
+                        <Plus size={9} />
+                        {s}
+                      </button>
                     ))}
                   </div>
-                </ConfigSection>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={symbolInput}
+                      onChange={e => setSymbolInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSymbol(symbolInput) } }}
+                      placeholder="e.g. ADAUSDT"
+                      className="field-input max-w-[200px] text-xs font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addSymbol(symbolInput)}
+                      disabled={!symbolInput.trim()}
+                      className="px-3 py-2 bg-s3 border border-border text-muted text-xs rounded-lg hover:text-text hover:border-border2 transition-colors disabled:opacity-40"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
 
-                <button
-                  type="submit"
-                  disabled={loading || selected.length === 0}
-                  className="flex items-center justify-center gap-2 px-4 py-3 bg-accent text-bg text-sm font-bold rounded-lg hover:bg-accent-dim transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {loading ? (
-                    <span className="w-4 h-4 border-2 border-bg border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <FlaskConical size={15} />
-                  )}
-                  {loading ? 'Launching…' : `Launch Run · ${selected.length} strateg${selected.length !== 1 ? 'ies' : 'y'}`}
-                </button>
+                {/* Interval pills */}
+                <div>
+                  <label className="field-label block mb-2">Timeframe</label>
+                  <div className="flex flex-wrap gap-2">
+                    {INTERVALS.map(iv => (
+                      <button
+                        key={iv}
+                        type="button"
+                        onClick={() => setInterval(iv)}
+                        className={cn(
+                          'px-3 py-1.5 text-xs font-mono font-medium rounded-lg border transition-all',
+                          interval === iv
+                            ? 'bg-accent/15 border-accent/40 text-accent'
+                            : 'bg-s2 border-border text-muted hover:border-border2 hover:text-text',
+                        )}
+                      >
+                        {iv}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                {selected.length === 0 && (
-                  <p className="text-xs text-muted text-center">Select at least one strategy</p>
+                {/* Date range */}
+                <div className="grid grid-cols-2 gap-4 max-w-sm">
+                  <div>
+                    <label className="field-label block mb-1.5">From</label>
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="field-input text-xs" />
+                  </div>
+                  <div>
+                    <label className="field-label block mb-1.5">To</label>
+                    <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="field-input text-xs" />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* STEP 2: Depth */}
+            <section>
+              <StepHeader n={2} label="Analysis Depth" sub="How thorough" />
+              <div className="grid grid-cols-3 gap-3 mt-4">
+                {(Object.entries(PRESET_INFO) as [Preset, typeof PRESET_INFO[Preset]][]).map(([key, info]) => {
+                  const Icon = info.icon
+                  const active = preset === key
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => applyPreset(key)}
+                      className={cn(
+                        'flex flex-col items-start gap-2 px-4 py-4 rounded-xl border text-left transition-all',
+                        active
+                          ? 'border-accent/40 bg-accent/8 shadow-sm shadow-accent/5'
+                          : 'border-border bg-surface hover:border-border2',
+                      )}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Icon size={16} className={active ? 'text-accent' : 'text-muted'} />
+                        <span className={cn('text-[10px] font-mono', active ? 'text-accent/70' : 'text-muted2')}>{info.time}</span>
+                      </div>
+                      <div className={cn('text-sm font-semibold', active ? 'text-accent' : 'text-text')}>{info.label}</div>
+                      <div className="text-xs text-muted leading-snug">{info.sub}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+
+            {/* STEP 3: Strategies */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <StepHeader n={3} label="Strategies" sub="What to test" />
+                {strategies.length > 1 && (
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setSelected(strategies.map(s => s.name))}
+                      className="text-xs text-muted hover:text-accent transition-colors">All</button>
+                    <span className="text-muted2">·</span>
+                    <button type="button" onClick={() => setSelected([])}
+                      className="text-xs text-muted hover:text-red transition-colors">None</button>
+                  </div>
                 )}
               </div>
+              {strategies.length === 0 ? (
+                <div className="flex items-center gap-2 py-4 text-muted text-sm">
+                  <span className="w-3 h-3 border border-muted/30 border-t-muted rounded-full animate-spin" />
+                  Loading strategies…
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  {strategies.map(s => {
+                    const paramCount = Object.keys(s.param_space ?? {}).length
+                    const totalCombos = Object.values(s.param_space ?? {}).reduce((acc, vals) => acc * (vals as unknown[]).length, 1)
+                    const isSelected = selected.includes(s.name)
+                    return (
+                      <label
+                        key={s.name}
+                        className={cn(
+                          'flex items-center gap-3 px-4 py-3.5 rounded-xl border cursor-pointer transition-all',
+                          isSelected
+                            ? 'border-accent/30 bg-accent/5'
+                            : 'border-border bg-surface hover:border-border2',
+                        )}
+                      >
+                        <div className={cn(
+                          'w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors',
+                          isSelected ? 'bg-accent border-accent' : 'border-border2 bg-s2',
+                        )}>
+                          {isSelected && (
+                            <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                              <path d="M1 3L3 5L7 1" stroke="#090C12" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          )}
+                        </div>
+                        <input type="checkbox" checked={isSelected} onChange={() => toggleStrategy(s.name)} className="sr-only" />
+                        <div className="flex-1 min-w-0">
+                          <span className={cn('text-sm font-semibold', isSelected ? 'text-text' : 'text-muted')}>{s.name}</span>
+                          <span className="text-xs text-muted2 ml-2">{paramCount} param{paramCount !== 1 ? 's' : ''}</span>
+                        </div>
+                        <span className="text-xs font-mono text-muted2 shrink-0">{totalCombos} configs</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* Advanced toggle */}
+            <section>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(v => !v)}
+                className="flex items-center gap-2 text-xs text-muted hover:text-text transition-colors group"
+              >
+                <ChevronDown size={14} className={cn('transition-transform', showAdvanced ? 'rotate-180' : '')} />
+                <span>Advanced settings</span>
+                {!showAdvanced && (
+                  <span className="text-muted2">— fees, portfolio, walk-forward params</span>
+                )}
+              </button>
+
+              {showAdvanced && (
+                <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 p-5 bg-surface border border-border rounded-xl">
+                  <AdvField label="Capital (USD)" name="starting_capital" type="number" defaultValue="100000" />
+                  <AdvField label="Fee Rate" name="fee_rate" type="number" step="0.0001" defaultValue="0.001" hint="0.001 = 0.1%" />
+                  <AdvField label="Slippage" name="slippage" type="number" step="0.0001" defaultValue="0.0005" />
+                  <AdvField label="Min Trades" name="min_trades" type="number" defaultValue="10" />
+                  <AdvField label="Max Drawdown" name="max_dd" type="number" step="0.01" defaultValue="0.35" hint="e.g. 0.35 = 35%" />
+                  <AdvField label="Stop Loss" name="stop_loss" type="number" step="0.01" hint="e.g. 0.05 = 5%" />
+                  {analysis.runWalkForward && (
+                    <>
+                      <AdvField label="WF Train Bars" name="wf_train_bars" type="number" defaultValue={String(analysis.trainBars)} />
+                      <AdvField label="WF Test Bars" name="wf_test_bars" type="number" defaultValue={String(analysis.testBars)} />
+                    </>
+                  )}
+                  {analysis.runMonteCarlo && (
+                    <AdvField label="MC Simulations" name="mc_simulations" type="number" defaultValue={String(analysis.nSimulations)} />
+                  )}
+                  <AdvField label="Workers" name="n_workers" type="number" defaultValue={String(analysis.workers)} />
+                </div>
+              )}
+            </section>
+
+            {/* Run CTA */}
+            <div className="sticky bottom-0 pb-6">
+              <button
+                type="submit"
+                disabled={loading || !canRun}
+                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-accent text-bg text-base font-bold rounded-2xl hover:bg-accent-dim active:scale-[0.99] transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-accent/10"
+              >
+                {loading ? (
+                  <>
+                    <span className="w-5 h-5 border-2 border-bg/30 border-t-bg rounded-full animate-spin" />
+                    Launching…
+                  </>
+                ) : (
+                  <>
+                    <FlaskConical size={18} />
+                    Run Research
+                    {selected.length > 0 && symbols.length > 0 && (
+                      <span className="opacity-70 font-normal text-sm">
+                        · {selected.length} {selected.length === 1 ? 'strategy' : 'strategies'} · {symbols.join(', ')} · {interval}
+                      </span>
+                    )}
+                  </>
+                )}
+              </button>
+              {!canRun && !loading && (
+                <p className="text-center text-xs text-muted mt-2">Select at least one strategy to run</p>
+              )}
             </div>
+
           </div>
         </form>
       </div>
@@ -312,52 +386,25 @@ export function Research() {
   )
 }
 
-function ConfigSection({ title, children }: { title: string; children: React.ReactNode }) {
+function StepHeader({ n, label, sub }: { n: number; label: string; sub: string }) {
   return (
-    <div className="bg-surface border border-border rounded-lg overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-border">
-        <span className="text-xs font-semibold text-muted">{title}</span>
+    <div className="flex items-center gap-3">
+      <span className="w-6 h-6 rounded-full bg-accent/15 border border-accent/30 text-accent text-xs font-bold flex items-center justify-center shrink-0">{n}</span>
+      <div>
+        <span className="text-sm font-semibold text-text">{label}</span>
+        <span className="text-muted2 text-xs ml-2">{sub}</span>
       </div>
-      <div className="p-4">{children}</div>
     </div>
   )
 }
 
-function Field({ label, name, type = 'text', defaultValue, hint, step }: {
+function AdvField({ label, name, type = 'text', defaultValue, hint, step }: {
   label: string; name: string; type?: string; defaultValue?: string; hint?: string; step?: string
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="field-label">{label}</label>
-      <input type={type} name={name} defaultValue={defaultValue} step={step} className="field-input" />
-      {hint && <div className="text-xs text-muted2">{hint}</div>}
+      <label className="field-label">{label}{hint && <span className="text-muted2 ml-1">({hint})</span>}</label>
+      <input type={type} name={name} defaultValue={defaultValue} step={step} className="field-input text-xs" />
     </div>
-  )
-}
-
-function NumField({ label, value, onChange }: {
-  label: string; value: number; onChange: (v: number) => void
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="field-label">{label}</label>
-      <input
-        type="number"
-        value={value}
-        onChange={e => onChange(Number(e.target.value))}
-        className="field-input"
-      />
-    </div>
-  )
-}
-
-function ToggleCheck({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <input
-      type="checkbox"
-      checked={checked}
-      onChange={e => onChange(e.target.checked)}
-      className="w-3.5 h-3.5 accent-amber shrink-0"
-    />
   )
 }
