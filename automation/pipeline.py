@@ -95,6 +95,9 @@ class PipelineConfig:
     db_path: str      = "research.db"
     reports_dir: str  = "reports"
 
+    # Strategy filter — empty list means run all discovered strategies
+    strategies: list[str] = field(default_factory=list)
+
     # Behaviour
     verbose: bool     = True
     log_path: str     = "logs/research.log"
@@ -131,12 +134,14 @@ class ResearchPipeline:
     """
 
     def __init__(self, config: PipelineConfig | None = None) -> None:
+        import threading as _threading
         self.cfg     = config or PipelineConfig()
         self.notify  = Notifier(
             verbose  = self.cfg.verbose,
             log_path = Path(self.cfg.log_path),
         )
         self.storage = ResearchStorage(self.cfg.db_path)
+        self.cancel_event: _threading.Event | None = None
 
     def execute(self) -> PipelineRun:
         cfg        = self.cfg
@@ -216,6 +221,9 @@ class ResearchPipeline:
 
         for symbol in cfg.symbols:
             for interval in cfg.intervals:
+                if self.cancel_event and self.cancel_event.is_set():
+                    self.notify.warn("Job cancelled — stopping pipeline.")
+                    return
                 self.notify.section(f"Symbol: {symbol}  Interval: {interval}")
 
                 # STEP 1 — fetch data
@@ -369,6 +377,9 @@ class ResearchPipeline:
     def _step2_3_combos(self) -> list[dict]:
         self.notify.step("2/3", "Discovering strategies + generating combos")
         discovered = _discover_strategies()
+        if self.cfg.strategies:
+            allowed = set(self.cfg.strategies)
+            discovered = [cls for cls in discovered if cls.__name__ in allowed]
         combos     = []
         for cls in discovered:
             space = STRATEGY_PARAMETER_SPACES.get(cls.__name__, {})

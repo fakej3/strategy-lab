@@ -124,7 +124,7 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
         setMarkPrices(prev => ({ ...prev, [msg.symbol]: msg.close }))
         setWatchItems(prev => prev.map(w =>
           w.symbol === msg.symbol && w.interval === msg.interval
-            ? { ...w, price: msg.close, change: msg.close - msg.open }
+            ? { ...w, price: msg.close, change: msg.open > 0 ? ((msg.close - msg.open) / msg.open) * 100 : 0 }
             : w
         ))
         break

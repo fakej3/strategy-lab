@@ -3,7 +3,7 @@ import type { BotStatus, Candle, AvailableStrategy } from '../types'
 
 export const botApi = {
   status:       ()                               => api.get<BotStatus>('/api/bot/status'),
-  candles:      (symbol: string, interval: string, limit = 200) =>
+  candles:      (symbol: string, interval: string, limit = 500) =>
                   api.get<Candle[]>(`/api/bot/candles?symbol=${symbol}&interval=${interval}&limit=${limit}`),
   setActivePair:(symbol: string, interval: string) =>
                   api.post<{ ok: boolean }>('/api/bot/active-pair', { symbol, interval }),

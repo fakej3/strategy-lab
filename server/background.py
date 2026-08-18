@@ -186,6 +186,7 @@ class JobManager:
 
             cfg      = dict_to_config(config_dict)
             pipeline = ResearchPipeline(cfg)
+            pipeline.cancel_event = cancel
             pipeline.notify = _QueueNotifier(
                 q,
                 verbose  = False,            # suppress terminal noise
@@ -341,6 +342,10 @@ def dict_to_config(d: dict) -> PipelineConfig:
     cfg.db_path      = d.get("db_path",      "research.db")
     cfg.reports_dir  = d.get("reports_dir",  "reports")
     cfg.log_path     = d.get("log_path",     "logs/research.log")
+
+    # Strategy filter
+    raw_strategies = d.get("strategies", [])
+    cfg.strategies = list(raw_strategies) if raw_strategies else []
 
     # Behaviour
     cfg.verbose   = _bool(d.get("verbose",   False))

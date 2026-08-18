@@ -4,6 +4,7 @@ Single public function: generate_html_report(...) -> str
 """
 from __future__ import annotations
 
+import html as _html
 import json
 from typing import Any
 
@@ -87,9 +88,9 @@ def _strategy_table(results: list[StrategyResult]) -> str:
             params = r.params or ""
         rows += f"""
         <tr>
-          <td class="strategy-name">{r.strategy_class}</td>
-          <td><code>{params}</code></td>
-          <td>{r.symbol}</td>
+          <td class="strategy-name">{_html.escape(r.strategy_class)}</td>
+          <td><code>{_html.escape(params)}</code></td>
+          <td>{_html.escape(r.symbol)}</td>
           <td class="num">{_fmt(r.sharpe_ratio, 3)}</td>
           <td class="num">{_fmt(r.cagr, 4, pct=True)}</td>
           <td class="num">{_fmt(r.max_drawdown_pct, 2, pct=True)}</td>

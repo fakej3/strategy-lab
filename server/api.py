@@ -384,7 +384,9 @@ def _load_schedules() -> list[dict]:
 
 
 def _save_schedules(schedules: list[dict]) -> None:
-    _SCHED_FILE.write_text(json.dumps(schedules, indent=2))
+    tmp = _SCHED_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(schedules, indent=2))
+    tmp.replace(_SCHED_FILE)
 
 
 @router.get("/scheduler")
