@@ -191,7 +191,7 @@ class BacktestJob(BaseJob):
         }
 
 
-def _safe(v: float) -> float:
+def _safe(v: float) -> float | None:
     if math.isnan(v) or math.isinf(v):
-        return 0.0
+        return None
     return v
