@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EdgeLab Research Report — BTCUSDT 1h</title>
+  <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0d1117;
+  --surface:  #161b22;
+  --border:   #30363d;
+  --text:     #e6edf3;
+  --muted:    #8b949e;
+  --accent:   #4FC3F7;
+  --pass:     #238636;
+  --pass-fg:  #3fb950;
+  --reject:   #6e2c2c;
+  --reject-fg:#f85149;
+  --font-mono: 'Courier New', Courier, monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 24px 40px;
+}
+header h1 { font-size: 22px; font-weight: 700; color: var(--accent); letter-spacing: -0.3px; }
+header p  { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+main { max-width: 1200px; margin: 0 auto; padding: 32px 40px; }
+
+section { margin-bottom: 48px; }
+h2 {
+  font-size: 15px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted);
+  border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 20px;
+}
+
+/* Stat tiles */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  margin-bottom: 48px;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.tile-val   { font-size: 24px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.tile-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+.tile-sub   { font-size: 11px; color: var(--muted); }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+.data-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.data-table th {
+  background: var(--surface); color: var(--muted);
+  text-align: left; padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.data-table tr:hover td { background: rgba(255,255,255,0.03); }
+.data-table td.num { text-align: right; }
+.data-table th.num { text-align: right; }
+.strategy-name { font-weight: 600; white-space: nowrap; }
+.data-table code {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--muted); white-space: nowrap;
+}
+
+/* Badges */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.badge.pass   { background: var(--pass); color: var(--pass-fg); }
+.badge.reject { background: var(--reject); color: var(--reject-fg); }
+
+/* Charts */
+.chart-section canvas {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 100%; max-width: 900px;
+}
+
+.empty { color: var(--muted); font-style: italic; padding: 24px 0; }
+
+footer {
+  text-align: center; color: var(--muted); font-size: 11px;
+  padding: 32px; border-top: 1px solid var(--border); margin-top: 48px;
+}
+</style>
+</head>
+<body>
+  <header>
+    <h1>EdgeLab Research Report</h1>
+    <p>BTCUSDT · 1h · 2024-01-01 → 2024-03-31 · Generated 2026-08-18 16:33 UTC</p>
+  </header>
+  <main>
+    
+    <section class="stats-grid">
+      
+        <div class="tile">
+          <div class="tile-val">229395e88e12</div>
+          <div class="tile-label">Session</div>
+          <div class='tile-sub'>BTCUSDT · 1h</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">2024-01-01</div>
+          <div class="tile-label">Period</div>
+          <div class='tile-sub'>→ 2024-03-31</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">20</div>
+          <div class="tile-label">Tested</div>
+          <div class='tile-sub'>strategies</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">0</div>
+          <div class="tile-label">Passed</div>
+          <div class='tile-sub'>quality gate</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">20</div>
+          <div class="tile-label">Rejected</div>
+          <div class='tile-sub'>below threshold</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">-2.380</div>
+          <div class="tile-label">Best Sharpe</div>
+          
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">—</div>
+          <div class="tile-label">Best CAGR</div>
+          
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">6.1s</div>
+          <div class="tile-label">Runtime</div>
+          
+        </div>
+    </section>
+    
+    <section>
+      <h2>Strategy Rankings</h2>
+      
+    <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Strategy</th><th>Params</th><th>Symbol</th>
+          <th class="num">Sharpe</th><th class="num">CAGR</th>
+          <th class="num">Max DD</th><th class="num">Win Rate</th>
+          <th class="num">Prof Factor</th><th class="num">Trades</th>
+          <th>Gate</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:200}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-2.380</td>
+          <td class="num">0.00%</td>
+          <td class="num">6.33%</td>
+          <td class="num">16.67%</td>
+          <td class="num">0.243</td>
+          <td class="num">12</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:200}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-2.380</td>
+          <td class="num">0.00%</td>
+          <td class="num">6.20%</td>
+          <td class="num">18.18%</td>
+          <td class="num">0.214</td>
+          <td class="num">11</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:40}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-2.770</td>
+          <td class="num">0.00%</td>
+          <td class="num">7.29%</td>
+          <td class="num">22.50%</td>
+          <td class="num">0.503</td>
+          <td class="num">40</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:50}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.013</td>
+          <td class="num">0.00%</td>
+          <td class="num">7.41%</td>
+          <td class="num">21.05%</td>
+          <td class="num">0.345</td>
+          <td class="num">19</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:100}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.028</td>
+          <td class="num">0.00%</td>
+          <td class="num">7.31%</td>
+          <td class="num">16.67%</td>
+          <td class="num">0.215</td>
+          <td class="num">18</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:200}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.039</td>
+          <td class="num">0.00%</td>
+          <td class="num">7.17%</td>
+          <td class="num">14.29%</td>
+          <td class="num">0.218</td>
+          <td class="num">14</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:200}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.350</td>
+          <td class="num">0.00%</td>
+          <td class="num">7.62%</td>
+          <td class="num">9.52%</td>
+          <td class="num">0.215</td>
+          <td class="num">21</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:30}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.363</td>
+          <td class="num">0.00%</td>
+          <td class="num">9.03%</td>
+          <td class="num">25.71%</td>
+          <td class="num">0.397</td>
+          <td class="num">35</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:40}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.388</td>
+          <td class="num">0.00%</td>
+          <td class="num">8.88%</td>
+          <td class="num">19.23%</td>
+          <td class="num">0.397</td>
+          <td class="num">26</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:50}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.409</td>
+          <td class="num">0.00%</td>
+          <td class="num">8.98%</td>
+          <td class="num">18.52%</td>
+          <td class="num">0.387</td>
+          <td class="num">27</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:30}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.425</td>
+          <td class="num">0.00%</td>
+          <td class="num">9.10%</td>
+          <td class="num">24.14%</td>
+          <td class="num">0.374</td>
+          <td class="num">29</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:100}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.534</td>
+          <td class="num">0.00%</td>
+          <td class="num">8.51%</td>
+          <td class="num">14.29%</td>
+          <td class="num">0.317</td>
+          <td class="num">28</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:30}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.549</td>
+          <td class="num">0.00%</td>
+          <td class="num">9.24%</td>
+          <td class="num">19.23%</td>
+          <td class="num">0.385</td>
+          <td class="num">26</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:50}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.674</td>
+          <td class="num">0.00%</td>
+          <td class="num">9.26%</td>
+          <td class="num">21.05%</td>
+          <td class="num">0.386</td>
+          <td class="num">38</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:40}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.680</td>
+          <td class="num">0.00%</td>
+          <td class="num">9.63%</td>
+          <td class="num">22.86%</td>
+          <td class="num">0.381</td>
+          <td class="num">35</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:40}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.691</td>
+          <td class="num">0.00%</td>
+          <td class="num">9.17%</td>
+          <td class="num">17.39%</td>
+          <td class="num">0.338</td>
+          <td class="num">23</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:100}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.694</td>
+          <td class="num">0.00%</td>
+          <td class="num">8.88%</td>
+          <td class="num">15.79%</td>
+          <td class="num">0.254</td>
+          <td class="num">19</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:50}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.699</td>
+          <td class="num">0.00%</td>
+          <td class="num">9.22%</td>
+          <td class="num">16.67%</td>
+          <td class="num">0.322</td>
+          <td class="num">24</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:30}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-3.837</td>
+          <td class="num">0.00%</td>
+          <td class="num">9.61%</td>
+          <td class="num">18.87%</td>
+          <td class="num">0.470</td>
+          <td class="num">53</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:100}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-4.136</td>
+          <td class="num">0.00%</td>
+          <td class="num">9.81%</td>
+          <td class="num">9.52%</td>
+          <td class="num">0.237</td>
+          <td class="num">21</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr></tbody>
+    </table>
+    </div>
+    </section>
+    
+    
+    
+    <section>
+      <h2>Strategy Degradation Analysis</h2>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th class="num">Score /100</th>
+            <th class="num">H1 Sharpe</th><th class="num">H2 Sharpe</th>
+            <th class="num">H1 WinRate</th><th class="num">H2 WinRate</th>
+            <th class="num">H1 PF</th><th class="num">H2 PF</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.186</td>
+          <td class="num">-0.931</td>
+          <td class="num">21.05%</td>
+          <td class="num">21.05%</td>
+          <td class="num">0.630</td>
+          <td class="num">0.135</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-2.508</td>
+          <td class="num">-0.239</td>
+          <td class="num">0.00%</td>
+          <td class="num">18.18%</td>
+          <td class="num">0.000</td>
+          <td class="num">0.536</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-2.143</td>
+          <td class="num">-0.212</td>
+          <td class="num">0.00%</td>
+          <td class="num">28.57%</td>
+          <td class="num">0.000</td>
+          <td class="num">0.602</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-2.807</td>
+          <td class="num">-0.181</td>
+          <td class="num">0.00%</td>
+          <td class="num">30.00%</td>
+          <td class="num">0.000</td>
+          <td class="num">0.646</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-3.143</td>
+          <td class="num">-0.148</td>
+          <td class="num">0.00%</td>
+          <td class="num">33.33%</td>
+          <td class="num">0.000</td>
+          <td class="num">0.697</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-1.569</td>
+          <td class="num">-0.288</td>
+          <td class="num">11.11%</td>
+          <td class="num">22.22%</td>
+          <td class="num">0.020</td>
+          <td class="num">0.469</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-2.611</td>
+          <td class="num">-0.321</td>
+          <td class="num">0.00%</td>
+          <td class="num">33.33%</td>
+          <td class="num">0.000</td>
+          <td class="num">0.481</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">95.5</span></td>
+          <td class="num">-0.856</td>
+          <td class="num">-0.217</td>
+          <td class="num">18.18%</td>
+          <td class="num">16.67%</td>
+          <td class="num">0.175</td>
+          <td class="num">0.533</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">94.0</span></td>
+          <td class="num">-0.971</td>
+          <td class="num">-0.154</td>
+          <td class="num">22.22%</td>
+          <td class="num">20.00%</td>
+          <td class="num">0.122</td>
+          <td class="num">0.636</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">88.0</span></td>
+          <td class="num">-0.092</td>
+          <td class="num">-0.648</td>
+          <td class="num">25.00%</td>
+          <td class="num">20.00%</td>
+          <td class="num">0.776</td>
+          <td class="num">0.248</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">80.0</span></td>
+          <td class="num">-0.572</td>
+          <td class="num">-0.183</td>
+          <td class="num">23.08%</td>
+          <td class="num">15.38%</td>
+          <td class="num">0.284</td>
+          <td class="num">0.567</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">78.5</span></td>
+          <td class="num">-0.145</td>
+          <td class="num">-0.643</td>
+          <td class="num">23.08%</td>
+          <td class="num">14.81%</td>
+          <td class="num">0.687</td>
+          <td class="num">0.244</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">77.1</span></td>
+          <td class="num">-0.554</td>
+          <td class="num">-0.214</td>
+          <td class="num">23.08%</td>
+          <td class="num">14.29%</td>
+          <td class="num">0.286</td>
+          <td class="num">0.515</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">74.0</span></td>
+          <td class="num">-0.206</td>
+          <td class="num">-1.070</td>
+          <td class="num">29.41%</td>
+          <td class="num">16.67%</td>
+          <td class="num">0.613</td>
+          <td class="num">0.100</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">70.0</span></td>
+          <td class="num">-0.197</td>
+          <td class="num">-1.837</td>
+          <td class="num">21.43%</td>
+          <td class="num">7.14%</td>
+          <td class="num">0.585</td>
+          <td class="num">0.015</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">70.0</span></td>
+          <td class="num">-0.146</td>
+          <td class="num">-0.916</td>
+          <td class="num">35.29%</td>
+          <td class="num">16.67%</td>
+          <td class="num">0.681</td>
+          <td class="num">0.127</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">70.0</span></td>
+          <td class="num">-0.328</td>
+          <td class="num">-2.934</td>
+          <td class="num">20.00%</td>
+          <td class="num">0.00%</td>
+          <td class="num">0.450</td>
+          <td class="num">0.000</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">70.0</span></td>
+          <td class="num">-0.210</td>
+          <td class="num">-1.130</td>
+          <td class="num">35.71%</td>
+          <td class="num">13.33%</td>
+          <td class="num">0.620</td>
+          <td class="num">0.082</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">70.0</span></td>
+          <td class="num">-0.237</td>
+          <td class="num">-1.660</td>
+          <td class="num">25.00%</td>
+          <td class="num">8.33%</td>
+          <td class="num">0.541</td>
+          <td class="num">0.029</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">70.0</span></td>
+          <td class="num">-0.166</td>
+          <td class="num">-1.543</td>
+          <td class="num">30.77%</td>
+          <td class="num">7.69%</td>
+          <td class="num">0.666</td>
+          <td class="num">0.013</td>
+        </tr></tbody>
+      </table>
+      </div>
+    </section>
+    
+    
+    <section>
+      <h2>Bootstrap Confidence Intervals — EMACrossover</h2>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:16px">
+        200 simulations · 12 trades (5th / 50th / 95th percentile)
+      </p>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th class="num">5th Pct</th>
+            <th class="num">Median</th>
+            <th class="num">95th Pct</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <td>Total Return</td>
+          <td class="num">-8.15%</td>
+          <td class="num">-5.24%</td>
+          <td class="num">-1.09%</td>
+        </tr>
+        <tr>
+          <td>Trade Sharpe</td>
+          <td class="num">-2.9489</td>
+          <td class="num">-0.7353</td>
+          <td class="num">-0.1004</td>
+        </tr>
+        <tr>
+          <td>Win Rate</td>
+          <td class="num">0.00%</td>
+          <td class="num">16.67%</td>
+          <td class="num">33.33%</td>
+        </tr>
+        <tr>
+          <td>Profit Factor</td>
+          <td class="num">0.0000</td>
+          <td class="num">0.2016</td>
+          <td class="num">0.7966</td>
+        </tr>
+        <tr>
+          <td>Expectancy</td>
+          <td class="num">-678.7553</td>
+          <td class="num">-436.6994</td>
+          <td class="num">-90.8517</td>
+        </tr>
+        <tr>
+          <td>Max Drawdown</td>
+          <td class="num">2576.3004</td>
+          <td class="num">5824.1617</td>
+          <td class="num">8391.4845</td>
+        </tr></tbody>
+      </table>
+      </div>
+    </section>
+    
+    <section>
+      <h2>Regime Performance — EMACrossover</h2>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Regime</th>
+            <th class="num">Trades</th>
+            <th class="num">Win Rate</th>
+            <th class="num">Prof Factor</th>
+            <th class="num">Avg PnL</th>
+            <th class="num">Total PnL</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td>Bull</td>
+              <td class="num">10</td>
+              <td class="num">10.00%</td>
+              <td class="num">0.203</td>
+              <td class="num">-509.81</td>
+              <td class="num">-5098.12</td>
+            </tr>
+            <tr>
+              <td>Bear</td>
+              <td class="num">0</td>
+              <td class="num">—</td><td class="num">—</td>
+              <td class="num">—</td><td class="num">—</td>
+            </tr>
+            <tr>
+              <td>Sideways</td>
+              <td class="num">2</td>
+              <td class="num">50.00%</td>
+              <td class="num">0.692</td>
+              <td class="num">-87.04</td>
+              <td class="num">-174.08</td>
+            </tr>
+            <tr>
+              <td>HighVol</td>
+              <td class="num">0</td>
+              <td class="num">—</td><td class="num">—</td>
+              <td class="num">—</td><td class="num">—</td>
+            </tr>
+            <tr>
+              <td>LowVol</td>
+              <td class="num">0</td>
+              <td class="num">—</td><td class="num">—</td>
+              <td class="num">—</td><td class="num">—</td>
+            </tr></tbody>
+      </table>
+      </div>
+    </section>
+  </main>
+  <footer>EdgeLab · Session 229395e88e124a41</footer>
+</body>
+</html>

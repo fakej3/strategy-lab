@@ -1,0 +1,21 @@
+[
+  {
+    "id": "e4a37735-88da-48ce-8d77-9d1a47da378b",
+    "name": "Test Schedule",
+    "frequency": "daily",
+    "hour": 2,
+    "minute": 0,
+    "day_of_week": 1,
+    "day_of_month": 1,
+    "enabled": true,
+    "last_run": null,
+    "config": {
+      "symbols": "BTCUSDT",
+      "intervals": "1h",
+      "start_date": "2024-01-01",
+      "end_date": "2024-12-31",
+      "starting_capital": "100000",
+      "fast_mode": true
+    }
+  }
+]

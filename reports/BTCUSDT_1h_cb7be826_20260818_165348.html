@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EdgeLab Research Report — BTCUSDT 1h</title>
+  <style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0d1117;
+  --surface:  #161b22;
+  --border:   #30363d;
+  --text:     #e6edf3;
+  --muted:    #8b949e;
+  --accent:   #4FC3F7;
+  --pass:     #238636;
+  --pass-fg:  #3fb950;
+  --reject:   #6e2c2c;
+  --reject-fg:#f85149;
+  --font-mono: 'Courier New', Courier, monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 24px 40px;
+}
+header h1 { font-size: 22px; font-weight: 700; color: var(--accent); letter-spacing: -0.3px; }
+header p  { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+main { max-width: 1200px; margin: 0 auto; padding: 32px 40px; }
+
+section { margin-bottom: 48px; }
+h2 {
+  font-size: 15px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted);
+  border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 20px;
+}
+
+/* Stat tiles */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  margin-bottom: 48px;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.tile-val   { font-size: 24px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.tile-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+.tile-sub   { font-size: 11px; color: var(--muted); }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+.data-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.data-table th {
+  background: var(--surface); color: var(--muted);
+  text-align: left; padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.data-table tr:hover td { background: rgba(255,255,255,0.03); }
+.data-table td.num { text-align: right; }
+.data-table th.num { text-align: right; }
+.strategy-name { font-weight: 600; white-space: nowrap; }
+.data-table code {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--muted); white-space: nowrap;
+}
+
+/* Badges */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.badge.pass   { background: var(--pass); color: var(--pass-fg); }
+.badge.reject { background: var(--reject); color: var(--reject-fg); }
+
+/* Charts */
+.chart-section canvas {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 100%; max-width: 900px;
+}
+
+.empty { color: var(--muted); font-style: italic; padding: 24px 0; }
+
+footer {
+  text-align: center; color: var(--muted); font-size: 11px;
+  padding: 32px; border-top: 1px solid var(--border); margin-top: 48px;
+}
+</style>
+</head>
+<body>
+  <header>
+    <h1>EdgeLab Research Report</h1>
+    <p>BTCUSDT · 1h · 2024-01-01 → 2024-12-31 · Generated 2026-08-18 16:53 UTC</p>
+  </header>
+  <main>
+    
+    <section class="stats-grid">
+      
+        <div class="tile">
+          <div class="tile-val">cb7be82605d8</div>
+          <div class="tile-label">Session</div>
+          <div class='tile-sub'>BTCUSDT · 1h</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">2024-01-01</div>
+          <div class="tile-label">Period</div>
+          <div class='tile-sub'>→ 2024-12-31</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">20</div>
+          <div class="tile-label">Tested</div>
+          <div class='tile-sub'>strategies</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">2</div>
+          <div class="tile-label">Passed</div>
+          <div class='tile-sub'>quality gate</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">18</div>
+          <div class="tile-label">Rejected</div>
+          <div class='tile-sub'>below threshold</div>
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">0.735</div>
+          <div class="tile-label">Best Sharpe</div>
+          
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">9.99%</div>
+          <div class="tile-label">Best CAGR</div>
+          
+        </div>
+      
+        <div class="tile">
+          <div class="tile-val">36.5s</div>
+          <div class="tile-label">Runtime</div>
+          
+        </div>
+    </section>
+    
+    <section class="chart-section">
+      <h2>Equity Curves — Passed Strategies</h2>
+      <canvas id="eqCanvas" width="900" height="340"></canvas>
+    </section>
+    <script>
+    (function(){
+      const datasets = [{"label": "EMACrossover {\"fast\": 15, \"slow\": 200}", "values": [100000.0, 100000.0, 100195.29, 99695.36, 98686.37, 98686.37, 98686.37, 99113.89, 97388.19, 96784.37, 96331.92, 96103.82, 96012.17, 98038.46, 97548.5, 96092.8, 94898.29, 96644.72, 95804.75, 95290.28, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94854.17, 94362.42, 94123.56, 95842.73, 96773.03, 97109.92, 97198.89, 97488.16, 96096.68, 95483.86, 96683.01, 97063.5, 96229.49, 95906.09, 97525.27, 97144.07, 97847.52, 98140.26, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96603.98, 96310.03, 97281.77, 99338.56, 100379.52, 100834.05, 101358.37, 99829.37, 100049.22, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 99098.32, 98860.67, 98125.15, 98948.89, 99943.54, 100555.26, 100393.66, 101114.4, 100936.51, 101359.79, 103400.19, 102963.31, 102620.7, 102909.73, 102893.58, 102467.73, 103129.75, 101615.12, 101615.12, 101615.12, 101615.12, 101615.12, 100846.1, 101169.93, 102903.77, 105961.45, 106645.07, 105890.4, 103632.81, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103458.25, 103718.02, 102186.91, 102694.44, 103048.28, 104715.56, 104349.26, 104915.69, 104454.15, 103964.87, 103247.83, 103567.42, 102815.81, 102252.66, 102252.66, 102252.66, 102252.66, 102252.66, 102141.35, 102413.75, 101251.03, 101251.03, 101251.03, 100157.49, 100157.49, 100443.51, 100126.35, 99383.7, 99481.89, 98558.18, 97701.48, 97701.48, 97701.48, 99824.16, 99386.76, 99349.24, 100363.02, 98914.2, 101451.87, 103425.31, 104493.25, 105485.11, 105219.19, 105358.45, 105745.44, 106559.66, 108317.76, 107780.11, 108963.65, 108347.98, 108679.61, 109640.93, 108746.36, 106710.12, 106710.12, 106365.9, 105254.88, 105254.88, 105254.88, 105254.88, 105254.88, 106574.78, 108000.75, 107749.76, 106687.48, 106588.56, 105794.69, 105794.69, 105598.99, 104924.84, 103364.43, 102260.81, 102002.04, 102680.71, 103487.59, 106347.34, 104881.31, 103810.82, 103515.48, 103259.22, 103259.22, 102160.91, 102270.22, 102580.94, 103203.87, 101550.22, 101863.02, 100287.29, 101703.85, 103841.21, 104727.97, 104148.93, 104735.5, 103413.01, 104532.7, 102697.44, 102697.44, 102697.44, 104039.28, 103480.81, 104669.6, 106374.28, 105694.68, 105968.33, 106132.97, 104175.66, 104513.26, 104509.52, 104617.67, 106163.5, 109015.44, 108881.03, 109340.79, 110686.52, 110341.49, 110710.15, 111138.77, 110972.94, 110867.08, 111411.6, 111137.09, 110793.63, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 110279.72, 109782.23, 109782.23, 109782.23, 109782.23, 109782.23, 109782.23, 109782.23, 109782.23, 109782.23, 109782.23, 111109.14, 112073.93, 113892.55, 114832.47, 111647.58, 113809.8, 114548.36, 114201.32, 113596.06, 114987.39, 112153.17, 111162.59]}, {"label": "EMACrossover {\"fast\": 20, \"slow\": 200}", "values": [100000.0, 100000.0, 100195.29, 99695.36, 98776.3, 98776.3, 98776.3, 98924.08, 97254.55, 96650.78, 96362.16, 95753.55, 95661.9, 97688.19, 97198.23, 95742.53, 94322.98, 96069.41, 95229.44, 94951.12, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 94374.58, 93615.58, 93219.55, 94938.72, 95869.02, 96205.91, 96294.88, 96584.15, 95192.67, 94583.59, 95410.14, 95790.63, 94956.62, 94633.22, 96252.4, 95871.2, 96574.65, 96867.39, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95215.33, 95173.02, 96144.76, 98201.55, 99242.51, 99697.04, 100221.36, 98692.36, 98912.21, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97843.71, 97805.04, 97272.31, 98023.8, 99018.45, 99630.17, 99468.57, 100189.31, 100011.42, 100434.7, 102475.1, 102038.22, 101695.61, 101984.64, 101968.49, 101542.64, 102204.66, 100640.66, 100640.66, 100640.66, 100640.66, 100640.66, 99612.77, 99936.6, 101670.44, 104728.12, 105411.74, 104657.07, 102399.48, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102391.4, 102565.39, 100926.31, 101276.61, 101630.45, 103297.73, 102931.43, 103497.86, 103036.32, 102547.04, 101574.06, 101734.17, 100982.56, 100576.82, 100576.82, 100576.82, 100576.82, 100576.82, 100495.18, 100767.58, 99541.97, 99541.97, 99541.97, 98035.61, 98035.61, 97946.88, 97629.72, 96888.26, 97098.97, 96175.26, 95308.77, 95308.77, 95308.77, 97261.84, 96824.44, 96786.92, 97800.7, 96351.88, 98889.55, 100862.99, 101930.93, 102922.79, 102656.87, 102796.13, 103183.12, 103997.34, 105755.44, 105217.79, 106401.33, 105785.66, 106117.29, 107078.61, 106184.04, 104490.51, 104490.51, 104181.56, 103425.61, 103316.76, 103316.76, 103316.76, 103316.76, 104142.21, 105568.18, 105317.19, 104254.91, 104155.99, 103251.05, 103251.05, 103251.05, 102503.23, 100909.67, 100170.42, 99911.65, 101530.69, 102337.57, 105197.32, 103731.29, 102660.8, 102365.46, 102159.56, 102159.56, 101065.34, 100984.98, 101295.7, 101918.63, 100756.07, 101084.59, 99430.46, 101166.35, 103303.71, 104190.47, 103611.43, 104198.0, 102875.51, 103995.2, 102423.74, 101870.46, 101870.46, 103265.97, 102707.5, 103896.29, 105600.97, 104921.37, 105195.02, 105359.66, 103644.58, 103729.58, 103725.84, 103833.99, 105379.82, 108231.76, 108097.35, 108557.11, 109902.84, 109557.81, 109926.47, 110355.09, 110189.26, 110083.4, 110627.92, 110353.41, 110009.95, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 109092.39, 108194.28, 108194.28, 108194.28, 108194.28, 108194.28, 108194.28, 108194.28, 108194.28, 108194.28, 108194.28, 109136.67, 110101.46, 111920.08, 112860.0, 109675.11, 111837.33, 112575.89, 112228.85, 111623.59, 113014.92, 110987.25, 109872.22]}];
+      if (!datasets.length) return;
+      const canvas  = document.getElementById('eqCanvas');
+      if (!canvas) return;
+      const ctx     = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      const PAD = {top:24, right:20, bottom:40, left:80};
+      const colours = ['#4FC3F7','#81C784','#FFB74D','#F06292',
+                       '#CE93D8','#80DEEA','#FFCC02','#FF8A65'];
+
+      let allVals = [];
+      datasets.forEach(d => allVals = allVals.concat(d.values));
+      const vMin = Math.min(...allVals), vMax = Math.max(...allVals);
+      const vRange = vMax - vMin || 1;
+      const maxLen = Math.max(...datasets.map(d => d.values.length));
+
+      function xOf(i)  { return PAD.left + (i/(maxLen-1||1))*(W-PAD.left-PAD.right); }
+      function yOf(v)  { return PAD.top  + (1-(v-vMin)/vRange)*(H-PAD.top-PAD.bottom); }
+
+      // grid
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+      ctx.lineWidth   = 1;
+      for (let g=0; g<=4; g++) {
+        const y = PAD.top + g/4*(H-PAD.top-PAD.bottom);
+        ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W-PAD.right, y); ctx.stroke();
+        const val = vMax - g/4*vRange;
+        ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='11px monospace';
+        ctx.fillText('$'+val.toFixed(0), 4, y+4);
+      }
+
+      // curves
+      datasets.forEach((d, di) => {
+        ctx.strokeStyle = colours[di % colours.length];
+        ctx.lineWidth   = 1.8;
+        ctx.beginPath();
+        d.values.forEach((v, i) => {
+          i===0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v));
+        });
+        ctx.stroke();
+      });
+
+      // legend
+      datasets.forEach((d, di) => {
+        const lx = PAD.left + di*180;
+        if (lx + 160 > W) return;
+        ctx.fillStyle = colours[di % colours.length];
+        ctx.fillRect(lx, H-18, 12, 12);
+        ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font='10px sans-serif';
+        ctx.fillText(d.label.substring(0,22), lx+16, H-8);
+      });
+    })();
+    </script>
+    <section>
+      <h2>Strategy Rankings</h2>
+      
+    <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Strategy</th><th>Params</th><th>Symbol</th>
+          <th class="num">Sharpe</th><th class="num">CAGR</th>
+          <th class="num">Max DD</th><th class="num">Win Rate</th>
+          <th class="num">Prof Factor</th><th class="num">Trades</th>
+          <th>Gate</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:200}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">0.735</td>
+          <td class="num">9.99%</td>
+          <td class="num">9.42%</td>
+          <td class="num">29.79%</td>
+          <td class="num">1.358</td>
+          <td class="num">47</td>
+          <td><span class="badge warning">NEEDS IMPROVEMENT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:200}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">0.646</td>
+          <td class="num">8.71%</td>
+          <td class="num">10.73%</td>
+          <td class="num">29.27%</td>
+          <td class="num">1.329</td>
+          <td class="num">41</td>
+          <td><span class="badge warning">NEEDS IMPROVEMENT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:200}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">0.453</td>
+          <td class="num">5.71%</td>
+          <td class="num">10.30%</td>
+          <td class="num">25.00%</td>
+          <td class="num">1.176</td>
+          <td class="num">56</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:200}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-0.011</td>
+          <td class="num">-1.29%</td>
+          <td class="num">11.21%</td>
+          <td class="num">19.51%</td>
+          <td class="num">0.969</td>
+          <td class="num">82</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:40}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-0.269</td>
+          <td class="num">-4.87%</td>
+          <td class="num">15.38%</td>
+          <td class="num">28.28%</td>
+          <td class="num">0.914</td>
+          <td class="num">99</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:100}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-0.305</td>
+          <td class="num">-5.67%</td>
+          <td class="num">16.46%</td>
+          <td class="num">20.00%</td>
+          <td class="num">0.886</td>
+          <td class="num">75</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:50}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-0.465</td>
+          <td class="num">-7.71%</td>
+          <td class="num">14.43%</td>
+          <td class="num">24.42%</td>
+          <td class="num">0.859</td>
+          <td class="num">86</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:50}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-0.603</td>
+          <td class="num">-9.74%</td>
+          <td class="num">15.20%</td>
+          <td class="num">25.96%</td>
+          <td class="num">0.835</td>
+          <td class="num">104</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:100}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-0.705</td>
+          <td class="num">-11.71%</td>
+          <td class="num">18.59%</td>
+          <td class="num">19.44%</td>
+          <td class="num">0.782</td>
+          <td class="num">72</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:40}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-0.734</td>
+          <td class="num">-11.64%</td>
+          <td class="num">15.78%</td>
+          <td class="num">22.95%</td>
+          <td class="num">0.825</td>
+          <td class="num">122</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:100}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-0.848</td>
+          <td class="num">-13.54%</td>
+          <td class="num">16.87%</td>
+          <td class="num">15.38%</td>
+          <td class="num">0.779</td>
+          <td class="num">104</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:50}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-0.924</td>
+          <td class="num">-14.71%</td>
+          <td class="num">18.97%</td>
+          <td class="num">22.90%</td>
+          <td class="num">0.783</td>
+          <td class="num">131</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:20,&quot;slow&quot;:30}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-1.111</td>
+          <td class="num">-17.22%</td>
+          <td class="num">19.56%</td>
+          <td class="num">24.79%</td>
+          <td class="num">0.753</td>
+          <td class="num">121</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:15,&quot;slow&quot;:30}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-1.350</td>
+          <td class="num">-20.32%</td>
+          <td class="num">21.81%</td>
+          <td class="num">22.92%</td>
+          <td class="num">0.734</td>
+          <td class="num">144</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:100}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-1.397</td>
+          <td class="num">-21.48%</td>
+          <td class="num">22.19%</td>
+          <td class="num">16.43%</td>
+          <td class="num">0.692</td>
+          <td class="num">140</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:40}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-1.458</td>
+          <td class="num">-22.15%</td>
+          <td class="num">23.81%</td>
+          <td class="num">22.44%</td>
+          <td class="num">0.714</td>
+          <td class="num">156</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:10,&quot;slow&quot;:30}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-1.764</td>
+          <td class="num">-26.22%</td>
+          <td class="num">29.09%</td>
+          <td class="num">21.14%</td>
+          <td class="num">0.698</td>
+          <td class="num">175</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:50}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-2.077</td>
+          <td class="num">-31.28%</td>
+          <td class="num">32.18%</td>
+          <td class="num">17.95%</td>
+          <td class="num">0.640</td>
+          <td class="num">195</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:30}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-2.322</td>
+          <td class="num">-35.10%</td>
+          <td class="num">37.10%</td>
+          <td class="num">20.49%</td>
+          <td class="num">0.659</td>
+          <td class="num">244</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td class="strategy-name">EMACrossover</td>
+          <td><code>{&quot;fast&quot;:5,&quot;slow&quot;:40}</code></td>
+          <td>BTCUSDT</td>
+          <td class="num">-2.490</td>
+          <td class="num">-36.87%</td>
+          <td class="num">38.14%</td>
+          <td class="num">18.64%</td>
+          <td class="num">0.616</td>
+          <td class="num">220</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr></tbody>
+    </table>
+    </div>
+    </section>
+    
+    <section>
+      <h2>Walk-Forward Results</h2>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th class="num">WF Return</th>
+            <th class="num">Sharpe</th>
+            <th>Gate</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">6.83%</td>
+          <td class="num">0.646</td>
+          <td><span class="badge warning">NEEDS IMPROVEMENT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">5.23%</td>
+          <td class="num">0.735</td>
+          <td><span class="badge warning">NEEDS IMPROVEMENT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">2.63%</td>
+          <td class="num">0.453</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-2.79%</td>
+          <td class="num">-0.011</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-2.94%</td>
+          <td class="num">-0.269</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-6.04%</td>
+          <td class="num">-0.603</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-7.27%</td>
+          <td class="num">-0.734</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-7.35%</td>
+          <td class="num">-0.924</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-8.04%</td>
+          <td class="num">-0.465</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-8.57%</td>
+          <td class="num">-0.305</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-10.05%</td>
+          <td class="num">-0.848</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-10.13%</td>
+          <td class="num">-1.397</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-11.42%</td>
+          <td class="num">-1.111</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-12.02%</td>
+          <td class="num">-1.350</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-12.46%</td>
+          <td class="num">-0.705</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-13.62%</td>
+          <td class="num">-1.458</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-19.24%</td>
+          <td class="num">-1.764</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-19.57%</td>
+          <td class="num">-2.077</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-24.40%</td>
+          <td class="num">-2.322</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-26.31%</td>
+          <td class="num">-2.490</td>
+          <td><span class="badge reject">REJECT</span></td>
+        </tr></tbody>
+      </table>
+      </div>
+    </section>
+    
+    <section>
+      <h2>Monte Carlo Summary</h2>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th class="num">Median Return</th>
+            <th class="num">5th Pct</th>
+            <th class="num">95th Pct</th>
+            <th class="num">Prob Positive</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">10.38%</td>
+          <td class="num">-11.72%</td>
+          <td class="num">34.93%</td>
+          <td class="num">78.40%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">6.93%</td>
+          <td class="num">-13.24%</td>
+          <td class="num">31.75%</td>
+          <td class="num">69.00%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">5.24%</td>
+          <td class="num">-16.69%</td>
+          <td class="num">31.21%</td>
+          <td class="num">63.20%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-2.58%</td>
+          <td class="num">-21.00%</td>
+          <td class="num">24.38%</td>
+          <td class="num">43.20%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-4.42%</td>
+          <td class="num">-27.72%</td>
+          <td class="num">20.85%</td>
+          <td class="num">36.80%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-6.32%</td>
+          <td class="num">-31.88%</td>
+          <td class="num">20.83%</td>
+          <td class="num">37.60%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-8.01%</td>
+          <td class="num">-31.44%</td>
+          <td class="num">16.69%</td>
+          <td class="num">28.00%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-10.33%</td>
+          <td class="num">-33.49%</td>
+          <td class="num">17.75%</td>
+          <td class="num">24.80%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-11.77%</td>
+          <td class="num">-34.17%</td>
+          <td class="num">19.12%</td>
+          <td class="num">21.80%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-12.76%</td>
+          <td class="num">-36.84%</td>
+          <td class="num">14.15%</td>
+          <td class="num">21.20%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-14.33%</td>
+          <td class="num">-39.64%</td>
+          <td class="num">14.33%</td>
+          <td class="num">17.20%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-16.11%</td>
+          <td class="num">-38.02%</td>
+          <td class="num">13.22%</td>
+          <td class="num">16.40%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-18.73%</td>
+          <td class="num">-42.41%</td>
+          <td class="num">9.06%</td>
+          <td class="num">13.00%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-20.38%</td>
+          <td class="num">-46.89%</td>
+          <td class="num">5.51%</td>
+          <td class="num">9.80%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-22.09%</td>
+          <td class="num">-44.65%</td>
+          <td class="num">2.16%</td>
+          <td class="num">6.40%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-22.80%</td>
+          <td class="num">-45.55%</td>
+          <td class="num">4.20%</td>
+          <td class="num">8.40%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-26.04%</td>
+          <td class="num">-51.17%</td>
+          <td class="num">2.20%</td>
+          <td class="num">6.60%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-33.53%</td>
+          <td class="num">-55.42%</td>
+          <td class="num">-6.48%</td>
+          <td class="num">1.20%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-35.85%</td>
+          <td class="num">-59.50%</td>
+          <td class="num">-6.99%</td>
+          <td class="num">2.00%</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num">-36.98%</td>
+          <td class="num">-60.77%</td>
+          <td class="num">-11.28%</td>
+          <td class="num">1.00%</td>
+        </tr></tbody>
+      </table>
+      </div>
+    </section>
+    
+    <section>
+      <h2>Strategy Degradation Analysis</h2>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th class="num">Score /100</th>
+            <th class="num">H1 Sharpe</th><th class="num">H2 Sharpe</th>
+            <th class="num">H1 WinRate</th><th class="num">H2 WinRate</th>
+            <th class="num">H1 PF</th><th class="num">H2 PF</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.140</td>
+          <td class="num">-0.112</td>
+          <td class="num">12.86%</td>
+          <td class="num">20.00%</td>
+          <td class="num">0.643</td>
+          <td class="num">0.732</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.070</td>
+          <td class="num">0.029</td>
+          <td class="num">17.07%</td>
+          <td class="num">21.95%</td>
+          <td class="num">0.818</td>
+          <td class="num">1.096</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.112</td>
+          <td class="num">-0.061</td>
+          <td class="num">21.54%</td>
+          <td class="num">24.24%</td>
+          <td class="num">0.709</td>
+          <td class="num">0.842</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.116</td>
+          <td class="num">-0.060</td>
+          <td class="num">13.46%</td>
+          <td class="num">17.31%</td>
+          <td class="num">0.708</td>
+          <td class="num">0.836</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.051</td>
+          <td class="num">0.110</td>
+          <td class="num">25.00%</td>
+          <td class="num">25.00%</td>
+          <td class="num">0.873</td>
+          <td class="num">1.421</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.079</td>
+          <td class="num">-0.058</td>
+          <td class="num">21.31%</td>
+          <td class="num">24.59%</td>
+          <td class="num">0.787</td>
+          <td class="num">0.853</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.080</td>
+          <td class="num">-0.050</td>
+          <td class="num">25.00%</td>
+          <td class="num">26.92%</td>
+          <td class="num">0.789</td>
+          <td class="num">0.873</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.120</td>
+          <td class="num">0.013</td>
+          <td class="num">16.22%</td>
+          <td class="num">23.68%</td>
+          <td class="num">0.705</td>
+          <td class="num">1.036</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.079</td>
+          <td class="num">-0.036</td>
+          <td class="num">20.93%</td>
+          <td class="num">27.91%</td>
+          <td class="num">0.797</td>
+          <td class="num">0.911</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">100.0</span></td>
+          <td class="num">-0.172</td>
+          <td class="num">-0.032</td>
+          <td class="num">13.89%</td>
+          <td class="num">25.00%</td>
+          <td class="num">0.629</td>
+          <td class="num">0.918</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">97.5</span></td>
+          <td class="num">-0.045</td>
+          <td class="num">0.189</td>
+          <td class="num">30.43%</td>
+          <td class="num">29.17%</td>
+          <td class="num">0.897</td>
+          <td class="num">1.860</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">97.1</span></td>
+          <td class="num">-0.101</td>
+          <td class="num">0.213</td>
+          <td class="num">30.00%</td>
+          <td class="num">28.57%</td>
+          <td class="num">0.788</td>
+          <td class="num">1.994</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">91.0</span></td>
+          <td class="num">-0.045</td>
+          <td class="num">-0.021</td>
+          <td class="num">30.61%</td>
+          <td class="num">26.00%</td>
+          <td class="num">0.875</td>
+          <td class="num">0.945</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">90.5</span></td>
+          <td class="num">-0.124</td>
+          <td class="num">-0.104</td>
+          <td class="num">24.36%</td>
+          <td class="num">20.51%</td>
+          <td class="num">0.681</td>
+          <td class="num">0.739</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">90.0</span></td>
+          <td class="num">-0.091</td>
+          <td class="num">-0.117</td>
+          <td class="num">25.00%</td>
+          <td class="num">20.83%</td>
+          <td class="num">0.751</td>
+          <td class="num">0.721</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">87.0</span></td>
+          <td class="num">-0.136</td>
+          <td class="num">-0.169</td>
+          <td class="num">20.91%</td>
+          <td class="num">16.36%</td>
+          <td class="num">0.638</td>
+          <td class="num">0.600</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">85.2</span></td>
+          <td class="num">-0.089</td>
+          <td class="num">-0.144</td>
+          <td class="num">24.14%</td>
+          <td class="num">18.18%</td>
+          <td class="num">0.752</td>
+          <td class="num">0.661</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">85.1</span></td>
+          <td class="num">-0.117</td>
+          <td class="num">-0.086</td>
+          <td class="num">28.33%</td>
+          <td class="num">21.31%</td>
+          <td class="num">0.708</td>
+          <td class="num">0.788</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">84.5</span></td>
+          <td class="num">-0.128</td>
+          <td class="num">-0.155</td>
+          <td class="num">20.62%</td>
+          <td class="num">15.31%</td>
+          <td class="num">0.658</td>
+          <td class="num">0.628</td>
+        </tr>
+        <tr>
+          <td>EMACrossover</td>
+          <td class="num"><span class="badge pass">83.5</span></td>
+          <td class="num">-0.139</td>
+          <td class="num">-0.128</td>
+          <td class="num">23.77%</td>
+          <td class="num">17.21%</td>
+          <td class="num">0.630</td>
+          <td class="num">0.680</td>
+        </tr></tbody>
+      </table>
+      </div>
+    </section>
+    
+    
+    <section>
+      <h2>Bootstrap Confidence Intervals — EMACrossover</h2>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:16px">
+        200 simulations · 47 trades (5th / 50th / 95th percentile)
+      </p>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th class="num">5th Pct</th>
+            <th class="num">Median</th>
+            <th class="num">95th Pct</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <td>Total Return</td>
+          <td class="num">-10.79%</td>
+          <td class="num">10.64%</td>
+          <td class="num">38.04%</td>
+        </tr>
+        <tr>
+          <td>Trade Sharpe</td>
+          <td class="num">-0.1818</td>
+          <td class="num">0.1052</td>
+          <td class="num">0.3146</td>
+        </tr>
+        <tr>
+          <td>Win Rate</td>
+          <td class="num">19.15%</td>
+          <td class="num">29.79%</td>
+          <td class="num">42.55%</td>
+        </tr>
+        <tr>
+          <td>Profit Factor</td>
+          <td class="num">0.6501</td>
+          <td class="num">1.3785</td>
+          <td class="num">2.5903</td>
+        </tr>
+        <tr>
+          <td>Expectancy</td>
+          <td class="num">-229.6045</td>
+          <td class="num">226.4802</td>
+          <td class="num">809.3754</td>
+        </tr>
+        <tr>
+          <td>Max Drawdown</td>
+          <td class="num">4994.1049</td>
+          <td class="num">9194.9998</td>
+          <td class="num">17560.7399</td>
+        </tr></tbody>
+      </table>
+      </div>
+    </section>
+    
+    <section>
+      <h2>Regime Performance — EMACrossover</h2>
+      <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Regime</th>
+            <th class="num">Trades</th>
+            <th class="num">Win Rate</th>
+            <th class="num">Prof Factor</th>
+            <th class="num">Avg PnL</th>
+            <th class="num">Total PnL</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td>Bull</td>
+              <td class="num">29</td>
+              <td class="num">34.48%</td>
+              <td class="num">1.573</td>
+              <td class="num">360.65</td>
+              <td class="num">10458.82</td>
+            </tr>
+            <tr>
+              <td>Bear</td>
+              <td class="num">3</td>
+              <td class="num">0.00%</td>
+              <td class="num">0.000</td>
+              <td class="num">-592.82</td>
+              <td class="num">-1778.47</td>
+            </tr>
+            <tr>
+              <td>Sideways</td>
+              <td class="num">14</td>
+              <td class="num">21.43%</td>
+              <td class="num">0.814</td>
+              <td class="num">-106.42</td>
+              <td class="num">-1489.95</td>
+            </tr>
+            <tr>
+              <td>HighVol</td>
+              <td class="num">0</td>
+              <td class="num">—</td><td class="num">—</td>
+              <td class="num">—</td><td class="num">—</td>
+            </tr>
+            <tr>
+              <td>LowVol</td>
+              <td class="num">1</td>
+              <td class="num">100.00%</td>
+              <td class="num">999.000</td>
+              <td class="num">2831.44</td>
+              <td class="num">2831.44</td>
+            </tr></tbody>
+      </table>
+      </div>
+    </section>
+  </main>
+  <footer>EdgeLab · Session cb7be82605d84458</footer>
+</body>
+</html>

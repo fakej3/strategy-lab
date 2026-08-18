@@ -1,0 +1,334 @@
+{
+  "session_id": "686c813422184778a5a01a2e31587109",
+  "symbol": "BTCUSDT",
+  "interval": "1h",
+  "started_at": "2026-08-18T16:52:09.602240+00:00",
+  "finished_at": null,
+  "elapsed_secs": 11.017178538999815,
+  "n_tested": 20,
+  "n_passed": 2,
+  "n_rejected": 18,
+  "n_errors": 0,
+  "strategies": [
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 5,
+        "slow": 30
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 244,
+      "net_profit": -35176.38168008878,
+      "total_return": -0.3517638168008878,
+      "max_drawdown_pct": 0.371023941397417,
+      "sharpe_ratio": -2.3216316479214547,
+      "calmar_ratio": -0.9460186649078348,
+      "cagr": -0.3509955736896272
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 5,
+        "slow": 40
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 220,
+      "net_profit": -36953.72190125907,
+      "total_return": -0.36953721901259073,
+      "max_drawdown_pct": 0.381350033124765,
+      "sharpe_ratio": -2.4902213180547763,
+      "calmar_ratio": -0.96693866460815,
+      "cagr": -0.36874209177793404
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 5,
+        "slow": 50
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 195,
+      "net_profit": -31348.801664069135,
+      "total_return": -0.31348801664069137,
+      "max_drawdown_pct": 0.32175922450057465,
+      "sharpe_ratio": -2.0774157058894533,
+      "calmar_ratio": -0.9720999871775263,
+      "cagr": -0.3127821380112594
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 5,
+        "slow": 100
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 140,
+      "net_profit": -21536.030996339323,
+      "total_return": -0.21536030996339323,
+      "max_drawdown_pct": 0.22188760243982583,
+      "sharpe_ratio": -1.3974567746831434,
+      "calmar_ratio": -0.9682388388178,
+      "cagr": -0.21484019453440262
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 5,
+        "slow": 200
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 22.8,
+      "total_trades": 82,
+      "net_profit": -1290.594071609623,
+      "total_return": -0.012905940716096229,
+      "max_drawdown_pct": 0.11210429391660884,
+      "sharpe_ratio": -0.011180691681003609,
+      "calmar_ratio": -0.11481189562302378,
+      "cagr": -0.012870906492046474
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 10,
+        "slow": 30
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 175,
+      "net_profit": -26280.629364494263,
+      "total_return": -0.2628062936449426,
+      "max_drawdown_pct": 0.2909491250064866,
+      "sharpe_ratio": -1.7639856698858283,
+      "calmar_ratio": -0.9011606473898178,
+      "cagr": -0.2621919018483465
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 10,
+        "slow": 40
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 156,
+      "net_profit": -22199.375861489316,
+      "total_return": -0.22199375861489315,
+      "max_drawdown_pct": 0.23806146573144038,
+      "sharpe_ratio": -1.4578167966716042,
+      "calmar_ratio": -0.9302638716033013,
+      "cagr": -0.22145998079088636
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 10,
+        "slow": 50
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 131,
+      "net_profit": -14749.152906524425,
+      "total_return": -0.14749152906524424,
+      "max_drawdown_pct": 0.18965190206010865,
+      "sharpe_ratio": -0.9243153110196922,
+      "calmar_ratio": -0.7757357650690515,
+      "cagr": -0.1471197633413992
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 10,
+        "slow": 100
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 104,
+      "net_profit": -13569.596315414514,
+      "total_return": -0.13569596315414514,
+      "max_drawdown_pct": 0.16869180575772744,
+      "sharpe_ratio": -0.8478066729910206,
+      "calmar_ratio": -0.8023597634864739,
+      "cagr": -0.13535151736987638
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 10,
+        "slow": 200
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 40.8,
+      "total_trades": 56,
+      "net_profit": 5731.063435035248,
+      "total_return": 0.05731063435035248,
+      "max_drawdown_pct": 0.10302925863553498,
+      "sharpe_ratio": 0.4530439042142925,
+      "calmar_ratio": 0.5546934651366084,
+      "cagr": 0.057149656483000744
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 15,
+        "slow": 30
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 144,
+      "net_profit": -20365.261997534253,
+      "total_return": -0.20365261997534254,
+      "max_drawdown_pct": 0.2181269120665511,
+      "sharpe_ratio": -1.350395304992568,
+      "calmar_ratio": -0.9313705875637249,
+      "cagr": -0.20315699025488465
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 15,
+        "slow": 40
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 122,
+      "net_profit": -11670.436402664505,
+      "total_return": -0.11670436402664505,
+      "max_drawdown_pct": 0.15776103566671476,
+      "sharpe_ratio": -0.7337027334995864,
+      "calmar_ratio": -0.7378553523628291,
+      "cagr": -0.11640482456098866
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 15,
+        "slow": 50
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 104,
+      "net_profit": -9768.138279509527,
+      "total_return": -0.09768138279509526,
+      "max_drawdown_pct": 0.15203475574591663,
+      "sharpe_ratio": -0.6028388319178979,
+      "calmar_ratio": -0.6408267583751955,
+      "cagr": -0.09742793968502039
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 15,
+        "slow": 100
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 22.8,
+      "total_trades": 75,
+      "net_profit": -5686.430021204636,
+      "total_return": -0.056864300212046366,
+      "max_drawdown_pct": 0.16458128233411876,
+      "sharpe_ratio": -0.304602971933805,
+      "calmar_ratio": -0.3445921918517892,
+      "cagr": -0.056713424817292135
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 15,
+        "slow": 200
+      },
+      "gate_decision": "NEEDS IMPROVEMENT",
+      "gate_score": 56.4,
+      "total_trades": 47,
+      "net_profit": 10021.844905215228,
+      "total_return": 0.10021844905215228,
+      "max_drawdown_pct": 0.09416518735467594,
+      "sharpe_ratio": 0.7354419217604531,
+      "calmar_ratio": 1.0612348804862013,
+      "cagr": 0.09993138134830026
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 20,
+        "slow": 30
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 29.8,
+      "total_trades": 121,
+      "net_profit": -17262.774540749495,
+      "total_return": -0.17262774540749495,
+      "max_drawdown_pct": 0.1955731218509149,
+      "sharpe_ratio": -1.1114239978827367,
+      "calmar_ratio": -0.880485271693412,
+      "cagr": -0.17219925332883157
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 20,
+        "slow": 40
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 22.8,
+      "total_trades": 99,
+      "net_profit": -4883.680488179569,
+      "total_return": -0.04883680488179569,
+      "max_drawdown_pct": 0.1538464095521054,
+      "sharpe_ratio": -0.2691621595221452,
+      "calmar_ratio": -0.31659285938000326,
+      "cagr": -0.048706674705448094
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 20,
+        "slow": 50
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 22.8,
+      "total_trades": 86,
+      "net_profit": -7734.248181404575,
+      "total_return": -0.07734248181404575,
+      "max_drawdown_pct": 0.14428469847668343,
+      "sharpe_ratio": -0.4645992200868605,
+      "calmar_ratio": -0.5346341865724601,
+      "cagr": -0.07713953240493432
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 20,
+        "slow": 100
+      },
+      "gate_decision": "REJECT",
+      "gate_score": 22.8,
+      "total_trades": 72,
+      "net_profit": -11742.384003974672,
+      "total_return": -0.11742384003974672,
+      "max_drawdown_pct": 0.18592539147578643,
+      "sharpe_ratio": -0.7049703720109355,
+      "calmar_ratio": -0.6299439682815504,
+      "cagr": -0.11712257891055766
+    },
+    {
+      "strategy_class": "EMACrossover",
+      "params": {
+        "fast": 20,
+        "slow": 200
+      },
+      "gate_decision": "NEEDS IMPROVEMENT",
+      "gate_score": 56.4,
+      "total_trades": 41,
+      "net_profit": 8731.476358260217,
+      "total_return": 0.08731476358260218,
+      "max_drawdown_pct": 0.10728449933294018,
+      "sharpe_ratio": 0.6460968273312454,
+      "calmar_ratio": 0.8115441006527032,
+      "cagr": 0.08706610252512648
+    }
+  ]
+}
