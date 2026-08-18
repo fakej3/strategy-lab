@@ -146,14 +146,14 @@ def test_full_pipeline_saves_results():
         )
         run = ResearchPipeline(cfg).execute()
 
-        assert run.n_tested == 20, f"Expected 20 tested, got {run.n_tested}"
+        assert run.n_tested >= 20, f"Expected ≥20 tested, got {run.n_tested}"
         assert run.n_errors == 0, f"Expected 0 errors, got {run.n_errors}: {run.errors}"
 
-        # All 20 results must be persisted
+        # All tested results must be persisted
         storage = ResearchStorage(db_path)
-        all_results = storage.get_strategy_results(limit=50)
-        assert len(all_results) == 20, \
-            f"Expected 20 results in DB, got {len(all_results)}"
+        all_results = storage.get_strategy_results(limit=200)
+        assert len(all_results) == run.n_tested, \
+            f"Expected {run.n_tested} results in DB, got {len(all_results)}"
 
         # At least some must pass quality gate
         passed = [r for r in all_results if r.gate_decision != "REJECT"]

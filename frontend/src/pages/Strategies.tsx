@@ -241,13 +241,15 @@ export function Strategies() {
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <button
-                      onClick={() => deploy(r)}
-                      className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 bg-green/10 border border-green/20 text-green text-[10px] font-bold rounded hover:bg-green/20 transition-all"
-                    >
-                      <CandlestickChart size={10} />
-                      Deploy
-                    </button>
+                    {r.gate_decision.toUpperCase() !== 'REJECT' && (
+                      <button
+                        onClick={() => deploy(r)}
+                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 bg-green/10 border border-green/20 text-green text-[10px] font-bold rounded hover:bg-green/20 transition-all"
+                      >
+                        <CandlestickChart size={10} />
+                        Deploy
+                      </button>
+                    )}
                   </td>
                 </tr>
               )

@@ -284,6 +284,20 @@ async def api_bot_start(request: Request, _: AuthUser) -> JSONResponse:
     if capital <= 0:
         raise HTTPException(status_code=422, detail="capital must be > 0")
 
+    # Block deployment of strategies that have never passed the quality gate.
+    # If the strategy has ANY non-REJECT result, allow deployment.
+    storage = ResearchStorage(str(_DB_PATH))
+    all_results = storage.get_strategy_results(limit=1000)
+    strategy_results = [r for r in all_results if r.strategy_class == strategy]
+    if strategy_results:
+        has_passing = any(r.gate_decision != "REJECT" for r in strategy_results)
+        if not has_passing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Strategy '{strategy}' has only REJECT results — cannot deploy. "
+                       "Run research with different parameters to find a passing configuration.",
+            )
+
     ok, err = bot_manager.start(
         capital=capital, symbols=symbols, intervals=intervals,
         strategy=strategy, db_path=db_path, log_path=log_path,

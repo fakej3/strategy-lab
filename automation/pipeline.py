@@ -51,6 +51,24 @@ STRATEGY_PARAMETER_SPACES: dict[str, dict[str, list]] = {
         "fast": [5, 10, 15, 20],
         "slow": [30, 40, 50, 100, 200],
     },
+    "RSIMeanReversion": {
+        "period":     [7, 14, 21],
+        "oversold":   [25.0, 30.0],
+        "overbought": [65.0, 70.0, 75.0],
+    },
+    "BollingerBand": {
+        "period":  [10, 20, 30],
+        "num_std": [1.5, 2.0, 2.5],
+    },
+    "MACDCrossover": {
+        "fast":   [8, 12],
+        "slow":   [21, 26],
+        "signal": [7, 9],
+    },
+    "DonchianBreakout": {
+        "entry_period": [10, 20, 30, 55],
+        "exit_period":  [5, 10, 20],
+    },
 }
 
 
