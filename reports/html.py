@@ -64,7 +64,7 @@ def _stats_grid(
 
     return f"""
     <section class="stats-grid">
-      {tile("Session", session_id[:12], f"{symbol} · {interval}")}
+      {tile("Session", session_id[:12], f"{_html.escape(symbol)} · {_html.escape(interval)}")}
       {tile("Period", f"{start_date}", f"→ {end_date}")}
       {tile("Tested", str(n_tested), "strategies")}
       {tile("Passed", str(n_pass), "quality gate")}
@@ -141,7 +141,7 @@ def _chart_section(results: list[StrategyResult]) -> str:
     if not datasets:
         return ""
 
-    data_js = json.dumps(datasets)
+    data_js = json.dumps(datasets).replace("<", "\\u003c").replace(">", "\\u003e")
 
     return f"""
     <section class="chart-section">
@@ -213,7 +213,7 @@ def _mc_section(results: list[StrategyResult]) -> str:
     for r in sorted(rows, key=lambda x: -(x.mc_median_return or 0)):
         table_rows += f"""
         <tr>
-          <td>{r.strategy_class}</td>
+          <td>{_html.escape(r.strategy_class)}</td>
           <td class="num">{_fmt(r.mc_median_return, 2, pct=True)}</td>
           <td class="num">{_fmt(r.mc_pct5_return,   2, pct=True)}</td>
           <td class="num">{_fmt(r.mc_pct95_return,  2, pct=True)}</td>
@@ -256,7 +256,7 @@ def _degradation_section(results: list[StrategyResult]) -> str:
         score_cls = "pass" if score is not None and score >= 70 else "reject"
         table_rows += f"""
         <tr>
-          <td>{r.strategy_class}</td>
+          <td>{_html.escape(r.strategy_class)}</td>
           <td class="num"><span class="badge {score_cls}">{score_str}</span></td>
           <td class="num">{_fmt(d.get('first_half_sharpe'), 3)}</td>
           <td class="num">{_fmt(d.get('second_half_sharpe'), 3)}</td>
@@ -305,7 +305,7 @@ def _robustness_section(results: list[StrategyResult]) -> str:
         rob_cls = "pass" if rob is not None and rob >= 60 else "reject"
         table_rows += f"""
         <tr>
-          <td>{r.strategy_class}</td>
+          <td>{_html.escape(r.strategy_class)}</td>
           <td class="num"><span class="badge {rob_cls}">{_fmt(rob, 1)}</span></td>
           <td class="num">{_fmt(stab, 1)}</td>
           <td class="num">{d.get('n_neighbors', '—')}</td>
@@ -387,7 +387,7 @@ def _bootstrap_section(results: list[StrategyResult]) -> str:
 
     return f"""
     <section>
-      <h2>Bootstrap Confidence Intervals — {best.strategy_class}</h2>
+      <h2>Bootstrap Confidence Intervals — {_html.escape(best.strategy_class)}</h2>
       <p style="color:var(--muted);font-size:12px;margin-bottom:16px">
         {n_sim} simulations · {n_tr} trades (5th / 50th / 95th percentile)
       </p>
@@ -428,7 +428,7 @@ def _regime_section(results: list[StrategyResult]) -> str:
         if n == 0:
             table_rows += f"""
             <tr>
-              <td>{regime}</td>
+              <td>{_html.escape(str(regime))}</td>
               <td class="num">0</td>
               <td class="num">—</td><td class="num">—</td>
               <td class="num">—</td><td class="num">—</td>
@@ -438,7 +438,7 @@ def _regime_section(results: list[StrategyResult]) -> str:
             pf = stats.get("profit_factor")
             table_rows += f"""
             <tr>
-              <td>{regime}</td>
+              <td>{_html.escape(str(regime))}</td>
               <td class="num">{n}</td>
               <td class="num">{_fmt(wr, 2, pct=True)}</td>
               <td class="num">{_fmt(pf, 3)}</td>
@@ -448,7 +448,7 @@ def _regime_section(results: list[StrategyResult]) -> str:
 
     return f"""
     <section>
-      <h2>Regime Performance — {best.strategy_class}</h2>
+      <h2>Regime Performance — {_html.escape(best.strategy_class)}</h2>
       <div class="table-wrap">
       <table class="data-table">
         <thead>
@@ -476,7 +476,7 @@ def _wf_section(results: list[StrategyResult]) -> str:
     for r in sorted(rows, key=lambda x: -(x.walk_forward_return or 0)):
         table_rows += f"""
         <tr>
-          <td>{r.strategy_class}</td>
+          <td>{_html.escape(r.strategy_class)}</td>
           <td class="num">{_fmt(r.walk_forward_return, 2, pct=True)}</td>
           <td class="num">{_fmt(r.sharpe_ratio, 3)}</td>
           <td><span class="badge {_decision_class(r.gate_decision)}">{r.gate_decision}</span></td>
@@ -648,13 +648,13 @@ def generate_html_report(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EdgeLab Research Report — {symbol} {interval}</title>
+  <title>EdgeLab Research Report — {_html.escape(symbol)} {_html.escape(interval)}</title>
   <style>{_CSS}</style>
 </head>
 <body>
   <header>
     <h1>EdgeLab Research Report</h1>
-    <p>{symbol} · {interval} · {start_date} → {end_date} · Generated {generated_at}</p>
+    <p>{_html.escape(symbol)} · {_html.escape(interval)} · {_html.escape(start_date)} → {_html.escape(end_date)} · Generated {generated_at}</p>
   </header>
   <main>
     {stats}

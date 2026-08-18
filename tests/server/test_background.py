@@ -211,3 +211,102 @@ class TestJobManager:
             new_id = mgr.restart(job_id)
         assert new_id != job_id
         assert new_id is not None
+
+
+class TestCancellationPropagation:
+    """Cancellation event must be wired into ResearchPipeline so the pipeline
+    actually stops rather than continuing to exhaustion."""
+
+    def test_cancel_event_set_on_pipeline(self):
+        """When a job is cancelled, the cancel_event on the pipeline is set."""
+        import threading
+
+        received_event: list = []
+
+        class CapturingPipeline:
+            def __init__(self, cfg):
+                self.cfg = cfg
+                self.cancel_event = None
+                self.notify = None
+
+            def execute(self):
+                received_event.append(self.cancel_event)
+                if self.cancel_event:
+                    self.cancel_event.set()  # simulate pipeline checking it
+                run = MagicMock()
+                run.session_id = "sess-cap"
+                run.n_tested = 0
+                run.n_passed = 0
+                run.n_rejected = 0
+                run.elapsed_secs = 0.1
+                run.report_paths = {}
+                return run
+
+        mgr = JobManager()
+        with patch("server.background.ResearchPipeline", CapturingPipeline):
+            job_id = mgr.submit({"fast_mode": "on"})
+            for _ in range(50):
+                info = mgr.get_job(job_id)
+                if info and info.status in ("done", "failed", "cancelled"):
+                    break
+                time.sleep(0.1)
+
+        assert len(received_event) >= 1
+        assert received_event[0] is not None, (
+            "cancel_event was not wired into pipeline — pipeline.cancel_event must be set"
+        )
+        assert isinstance(received_event[0], threading.Event), (
+            "pipeline.cancel_event must be a threading.Event"
+        )
+
+    def test_cancel_event_is_a_real_threading_event(self):
+        """The cancel_event wired into the pipeline must be a real threading.Event
+        that becomes set when the job is cancelled."""
+        import threading
+
+        cancel_event_observed: list = []
+        done_barrier = threading.Barrier(2, timeout=5)
+
+        class InspectingPipeline:
+            def __init__(self, cfg):
+                self.cfg = cfg
+                self.cancel_event = None
+                self.notify = None
+
+            def execute(self):
+                # Capture the event reference; it should be a real threading.Event
+                cancel_event_observed.append(self.cancel_event)
+                # Signal the test thread that we have captured it
+                done_barrier.wait()
+                # Now block until the event is actually set (or timeout)
+                if self.cancel_event:
+                    self.cancel_event.wait(timeout=3.0)
+                run = MagicMock()
+                run.session_id = "sess-insp"
+                run.n_tested = 0
+                run.n_passed = 0
+                run.n_rejected = 0
+                run.elapsed_secs = 0.1
+                run.report_paths = {}
+                return run
+
+        mgr = JobManager()
+        with patch("server.background.ResearchPipeline", InspectingPipeline):
+            job_id = mgr.submit({"fast_mode": "on"})
+            done_barrier.wait()  # pipeline has captured cancel_event
+
+            # At this point we know the pipeline has the event reference
+            assert cancel_event_observed, "Pipeline.execute() was never called"
+            ev = cancel_event_observed[0]
+            assert ev is not None, "cancel_event was None — wiring is broken"
+            assert isinstance(ev, threading.Event), (
+                f"cancel_event must be threading.Event, got {type(ev)}"
+            )
+            assert not ev.is_set(), "cancel_event is already set before cancel()"
+
+            # Now cancel: the event must become set
+            mgr.cancel(job_id)
+            assert ev.is_set(), (
+                "cancel_event was not set after mgr.cancel() — "
+                "cancellation does not propagate to the pipeline"
+            )

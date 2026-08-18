@@ -239,6 +239,11 @@ class ResearchPipeline:
                     run.n_data_failures += 1
                     continue
 
+                # Cancellation check after potentially-slow data fetch
+                if self.cancel_event and self.cancel_event.is_set():
+                    self.notify.warn("Job cancelled — stopping pipeline.")
+                    return
+
                 self.storage.log_event(
                     "step1_fetch", "bars_count",
                     session_id  = run.session_id,
@@ -278,6 +283,10 @@ class ResearchPipeline:
                 # STEP 6 — filter
                 # STEP 7 — persist
                 for raw in raw_results:
+                    if self.cancel_event and self.cancel_event.is_set():
+                        self.notify.warn("Job cancelled — stopping pipeline.")
+                        return
+
                     if not raw.get("ok"):
                         run.n_errors += 1
                         run.errors.append(raw.get("error", "unknown"))
