@@ -23,7 +23,7 @@ export function Tabs({ tabs, active, onChange, children, className }: Props) {
           key={t.id}
           onClick={() => onChange(t.id)}
           className={cn(
-            'px-3 py-1.5 text-[11px] font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
+            'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
             active === t.id
               ? 'border-accent text-accent'
               : 'border-transparent text-muted hover:text-text',
@@ -31,7 +31,7 @@ export function Tabs({ tabs, active, onChange, children, className }: Props) {
         >
           {t.label}
           {t.count != null && t.count > 0 && (
-            <span className="ml-1.5 px-1 py-0.5 rounded text-[9px] bg-s3 text-muted tabular-nums">
+            <span className="ml-2 px-1.5 py-0.5 rounded-full text-xs bg-s3 text-muted tabular-nums">
               {t.count}
             </span>
           )}

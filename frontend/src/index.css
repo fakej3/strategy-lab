@@ -16,29 +16,29 @@
 }
 
 @layer components {
-  /* Scrollbars */
+  /* ── Scrollbars ─────────────────────────────────────────────── */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #1C2836 transparent;
+    scrollbar-color: #1D2D40 transparent;
   }
   .scrollbar-thin::-webkit-scrollbar { width: 4px; height: 4px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { background: #1C2836; border-radius: 2px; }
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #243444; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #1D2D40; border-radius: 2px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #253A52; }
 
-  /* Log line colors */
+  /* ── Log line colours ──────────────────────────────────────── */
   .log-line-ok    { @apply text-green; }
   .log-line-warn  { @apply text-amber; }
   .log-line-error { @apply text-red; }
   .log-line-step  { @apply text-accent font-semibold; }
   .log-line-muted { @apply text-muted; }
 
-  /* Dense table preset */
+  /* ── Data table ─────────────────────────────────────────────── */
   .table-dense th {
-    @apply px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted text-left whitespace-nowrap;
+    @apply px-4 py-2 text-xs font-medium text-muted text-left whitespace-nowrap;
   }
   .table-dense td {
-    @apply px-3 py-1.5 text-[11px];
+    @apply px-4 py-2.5 text-sm;
   }
   .table-dense tr {
     @apply border-b border-border last:border-0;
@@ -47,43 +47,43 @@
     @apply hover:bg-s2 transition-colors;
   }
 
-  /* Page layout primitives */
+  /* ── Page layout primitives ─────────────────────────────────── */
   .page-header {
-    @apply flex items-center justify-between px-5 h-10 border-b border-border shrink-0 bg-surface;
+    @apply flex items-center justify-between px-6 h-12 border-b border-border shrink-0 bg-surface;
   }
   .page-title {
-    @apply text-[12px] font-semibold text-text tracking-tight;
+    @apply text-base font-semibold text-text;
   }
   .page-sub {
-    @apply text-[10px] text-muted;
+    @apply text-sm text-muted;
   }
   .page-body {
-    @apply flex-1 overflow-y-auto scrollbar-thin p-5;
+    @apply flex-1 overflow-y-auto scrollbar-thin p-6;
   }
 
-  /* Section label */
+  /* ── Section label — readable, not microscopic ─────────────── */
   .section-label {
-    @apply text-[9px] font-semibold uppercase tracking-widest text-muted2;
+    @apply text-xs font-medium text-muted;
   }
 
-  /* Number/price display */
+  /* ── Monospaced numeric display ────────────────────────────── */
   .num { @apply font-mono tabular-nums; }
 
-  /* Focus ring */
+  /* ── Focus ring ─────────────────────────────────────────────── */
   .focus-ring {
     @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:ring-offset-0;
   }
 
-  /* Form field preset */
+  /* ── Form presets ───────────────────────────────────────────── */
   .field-input {
-    @apply bg-bg border border-border rounded px-2.5 py-1.5 text-[11px] text-text
-           placeholder:text-muted2 focus:outline-none focus:border-accent w-full;
+    @apply bg-s2 border border-border rounded-md px-3 py-2 text-sm text-text
+           placeholder:text-muted2 focus:outline-none focus:border-accent w-full transition-colors;
   }
   .field-label {
-    @apply text-[9px] font-semibold uppercase tracking-wider text-muted;
+    @apply text-xs font-medium text-muted;
   }
   .field-select {
-    @apply bg-bg border border-border rounded px-2.5 py-1.5 text-[11px] text-text
-           focus:outline-none focus:border-accent;
+    @apply bg-s2 border border-border rounded-md px-3 py-2 text-sm text-text
+           focus:outline-none focus:border-accent transition-colors;
   }
 }

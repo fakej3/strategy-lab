@@ -16,7 +16,7 @@ export function AppLayout() {
   if (state === 'checking') {
     return (
       <div className="flex h-full items-center justify-center bg-bg">
-        <span className="inline-block w-4 h-4 border border-muted/30 border-t-accent rounded-full animate-spin" />
+        <span className="inline-block w-5 h-5 border-2 border-muted/20 border-t-accent rounded-full animate-spin" />
       </div>
     )
   }

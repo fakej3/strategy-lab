@@ -25,7 +25,6 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
   const [status,      setStatus]      = useState<BotStatus>(initialStatus)
   const [positions,   setPositions]   = useState<OpenPosition[]>(initialStatus.open_positions ?? [])
   const [fills,       setFills]       = useState<Fill[]>(initialStatus.recent_trades ?? [])
-  // Seed mark prices from initial status so the overlay clears immediately for known prices
   const [markPrices,  setMarkPrices]  = useState<Record<string, number>>(initialStatus.mark_prices ?? {})
   const [watchItems,  setWatchItems]  = useState<WatchItem[]>([])
   const [activeKey,   setActiveKey]   = useState<string>('')
@@ -35,15 +34,12 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
   const [showStop,    setShowStop]    = useState(false)
   const [candlesSub,  setCandlesSub]  = useState<string>('')
 
-  // Separate data lifecycle states — bot running ≠ market data live ≠ history loaded
   const [hasHistoricalData, setHasHistoricalData] = useState(false)
   const [isLoadingHistory,  setIsLoadingHistory]  = useState(false)
   const [historyError,      setHistoryError]      = useState<string | null>(null)
   const [symbolErrors,      setSymbolErrors]      = useState<Record<string, string>>({})
-  // Bumped by reconnect events to retry candle fetch when backfill just completed
   const [historyLoadKey,    setHistoryLoadKey]    = useState(0)
 
-  // Timeframe switching
   const [pendingInterval, setPendingInterval] = useState<string | null>(null)
   const [isSwitching,     setIsSwitching]     = useState(false)
 
@@ -61,7 +57,6 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
       : (p.entry_price - mark) * p.size)
   }, 0)
 
-  // Refs so callbacks always read current values without stale closures
   const hasHistoricalDataRef = useRef(false)
   const statusRef            = useRef(status)
   const markPricesRef        = useRef(markPrices)
@@ -69,7 +64,6 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
   useEffect(() => { markPricesRef.current = markPrices }, [markPrices])
   useEffect(() => { hasHistoricalDataRef.current = hasHistoricalData }, [hasHistoricalData])
 
-  // Initialise watch items from bot config, seeding prices from mark_prices
   useEffect(() => {
     const pairs = initialStatus.symbols?.flatMap(sym =>
       (initialStatus.intervals ?? []).map(iv => ({ symbol: sym, interval: iv }))
@@ -86,7 +80,6 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
     }
   }, [initialStatus])
 
-  // Fetch historical candles whenever active pair changes or backfill just completed
   useEffect(() => {
     if (!activeKey) return
     const [sym, iv] = activeKey.split('|')
@@ -99,7 +92,6 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
     setHistoryError(null)
     setCandlesSub(activeKey)
 
-    // Tell backend which pair is active for efficient OHLCV streaming
     botApi.setActivePair(sym, iv).catch(() => {})
 
     botApi.candles(sym, iv).then((candles: Candle[]) => {
@@ -107,13 +99,11 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
       chartRef.current?.setData(candles)
       chartRef.current?.fitContent()
       if (candles.length > 0) {
-        // Seed mark price from last candle — clears the overlay without waiting for WS
         const last = candles[candles.length - 1]
         setMarkPrices(prev => ({ ...prev, [sym]: last.close }))
         setHasHistoricalData(true)
         hasHistoricalDataRef.current = true
       }
-      // If empty the backfill is still in progress; reconnect events will retry
       setIsLoadingHistory(false)
     }).catch((err: unknown) => {
       if (cancelled) return
@@ -130,9 +120,7 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
     switch (msg.type) {
       case 'candle': {
         const key = `${msg.symbol}|${msg.interval}`
-        if (key === candlesSub) {
-          chartRef.current?.updateCandle(msg)
-        }
+        if (key === candlesSub) chartRef.current?.updateCandle(msg)
         setMarkPrices(prev => ({ ...prev, [msg.symbol]: msg.close }))
         setWatchItems(prev => prev.map(w =>
           w.symbol === msg.symbol && w.interval === msg.interval
@@ -143,9 +131,7 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
       }
       case 'signal': {
         const key = `${msg.symbol}|${msg.interval}`
-        if (key === candlesSub) {
-          chartRef.current?.addSignal(msg)
-        }
+        if (key === candlesSub) chartRef.current?.addSignal(msg)
         setSignal(msg)
         setWatchItems(prev => prev.map(w =>
           w.symbol === msg.symbol && w.interval === msg.interval
@@ -173,25 +159,18 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
         break
       }
       case 'error': {
-        // Track per-symbol backfill failures: "Backfill failed: SYMBOL/interval"
         const m = msg.message?.match(/^Backfill failed: ([A-Z0-9]+)\//)
-        if (m?.[1]) {
-          setSymbolErrors(prev => ({ ...prev, [m[1]]: msg.message }))
-        }
+        if (m?.[1]) setSymbolErrors(prev => ({ ...prev, [m[1]]: msg.message }))
         break
       }
       case 'reconnect': {
-        // Backfill completed for this symbol — clear its error
         if (msg.symbol) {
           setSymbolErrors(prev => {
             const next = { ...prev }
             delete next[msg.symbol]
             return next
           })
-          // If history load returned empty (backfill was still in progress), retry now
-          if (!hasHistoricalDataRef.current) {
-            setHistoryLoadKey(n => n + 1)
-          }
+          if (!hasHistoricalDataRef.current) setHistoryLoadKey(n => n + 1)
         }
         break
       }
@@ -206,7 +185,6 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
     chartRef.current?.setPosition(pos)
   }, [positions, activeKey])
 
-  // Switch to a different timeframe — stops + restarts the bot
   const handleIntervalSwitch = useCallback(async () => {
     if (!pendingInterval || isSwitching) return
     const iv  = pendingInterval
@@ -224,7 +202,6 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
         strategy:  st.strategy,
         recover:   false,
       })
-      // Reset terminal state for the new interval
       setHasHistoricalData(false)
       hasHistoricalDataRef.current = false
       setSignal(null)
@@ -244,7 +221,7 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
       setWatchItems(newItems)
       setActiveKey(`${st.symbols[0]}|${iv}`)
     } catch {
-      // Restart failed — surface nothing; bot state is unchanged
+      // Restart failed — bot state is unchanged
     } finally {
       setIsSwitching(false)
     }
@@ -253,25 +230,22 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Top bar */}
-      <div className="flex items-center gap-3 px-3 h-10 bg-surface border-b border-border shrink-0">
-        <div className="flex items-center gap-1.5">
-          <span className={cn('w-1.5 h-1.5 rounded-full', connected ? 'bg-green' : 'bg-amber')} />
-          <span className="text-[9px] font-semibold uppercase tracking-widest text-muted">
-            {connected ? 'Live' : 'Reconnecting'}
-          </span>
+      <div className="flex items-center gap-4 px-4 h-12 bg-surface border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <span className={cn('w-2 h-2 rounded-full', connected ? 'bg-green' : 'bg-amber animate-pulse')} />
+          <Badge variant={status.running ? 'pass' : 'muted'}>{status.running ? 'Live' : 'Stopped'}</Badge>
         </div>
-        <Badge variant={status.running ? 'pass' : 'muted'}>{status.running ? 'Running' : 'Stopped'}</Badge>
+
         {activeKey && (
-          <span className="text-[11px] font-mono font-semibold text-text">
-            {activeSymbol}<span className="text-muted mx-0.5">·</span>{activeInterval?.toUpperCase()}
+          <span className="text-sm font-mono font-semibold text-text">
+            {activeSymbol}<span className="text-muted mx-1">·</span>{activeInterval?.toUpperCase()}
           </span>
         )}
         {status.strategy && (
-          <span className="text-[9px] text-muted font-mono">{status.strategy}</span>
+          <span className="text-xs text-muted font-mono">{status.strategy}</span>
         )}
 
-        {/* Portfolio metrics */}
-        <div className="flex items-center gap-4 ml-auto">
+        <div className="flex items-center gap-5 ml-auto">
           <Metric label="Capital"   value={`$${fmtPrice(status.capital ?? 0)}`} />
           <Metric label="Open PnL"  value={fmtSign(totalPnl)}
             className={positions.length > 0 ? pnlClass(totalPnl) : 'text-muted'} />
@@ -282,10 +256,9 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
         <Button variant="danger" size="sm" onClick={() => setShowStop(true)}>Stop</Button>
       </div>
 
-      {/* Main 3-column body */}
       <div className="flex flex-1 min-h-0">
         {/* Left: market watch */}
-        <div className="w-[130px] shrink-0 overflow-hidden">
+        <div className="w-[140px] shrink-0 overflow-hidden">
           <MarketWatch
             items={watchItems}
             activeKey={activeKey}
@@ -294,29 +267,24 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
           />
         </div>
 
-        {/* Center: chart header + chart canvas */}
+        {/* Center: chart */}
         <div className="flex flex-col flex-1 min-w-0 min-h-0">
           {/* Chart header */}
-          <div className="flex items-center gap-2 px-3 h-8 shrink-0 border-b border-border bg-surface">
-            <span className="text-[13px] font-semibold font-mono text-text shrink-0">
-              {activeSymbol || '—'}
-              <span className="text-muted mx-1">·</span>
-              {activeInterval?.toUpperCase() || '—'}
+          <div className="flex items-center gap-3 px-3 h-9 shrink-0 border-b border-border bg-surface">
+            <span className="text-sm font-semibold font-mono text-text shrink-0">
+              {activeSymbol || '—'}<span className="text-muted mx-1">·</span>{activeInterval?.toUpperCase() || '—'}
             </span>
             {activePrice > 0 ? (
               <>
-                <span className="text-[13px] font-mono tabular-nums text-text shrink-0">
-                  {fmtPrice(activePrice)}
-                </span>
-                <span className={cn('text-[11px] font-mono tabular-nums shrink-0', changeColor)}>
+                <span className="text-sm font-mono tabular-nums text-text shrink-0">{fmtPrice(activePrice)}</span>
+                <span className={cn('text-xs font-mono tabular-nums shrink-0', changeColor)}>
                   {fmtChange(activeChange)}
                 </span>
               </>
             ) : (
-              <span className="text-[10px] text-muted2 shrink-0">—</span>
+              <span className="text-xs text-muted2 shrink-0">—</span>
             )}
 
-            {/* Timeframe switcher */}
             <div className="flex items-center gap-px ml-2 shrink-0">
               {TIMEFRAMES.map(tf => (
                 <button
@@ -324,7 +292,7 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
                   disabled={isSwitching}
                   onClick={() => tf !== activeInterval && setPendingInterval(prev => prev === tf ? null : tf)}
                   className={cn(
-                    'px-1.5 py-0.5 text-[9px] font-mono rounded transition-colors',
+                    'px-1.5 py-0.5 text-xs font-mono rounded transition-colors',
                     tf === activeInterval
                       ? 'text-accent font-bold'
                       : tf === pendingInterval
@@ -337,9 +305,8 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
               ))}
             </div>
 
-            {/* Inline TF-switch confirm */}
             {pendingInterval && (
-              <div className="flex items-center gap-1.5 shrink-0 text-[9px]">
+              <div className="flex items-center gap-1.5 shrink-0 text-xs">
                 <span className="text-muted">→ {pendingInterval}?</span>
                 <button
                   onClick={handleIntervalSwitch}
@@ -348,41 +315,34 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
                 >
                   Restart
                 </button>
-                <button
-                  onClick={() => setPendingInterval(null)}
-                  className="text-muted hover:text-text"
-                >
-                  ✕
-                </button>
+                <button onClick={() => setPendingInterval(null)} className="text-muted hover:text-text">✕</button>
               </div>
             )}
 
-            {/* Non-blocking live reconnect pill — only when history is already shown */}
             {hasHistoricalData && !connected && (
-              <div className="flex items-center gap-1 ml-auto shrink-0">
+              <div className="flex items-center gap-1.5 ml-auto shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse" />
-                <span className="text-[9px] text-muted font-mono">reconnecting</span>
+                <span className="text-xs text-muted font-mono">reconnecting</span>
               </div>
             )}
           </div>
 
-          {/* Chart + state overlay */}
           <div className="relative flex-1 min-h-0">
             <TradingChart ref={chartRef} className="absolute inset-0" />
             {!hasHistoricalData && (
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
                 {historyError ? (
                   <>
-                    <span className="text-[11px] text-red mb-1">Failed to load history</span>
-                    <span className="text-[10px] text-muted text-center px-6">{historyError}</span>
+                    <span className="text-sm text-red mb-1">Failed to load history</span>
+                    <span className="text-xs text-muted text-center px-6">{historyError}</span>
                   </>
                 ) : (
                   <>
-                    <span className="w-2 h-2 rounded-full bg-muted animate-pulse mb-2.5" />
-                    <span className="text-[11px] text-muted">
+                    <span className="w-2 h-2 rounded-full bg-muted animate-pulse mb-3" />
+                    <span className="text-sm text-muted">
                       {isLoadingHistory ? 'Loading historical data…' : 'Connecting to market data…'}
                     </span>
-                    <span className="text-[10px] text-muted mt-1">
+                    <span className="text-xs text-muted2 mt-1">
                       {activeSymbol || '…'} · {activeInterval?.toUpperCase() || '…'}
                     </span>
                   </>
@@ -393,7 +353,7 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
         </div>
 
         {/* Right: signal panel */}
-        <div className="w-[152px] shrink-0 overflow-hidden">
+        <div className="w-[160px] shrink-0 overflow-hidden">
           <SignalPanel
             strategy={status.strategy ?? ''}
             activeKey={activeKey}
@@ -404,7 +364,7 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
         </div>
       </div>
 
-      {/* Bottom panel: positions / fills / activity / log */}
+      {/* Bottom panel */}
       <div className="border-t border-border bg-surface shrink-0" style={{ height: '210px' }}>
         <BottomPanel
           positions={positions}
@@ -427,8 +387,8 @@ export function TradingTerminal({ initialStatus, onStopped }: Props) {
 function Metric({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
     <div className="flex flex-col items-end">
-      <span className="text-[9px] font-semibold uppercase tracking-wider text-muted">{label}</span>
-      <span className={cn('text-[12px] font-mono font-semibold tabular-nums', className ?? 'text-text')}>{value}</span>
+      <span className="text-xs text-muted">{label}</span>
+      <span className={cn('text-sm font-mono font-semibold tabular-nums', className ?? 'text-text')}>{value}</span>
     </div>
   )
 }

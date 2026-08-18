@@ -41,52 +41,52 @@ export function SignalPanel({ strategy, activeKey, signal, positions, markPrices
     livePct = (livePnl / (activePos.entry_price * activePos.size)) * 100
   }
 
+  const dirColor = activePos
+    ? (activePos.direction === 'long' ? 'text-green' : 'text-red')
+    : (isLong ? 'text-green' : isShort ? 'text-red' : 'text-muted')
+
   return (
     <div className="flex flex-col h-full border-l border-border">
-      {/* Header: strategy name + instrument */}
-      <div className="px-2.5 py-2 border-b border-border shrink-0">
-        <div className="text-[11px] font-semibold text-text leading-tight truncate">
+      <div className="px-3 py-2 border-b border-border shrink-0">
+        <div className="text-xs font-semibold text-text leading-tight truncate">
           {strategy || 'Signal'}
         </div>
         {activeKey && (
-          <div className="text-[9px] text-muted font-mono mt-0.5">
+          <div className="text-xs text-muted font-mono mt-0.5">
             {activeSymbol} · {activeInterval?.toUpperCase()}
           </div>
         )}
       </div>
 
-      {/* Direction indicator */}
-      <div className="px-2.5 py-2.5 border-b border-border shrink-0">
-        <div className={cn('text-[15px] font-bold leading-none font-mono',
-          activePos
-            ? (activePos.direction === 'long' ? 'text-green' : 'text-red')
-            : (isLong ? 'text-green' : isShort ? 'text-red' : 'text-muted'))}>
+      {/* Direction */}
+      <div className="px-3 py-3 border-b border-border shrink-0">
+        <div className={cn('text-lg font-bold leading-none font-mono', dirColor)}>
           {activePos
             ? activePos.direction.toUpperCase()
             : (isLong ? 'LONG' : isShort ? 'SHORT' : 'FLAT')}
         </div>
         {!activePos && signal?.signal && (
-          <div className="text-[9px] text-muted font-mono mt-1 truncate">
+          <div className="text-xs text-muted font-mono mt-1 truncate">
             Last: {signal.signal.toUpperCase()}
           </div>
         )}
       </div>
 
-      {/* Position details when open */}
+      {/* Position details */}
       {activePos ? (
-        <div className="px-2.5 py-2.5 flex flex-col gap-1.5 shrink-0">
-          <div className="text-[8px] font-semibold uppercase tracking-wider text-muted mb-0.5">Position</div>
-          <Row label="Entry" value={fmtPrice(activePos.entry_price)} mono />
-          <Row label="Size"  value={String(activePos.size)} mono />
-          {markPrice != null && <Row label="Mark" value={fmtPrice(markPrice)} mono />}
+        <div className="px-3 py-3 flex flex-col gap-2 shrink-0">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-0.5">Position</div>
+          <Row label="Entry" value={fmtPrice(activePos.entry_price)} />
+          <Row label="Size"  value={String(activePos.size)} />
+          {markPrice != null && <Row label="Mark" value={fmtPrice(markPrice)} />}
           {livePnl != null && (
-            <div className="mt-1.5 pt-1.5 border-t border-border/60">
-              <div className="text-[8px] uppercase tracking-wider text-muted mb-1">Live P&L</div>
-              <div className={cn('text-[14px] font-mono font-bold tabular-nums leading-none', pnlClass(livePnl))}>
+            <div className="mt-2 pt-2 border-t border-border">
+              <div className="text-xs uppercase tracking-wider text-muted mb-1.5">Live P&L</div>
+              <div className={cn('text-base font-mono font-bold tabular-nums leading-none', pnlClass(livePnl))}>
                 {fmtSign(livePnl)}
               </div>
               {livePct != null && (
-                <div className={cn('text-[10px] font-mono tabular-nums mt-0.5', pnlClass(livePct))}>
+                <div className={cn('text-xs font-mono tabular-nums mt-0.5', pnlClass(livePct))}>
                   {fmtPct(livePct)}
                 </div>
               )}
@@ -94,19 +94,17 @@ export function SignalPanel({ strategy, activeKey, signal, positions, markPrices
           )}
         </div>
       ) : (
-        /* Flat: show current market price + last signal details */
-        <div className="px-2.5 py-2.5 flex flex-col gap-1.5 shrink-0">
+        <div className="px-3 py-3 flex flex-col gap-2 shrink-0">
           {activeSymbol && markPrices[activeSymbol] != null && (
-            <Row label="Market" value={fmtPrice(markPrices[activeSymbol]!)} mono />
+            <Row label="Market" value={fmtPrice(markPrices[activeSymbol]!)} />
           )}
           {signal?.price != null && (
-            <Row label="Signal px" value={fmtPrice(signal.price)} mono />
+            <Row label="Signal px" value={fmtPrice(signal.price)} />
           )}
           {signal?.ts && (
             <Row
               label="Signal at"
               value={new Date(signal.ts).toLocaleTimeString('en', { hour12: false })}
-              mono
             />
           )}
         </div>
@@ -115,11 +113,11 @@ export function SignalPanel({ strategy, activeKey, signal, positions, markPrices
   )
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[8px] text-muted uppercase tracking-wider">{label}</span>
-      <span className={cn('text-[10px] text-text tabular-nums', mono && 'font-mono')}>{value}</span>
+      <span className="text-xs text-muted">{label}</span>
+      <span className="text-xs font-mono text-text tabular-nums">{value}</span>
     </div>
   )
 }

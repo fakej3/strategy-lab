@@ -41,16 +41,18 @@ export function BottomPanel({ positions, fills, logMessages, markPrices }: Props
   )
 }
 
+function EmptyRow({ message }: { message: string }) {
+  return <div className="text-xs text-muted text-center py-6 font-mono">{message}</div>
+}
+
 function PositionsTab({ positions, markPrices }: { positions: OpenPosition[]; markPrices: Record<string, number> }) {
-  if (positions.length === 0) {
-    return <div className="text-[10px] text-muted text-center py-6">No open positions</div>
-  }
+  if (positions.length === 0) return <EmptyRow message="No open positions" />
   return (
-    <table className="w-full text-[10px]">
+    <table className="w-full">
       <thead>
         <tr className="border-b border-border">
           {['Symbol', 'Dir', 'Entry', 'Size', 'Mark', 'P&L', 'P&L %'].map(h => (
-            <th key={h} className="px-3 py-1 text-left text-[9px] font-semibold uppercase tracking-wider text-muted">{h}</th>
+            <th key={h} className="px-3 py-1.5 text-left text-xs font-medium text-muted">{h}</th>
           ))}
         </tr>
       </thead>
@@ -67,17 +69,17 @@ function PositionsTab({ positions, markPrices }: { positions: OpenPosition[]; ma
           }
           return (
             <tr key={`${p.symbol}-${p.entry_price}`} className="border-b border-border/40 hover:bg-s2">
-              <td className="px-3 py-1 font-mono font-semibold text-text">{p.symbol}</td>
-              <td className={cn('px-3 py-1 font-semibold uppercase text-[9px]', p.direction === 'long' ? 'text-green' : 'text-red')}>
+              <td className="px-3 py-1.5 font-mono text-sm font-semibold text-text">{p.symbol}</td>
+              <td className={cn('px-3 py-1.5 text-xs font-bold uppercase', p.direction === 'long' ? 'text-green' : 'text-red')}>
                 {p.direction}
               </td>
-              <td className="px-3 py-1 font-mono tabular-nums">{fmtPrice(p.entry_price)}</td>
-              <td className="px-3 py-1 font-mono tabular-nums">{p.size}</td>
-              <td className="px-3 py-1 font-mono tabular-nums">{mark != null ? fmtPrice(mark) : '—'}</td>
-              <td className={cn('px-3 py-1 font-mono tabular-nums font-semibold', pnl != null ? pnlClass(pnl) : 'text-muted')}>
+              <td className="px-3 py-1.5 font-mono text-xs tabular-nums text-muted">{fmtPrice(p.entry_price)}</td>
+              <td className="px-3 py-1.5 font-mono text-xs tabular-nums text-muted">{p.size}</td>
+              <td className="px-3 py-1.5 font-mono text-xs tabular-nums text-text">{mark != null ? fmtPrice(mark) : '—'}</td>
+              <td className={cn('px-3 py-1.5 font-mono text-xs tabular-nums font-semibold', pnl != null ? pnlClass(pnl) : 'text-muted')}>
                 {pnl != null ? fmtSign(pnl) : '—'}
               </td>
-              <td className={cn('px-3 py-1 font-mono tabular-nums', pct != null ? pnlClass(pct) : 'text-muted')}>
+              <td className={cn('px-3 py-1.5 font-mono text-xs tabular-nums', pct != null ? pnlClass(pct) : 'text-muted')}>
                 {pct != null ? fmtPct(pct) : '—'}
               </td>
             </tr>
@@ -89,29 +91,29 @@ function PositionsTab({ positions, markPrices }: { positions: OpenPosition[]; ma
 }
 
 function FillsTab({ fills }: { fills: Fill[] }) {
-  if (fills.length === 0) {
-    return <div className="text-[10px] text-muted text-center py-6">No fills yet</div>
-  }
+  if (fills.length === 0) return <EmptyRow message="No fills yet" />
   const reversed = [...fills].reverse()
   return (
-    <table className="w-full text-[10px]">
+    <table className="w-full">
       <thead>
         <tr className="border-b border-border">
           {['Time', 'Symbol', 'Side', 'Size', 'Price'].map(h => (
-            <th key={h} className="px-3 py-1 text-left text-[9px] font-semibold uppercase tracking-wider text-muted">{h}</th>
+            <th key={h} className="px-3 py-1.5 text-left text-xs font-medium text-muted">{h}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         {reversed.map((f, i) => (
           <tr key={i} className="border-b border-border/40 hover:bg-s2">
-            <td className="px-3 py-1 font-mono text-muted">{f.timestamp ? new Date(typeof f.timestamp === 'number' ? f.timestamp * 1000 : f.timestamp).toLocaleTimeString() : '—'}</td>
-            <td className="px-3 py-1 font-mono font-semibold">{f.symbol}</td>
-            <td className={cn('px-3 py-1 font-semibold uppercase text-[9px]', f.side.toUpperCase() === 'BUY' ? 'text-green' : 'text-red')}>
+            <td className="px-3 py-1.5 font-mono text-xs text-muted">
+              {f.timestamp ? new Date(typeof f.timestamp === 'number' ? f.timestamp * 1000 : f.timestamp).toLocaleTimeString() : '—'}
+            </td>
+            <td className="px-3 py-1.5 font-mono text-xs font-semibold text-text">{f.symbol}</td>
+            <td className={cn('px-3 py-1.5 text-xs font-bold uppercase', f.side.toUpperCase() === 'BUY' ? 'text-green' : 'text-red')}>
               {f.side}
             </td>
-            <td className="px-3 py-1 font-mono tabular-nums">{f.size}</td>
-            <td className="px-3 py-1 font-mono tabular-nums">{fmtPrice(f.fill_price)}</td>
+            <td className="px-3 py-1.5 font-mono text-xs tabular-nums text-muted">{f.size}</td>
+            <td className="px-3 py-1.5 font-mono text-xs tabular-nums text-text">{fmtPrice(f.fill_price)}</td>
           </tr>
         ))}
       </tbody>
@@ -176,18 +178,14 @@ function ActivityTab({ messages }: { messages: BotWsMessage[] }) {
     }
   }
 
-  if (entries.length === 0) {
-    return <div className="text-[10px] text-muted text-center py-6">No activity yet</div>
-  }
+  if (entries.length === 0) return <EmptyRow message="No activity yet" />
 
   return (
-    <div className="font-mono text-[10px] px-2 py-1">
+    <div className="font-mono text-xs px-3 py-2">
       {[...entries].reverse().map(e => (
-        <div key={e.id} className="flex items-baseline gap-2 py-0.5 border-b border-border/30 last:border-0">
-          {e.time && (
-            <span className="text-muted shrink-0 tabular-nums">{e.time}</span>
-          )}
-          <span className={cn('shrink-0 font-semibold', e.color)}>{e.label}</span>
+        <div key={e.id} className="flex items-baseline gap-2.5 py-0.5 border-b border-border/20 last:border-0">
+          {e.time && <span className="text-muted2 shrink-0 tabular-nums">{e.time}</span>}
+          <span className={cn('shrink-0 font-bold w-8', e.color)}>{e.label}</span>
           <span className={cn('truncate', e.color)}>{e.detail}</span>
         </div>
       ))}
@@ -197,11 +195,9 @@ function ActivityTab({ messages }: { messages: BotWsMessage[] }) {
 
 function LogTab({ messages }: { messages: BotWsMessage[] }) {
   const lines = messages.filter(m => m.type === 'log' || m.type === 'error')
-  if (lines.length === 0) {
-    return <div className="text-[10px] text-muted text-center py-6">No log messages</div>
-  }
+  if (lines.length === 0) return <EmptyRow message="No log messages" />
   return (
-    <div className="font-mono text-[10px] px-2 py-1 flex flex-col gap-0.5">
+    <div className="font-mono text-xs px-3 py-2 flex flex-col gap-0.5">
       {[...lines].reverse().map((m, i) => (
         <div key={i} className={cn('truncate', m.type === 'error' ? 'text-red' : 'text-muted2')}>
           {(m as { type: string; message: string }).message}

@@ -5,48 +5,58 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Backgrounds — near-black charcoal
-        bg:      '#080C12',
-        surface: '#0C1018',
-        s2:      '#111822',
-        s3:      '#16202C',
-        // Borders — subtle, not blue-tinted
-        border:  '#1C2836',
-        border2: '#243444',
-        border3: '#2C4058',
-        // Amber accent — Bloomberg-style, single accent only
-        accent:      '#D4980A',
-        'accent-dim': '#BB8308',
-        'accent-bg':  '#D4980A12',
-        // Semantic — P&L and directional signals only
-        green:      '#22C55E',
-        'green-dim': '#16A34A',
-        red:        '#F43F5E',
-        'red-dim':  '#E11D48',
-        amber:      '#F59E0B',
-        // Text hierarchy
-        text:   '#C8D5E0',
-        muted:  '#5C7090',
-        muted2: '#3C5070',
+        // Deep blue-black backgrounds
+        bg:      '#090C12',
+        surface: '#0E1622',
+        s2:      '#152030',
+        s3:      '#1C2B3F',
+        // Subtle blue-tinted borders
+        border:  '#1D2D40',
+        border2: '#253A52',
+        border3: '#2D4765',
+        // Amber accent — use sparingly, primary brand colour
+        accent:      '#D4940C',
+        'accent-dim': '#BA7F0A',
+        'accent-bg':  '#D4940C0F',
+        // Semantic — teal-green (profit) and coral red (loss)
+        green:      '#34D399',
+        'green-dim': '#10B981',
+        red:        '#F87171',
+        'red-dim':  '#EF4444',
+        amber:      '#FBB030',
+        // Text hierarchy — warm white, not cold blue
+        text:   '#DDD9D0',
+        muted:  '#6B7FA0',
+        muted2: '#3D526A',
       },
       fontFamily: {
-        mono: ['"JetBrains Mono"', '"Fira Code"', 'ui-monospace', 'monospace'],
-        ui:   ['"Inter"', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', '"JetBrains Mono"', '"Cascadia Code"', 'monospace'],
+        ui:   ['system-ui', '"Inter"', '"Segoe UI"', 'sans-serif'],
       },
       fontSize: {
-        '2xs': ['10px', '14px'],
-        xs:    ['11px', '16px'],
-        sm:    ['12px', '18px'],
-        base:  ['13px', '20px'],
-        md:    ['14px', '20px'],
-        lg:    ['16px', '24px'],
-        xl:    ['18px', '28px'],
+        '2xs': ['11px', '16px'],
+        xs:    ['12px', '17px'],
+        sm:    ['13px', '19px'],
+        base:  ['14px', '21px'],
+        md:    ['15px', '22px'],
+        lg:    ['17px', '25px'],
+        xl:    ['20px', '30px'],
+        '2xl': ['24px', '32px'],
+        '3xl': ['32px', '40px'],
+        '4xl': ['42px', '50px'],
       },
       borderRadius: {
-        sm: '2px',
-        DEFAULT: '3px',
-        md: '4px',
-        lg: '6px',
+        sm: '3px',
+        DEFAULT: '4px',
+        md: '6px',
+        lg: '8px',
+        xl: '12px',
+      },
+      keyframes: {
+        'fade-in': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+      },
+      animation: {
+        'fade-in': 'fade-in 0.2s ease-out',
       },
     },
   },

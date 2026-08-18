@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { settingsApi } from '../api/settings'
 import { LoadingState } from '../components/ui/EmptyState'
 import type { Settings as SettingsType } from '../types'
@@ -13,82 +14,91 @@ export function Settings() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="page-header shrink-0">
-        <div>
-          <span className="page-title">Settings</span>
-          <span className="ml-3 text-[10px] text-muted">Server configuration and environment</span>
-        </div>
+      <div className="page-header">
+        <span className="page-title">Settings</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-5 max-w-2xl">
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-6 max-w-2xl">
         {loading && <LoadingState />}
         {!loading && s && (
-          <>
+          <div className="flex flex-col gap-5">
             {s.using_default_creds && (
-              <div className="px-3 py-2 mb-4 border border-amber/25 bg-amber/5 text-amber text-[10px]">
-                Default credentials in use — set <code className="font-mono">EDGELAB_PASSWORD_HASH</code> to secure your instance.
+              <div className="flex items-start gap-3 px-4 py-3 border border-amber/25 bg-amber/5 rounded-lg text-amber text-sm">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <span>
+                  Default credentials in use — set <code className="font-mono text-amber bg-amber/10 px-1 rounded">EDGELAB_PASSWORD_HASH</code> to secure your instance.
+                </span>
               </div>
             )}
 
-            <div className="mb-5">
-              <div className="px-3 py-1.5 border-b border-border bg-surface">
-                <span className="section-label">Paths</span>
-              </div>
-              <table className="w-full table-dense border border-border border-t-0">
-                <tbody>
-                  {[
-                    ['Database',        s.db_path],
-                    ['Reports Dir',     s.reports_dir],
-                    ['Market Data Dir', s.data_dir],
-                    ['Log File',        s.log_path],
-                  ].map(([k, v]) => (
-                    <tr key={k}>
-                      <td className="text-muted w-36">{k}</td>
-                      <td className="font-mono text-text">{v}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <SettingsCard title="Paths">
+              {[
+                ['Database',        s.db_path],
+                ['Reports Dir',     s.reports_dir],
+                ['Market Data Dir', s.data_dir],
+                ['Log File',        s.log_path],
+              ].map(([k, v]) => (
+                <SettingsRow key={k} label={k} value={v ?? '—'} mono />
+              ))}
+            </SettingsCard>
 
             {Object.keys(s.env_vars).length > 0 && (
-              <div className="mb-5">
-                <div className="px-3 py-1.5 border-b border-border bg-surface">
-                  <span className="section-label">Environment Variables</span>
-                </div>
-                <table className="w-full table-dense border border-border border-t-0">
-                  <tbody>
-                    {Object.entries(s.env_vars).map(([k, v]) => (
-                      <tr key={k}>
-                        <td className="font-mono text-muted">{k}</td>
-                        <td className="font-mono text-text">
-                          {/HASH|SECRET|PASSWORD/i.test(k) ? '*** (hidden)' : v}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <SettingsCard title="Environment Variables">
+                {Object.entries(s.env_vars).map(([k, v]) => (
+                  <SettingsRow
+                    key={k}
+                    label={k}
+                    value={/HASH|SECRET|PASSWORD/i.test(k) ? '*** (hidden)' : String(v ?? '—')}
+                    mono
+                    labelMono
+                  />
+                ))}
+              </SettingsCard>
             )}
 
-            <div>
-              <div className="px-3 py-1.5 border-b border-border bg-surface">
-                <span className="section-label">Set a Password</span>
+            <SettingsCard title="Set a Password">
+              <div className="flex flex-col gap-3 text-sm text-muted">
+                <div>
+                  <div className="text-text font-medium mb-1.5">1. Generate a hash</div>
+                  <pre className="bg-bg border border-border rounded-md p-3 text-xs overflow-x-auto font-mono text-muted2">
+                    {'python -c "from server.auth import hash_password; print(hash_password(\'yourpassword\'))"'}
+                  </pre>
+                </div>
+                <div>
+                  <div className="text-text font-medium mb-1.5">2. Set before starting</div>
+                  <pre className="bg-bg border border-border rounded-md p-3 text-xs overflow-x-auto font-mono text-muted2">
+                    {'export EDGELAB_USERNAME=admin\nexport EDGELAB_PASSWORD_HASH=<hash>\npython serve.py'}
+                  </pre>
+                </div>
               </div>
-              <div className="p-3 border border-border border-t-0 text-[10px] text-muted space-y-2">
-                <p><span className="text-text font-semibold">1. Generate a hash:</span></p>
-                <pre className="bg-bg p-2 text-[9px] overflow-x-auto font-mono text-muted">
-                  {'python -c "from server.auth import hash_password; print(hash_password(\'yourpassword\'))"'}
-                </pre>
-                <p><span className="text-text font-semibold">2. Set before starting:</span></p>
-                <pre className="bg-bg p-2 text-[9px] overflow-x-auto font-mono text-muted">
-                  {'export EDGELAB_USERNAME=admin\nexport EDGELAB_PASSWORD_HASH=<hash>\npython serve.py'}
-                </pre>
-              </div>
-            </div>
-          </>
+            </SettingsCard>
+          </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function SettingsCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-surface border border-border rounded-lg overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-border">
+        <span className="text-xs font-semibold text-muted">{title}</span>
+      </div>
+      <div className="divide-y divide-border">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function SettingsRow({ label, value, mono, labelMono }: {
+  label: string; value: string; mono?: boolean; labelMono?: boolean
+}) {
+  return (
+    <div className="flex items-baseline gap-4 px-4 py-2.5">
+      <span className={`text-xs text-muted w-36 shrink-0 ${labelMono ? 'font-mono' : ''}`}>{label}</span>
+      <span className={`text-sm text-text break-all ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   )
 }
