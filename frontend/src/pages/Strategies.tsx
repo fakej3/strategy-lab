@@ -62,8 +62,13 @@ export function Strategies() {
     .sort((a, b) => (b.sharpe_ratio ?? 0) - (a.sharpe_ratio ?? 0))[0]
 
   function deploy(r: StrategyResult) {
-    const p = new URLSearchParams({ symbol: r.symbol, interval: r.interval, strategy: r.strategy_class })
-    navigate(`/paper-trading?${p}`)
+    const params: Record<string, string> = {
+      symbol: r.symbol,
+      interval: r.interval,
+      strategy: r.strategy_class,
+    }
+    if (r.id != null) params.result_id = String(r.id)
+    navigate(`/paper-trading?${new URLSearchParams(params)}`)
   }
 
   if (loading) return (

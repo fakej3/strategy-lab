@@ -23,9 +23,10 @@ const CAPITAL_PRESETS = [
 export function StoppedState({ strategies, error, onStarted }: Props) {
   const [searchParams] = useSearchParams()
 
-  const prefillSymbol   = searchParams.get('symbol')   ?? 'BTCUSDT'
-  const prefillInterval = searchParams.get('interval') ?? '1h'
-  const prefillStrategy = searchParams.get('strategy') ?? (strategies[0]?.name ?? '')
+  const prefillSymbol   = searchParams.get('symbol')    ?? 'BTCUSDT'
+  const prefillInterval = searchParams.get('interval')  ?? '1h'
+  const prefillStrategy = searchParams.get('strategy')  ?? (strategies[0]?.name ?? '')
+  const prefillResultId = searchParams.get('result_id') ? Number(searchParams.get('result_id')) : undefined
   const hasPrefill      = searchParams.has('symbol') || searchParams.has('strategy')
 
   const [symbols,       setSymbols]       = useState<string[]>([prefillSymbol].filter(Boolean))
@@ -68,6 +69,7 @@ export function StoppedState({ strategies, error, onStarted }: Props) {
         intervals: [interval],
         strategy,
         recover,
+        ...(prefillResultId != null ? { result_id: prefillResultId } : {}),
       })
       onStarted()
     } catch (ex) {

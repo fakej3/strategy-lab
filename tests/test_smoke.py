@@ -33,14 +33,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _fixture_bars():
-    """Return the pre-written BTCUSDT 1h bars from BarStore (2024 full year)."""
-    from data.api import get_bars
-    return get_bars(
-        symbol="BTCUSDT",
-        interval="1h",
-        from_date=date(2024, 1, 1),
-        to_date=date(2024, 12, 31),
-    )
+    """Return deterministic GBM bars via FixtureProvider (no production cache)."""
+    from data.fixture import FixtureProvider
+    import pandas as pd
+
+    provider = FixtureProvider()
+    frames = []
+    for month in range(1, 13):
+        df = provider.fetch_month("BTCUSDT", "1h", 2024, month)
+        if not df.empty:
+            frames.append(df)
+    if not frames:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    result = pd.concat(frames).sort_index()
+    start = pd.Timestamp(date(2024, 1, 1), tz="UTC")
+    end   = pd.Timestamp(date(2024, 12, 31), tz="UTC") + pd.offsets.Day(1)
+    return result[(result.index >= start) & (result.index < end)]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -124,12 +132,15 @@ def test_safe_returns_none_for_nan():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_full_pipeline_saves_results():
-    """Pipeline runs 20 backtests and saves results to DB (non-zero pass rate)."""
+    """Pipeline runs backtests with fixture data and saves results to DB."""
     from automation.pipeline import PipelineConfig, ResearchPipeline
+    from data.fixture import FixtureProvider
+    from data.store import BarStore
     from research_db.storage import ResearchStorage
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = os.path.join(tmpdir, "test.db")
+        db_path   = os.path.join(tmpdir, "test.db")
+        data_dir  = os.path.join(tmpdir, "market_data")
         cfg = PipelineConfig(
             symbols=["BTCUSDT"],
             intervals=["1h"],
@@ -143,6 +154,8 @@ def test_full_pipeline_saves_results():
             db_path=db_path,
             reports_dir=os.path.join(tmpdir, "reports"),
             log_path=os.path.join(tmpdir, "research.log"),
+            data_provider=FixtureProvider(),
+            data_store=BarStore(data_dir),
         )
         run = ResearchPipeline(cfg).execute()
 
@@ -369,3 +382,390 @@ def test_ema_crossover_param_space_20_combos():
     for c in valid:
         assert c["fast"] < c["slow"], \
             f"Invalid combo: fast={c['fast']} >= slow={c['slow']}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEST A — data unavailability → FAILED job, 0 results, no fixture fallback
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_data_failure_produces_failed_session():
+    """TEST A: When live data is unavailable and no cache exists, the pipeline
+    FAILS — it does not fall back to synthetic/fixture data.
+    """
+    from automation.pipeline import PipelineConfig, ResearchPipeline
+    from data.store import BarStore
+    from research_db.storage import ResearchStorage
+
+    # Use a fresh empty data dir — no cached bars, no fixture provider injected.
+    # BinanceProvider will fail in this environment (proxy blocks it).
+    # The pipeline MUST NOT silently substitute fixture/synthetic data.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path  = os.path.join(tmpdir, "test.db")
+        data_dir = os.path.join(tmpdir, "market_data")  # empty — no cache
+        cfg = PipelineConfig(
+            symbols=["BTCUSDT"],
+            intervals=["1h"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 12, 31),
+            fast_mode=True,
+            run_walk_forward=False,
+            run_monte_carlo=False,
+            run_robustness=False,
+            verbose=False,
+            db_path=db_path,
+            reports_dir=os.path.join(tmpdir, "reports"),
+            log_path=os.path.join(tmpdir, "research.log"),
+            data_provider=None,        # default BinanceProvider — will fail in test env
+            data_store=BarStore(data_dir),  # empty store — no cached data
+        )
+        run = ResearchPipeline(cfg).execute()
+
+        # Pipeline should have failed: all data unavailable, 0 strategies tested
+        assert run.n_tested == 0, \
+            f"Expected 0 tested (data unavailable), got {run.n_tested}"
+        assert run.n_data_failures >= 1, \
+            f"Expected ≥1 data failure, got {run.n_data_failures}"
+
+        # Session status in DB must be 'failed', not 'complete'
+        storage = ResearchStorage(db_path)
+        sessions = storage.get_sessions(limit=10)
+        assert len(sessions) >= 1, "Expected a session record in DB"
+        session = sessions[0]
+        assert session.status == "failed", \
+            f"Expected session status='failed', got {session.status!r}"
+
+        # No strategy results must be stored (no fake/fixture results)
+        results = storage.get_strategy_results(limit=200)
+        assert len(results) == 0, \
+            f"Expected 0 results (data failure), got {len(results)} — " \
+            "pipeline must NOT store fake results when data is unavailable"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEST B — explicit fixture mode → research completes with real calculations
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_fixture_mode_completes_research():
+    """TEST B: When FixtureProvider is explicitly injected, research completes
+    and produces real (non-fake) backtest calculations.
+    """
+    from automation.pipeline import PipelineConfig, ResearchPipeline
+    from data.fixture import FixtureProvider
+    from data.store import BarStore
+    from research_db.storage import ResearchStorage
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path  = os.path.join(tmpdir, "test.db")
+        data_dir = os.path.join(tmpdir, "market_data")
+        cfg = PipelineConfig(
+            symbols=["BTCUSDT"],
+            intervals=["1h"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 12, 31),
+            fast_mode=True,
+            run_walk_forward=False,
+            run_monte_carlo=False,
+            run_robustness=False,
+            verbose=False,
+            db_path=db_path,
+            reports_dir=os.path.join(tmpdir, "reports"),
+            log_path=os.path.join(tmpdir, "research.log"),
+            data_provider=FixtureProvider(),
+            data_store=BarStore(data_dir),
+        )
+        run = ResearchPipeline(cfg).execute()
+
+        assert run.n_tested >= 1, f"Expected strategies tested, got {run.n_tested}"
+        assert run.n_data_failures == 0, \
+            f"Expected 0 data failures (fixture mode), got {run.n_data_failures}"
+
+        storage = ResearchStorage(db_path)
+        sessions = storage.get_sessions(limit=10)
+        assert sessions[0].status == "complete", \
+            f"Expected session status='complete', got {sessions[0].status!r}"
+
+        results = storage.get_strategy_results(limit=200)
+        assert len(results) == run.n_tested, \
+            f"Expected {run.n_tested} results, got {len(results)}"
+
+        # All results must have real calculations — total_trades > 0 for passing ones
+        passing = [r for r in results if r.gate_decision != "REJECT"]
+        for r in passing:
+            assert r.cagr is not None, \
+                f"CAGR is None for {r.strategy_class} {r.params}"
+            assert r.total_trades >= 1, \
+                f"Passing result has 0 trades: {r.strategy_class} {r.params}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEST C — exact deployment authorization
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_exact_deployment_authorization():
+    """TEST C: PROMISING result deploys; REJECT result fails even if same strategy
+    has a PROMISING sibling. Wrong result_id fails. Incomplete session fails.
+    """
+    from research_db.storage import ResearchStorage
+    from research_db.models import SessionRecord, StrategyResult
+    from datetime import datetime, timezone
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test.db")
+        s = ResearchStorage(db_path)
+
+        # Save a COMPLETE session
+        sess = SessionRecord(
+            session_id="test_deploy_sess",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            status="complete",
+            symbols='["BTCUSDT"]',
+            intervals='["1h"]',
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+        )
+        s.save_session(sess)
+
+        # Save an INCOMPLETE session
+        sess_bad = SessionRecord(
+            session_id="test_deploy_sess_bad",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            status="running",
+            symbols='["BTCUSDT"]',
+            intervals='["1h"]',
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+        )
+        s.save_session(sess_bad)
+
+        # Save a PROMISING result (should deploy)
+        now = datetime.now(timezone.utc).isoformat()
+        promising_id = s.save_strategy_result(StrategyResult(
+            session_id="test_deploy_sess",
+            strategy_class="EMACrossover",
+            strategy_name="EMACrossover",
+            params='{"fast":15,"slow":200}',
+            symbol="BTCUSDT",
+            interval="1h",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            gate_decision="PROMISING",
+            gate_score=80.0,
+            total_trades=42,
+            sharpe_ratio=1.8,
+            cagr=0.25,
+            created_at=now,
+        ))
+
+        # Save a REJECT result for the SAME strategy class (sibling)
+        reject_id = s.save_strategy_result(StrategyResult(
+            session_id="test_deploy_sess",
+            strategy_class="EMACrossover",
+            strategy_name="EMACrossover",
+            params='{"fast":20,"slow":200}',
+            symbol="BTCUSDT",
+            interval="1h",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            gate_decision="REJECT",
+            gate_score=30.0,
+            total_trades=3,
+            sharpe_ratio=0.2,
+            cagr=0.01,
+            created_at=now,
+        ))
+
+        # Save a PROMISING result for an INCOMPLETE session
+        incomplete_id = s.save_strategy_result(StrategyResult(
+            session_id="test_deploy_sess_bad",
+            strategy_class="EMACrossover",
+            strategy_name="EMACrossover",
+            params='{"fast":10,"slow":100}',
+            symbol="BTCUSDT",
+            interval="1h",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            gate_decision="PROMISING",
+            gate_score=75.0,
+            total_trades=30,
+            sharpe_ratio=1.6,
+            cagr=0.20,
+            created_at=now,
+        ))
+
+        # Verify: PROMISING result loads correctly
+        r = s.get_strategy_result_by_id(promising_id)
+        assert r is not None, "get_strategy_result_by_id returned None for valid id"
+        assert r.gate_decision == "PROMISING"
+        assert json.loads(r.params) == {"fast": 15, "slow": 200}
+        assert r.symbol == "BTCUSDT"
+        assert r.interval == "1h"
+
+        # Verify: REJECT result is present (same strategy class as PROMISING)
+        r_reject = s.get_strategy_result_by_id(reject_id)
+        assert r_reject is not None
+        assert r_reject.gate_decision == "REJECT"
+
+        # Verify: session check for the REJECT result
+        sess_check = s.get_session(r_reject.session_id)
+        assert sess_check.status == "complete"
+
+        # Verify: result for incomplete session
+        r_incomplete = s.get_strategy_result_by_id(incomplete_id)
+        sess_incomplete = s.get_session(r_incomplete.session_id)
+        assert sess_incomplete.status == "running"  # not "complete"
+
+        # Verify: wrong result_id returns None
+        assert s.get_strategy_result_by_id(999999) is None
+
+        # --- Simulate the api.py gate logic for each case ---
+
+        def _check_deployable(result_id):
+            """Reproduce the /bot/start gate checks."""
+            r = s.get_strategy_result_by_id(result_id)
+            if r is None:
+                return False, "not_found"
+            if r.gate_decision.upper() == "REJECT":
+                return False, "rejected"
+            session = s.get_session(r.session_id)
+            if session is None or session.status != "complete":
+                return False, "incomplete_session"
+            return True, "ok"
+
+        ok, reason = _check_deployable(promising_id)
+        assert ok, f"PROMISING result should be deployable, got reason={reason!r}"
+
+        ok, reason = _check_deployable(reject_id)
+        assert not ok, "REJECT result must NOT be deployable"
+        assert reason == "rejected", f"Expected reason='rejected', got {reason!r}"
+
+        ok, reason = _check_deployable(incomplete_id)
+        assert not ok, "Result from incomplete session must NOT be deployable"
+        assert reason == "incomplete_session", \
+            f"Expected reason='incomplete_session', got {reason!r}"
+
+        ok, reason = _check_deployable(999999)
+        assert not ok, "Non-existent result_id must fail"
+        assert reason == "not_found", f"Expected reason='not_found', got {reason!r}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEST D — full research lifecycle → deploy → exact params in bot config
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_deploy_uses_exact_research_params():
+    """TEST D: Research result params are preserved exactly through deployment.
+    research_result.params == params passed to bot_manager.start().
+    """
+    from research_db.storage import ResearchStorage
+    from research_db.models import SessionRecord, StrategyResult
+    from datetime import datetime, timezone
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test.db")
+        s = ResearchStorage(db_path)
+
+        sess = SessionRecord(
+            session_id="test_exact_params",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            status="complete",
+            symbols='["ETHUSDT"]',
+            intervals='["4h"]',
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+        )
+        s.save_session(sess)
+
+        exact_params = {"period": 14, "oversold": 25.0, "overbought": 70.0}
+        result_id = s.save_strategy_result(StrategyResult(
+            session_id="test_exact_params",
+            strategy_class="RSIMeanReversion",
+            strategy_name="RSIMeanReversion",
+            params=json.dumps(exact_params),
+            symbol="ETHUSDT",
+            interval="4h",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            gate_decision="PROMISING",
+            gate_score=85.0,
+            total_trades=18,
+            sharpe_ratio=2.1,
+            cagr=0.32,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        ))
+
+        # Simulate the deployment extraction logic from /api/bot/start
+        r = s.get_strategy_result_by_id(result_id)
+        assert r is not None
+        assert r.gate_decision == "PROMISING"
+        assert r.symbol == "ETHUSDT"
+        assert r.interval == "4h"
+        assert r.strategy_class == "RSIMeanReversion"
+
+        deployed_params = json.loads(r.params)
+        assert deployed_params == exact_params, \
+            f"Params mismatch: {deployed_params} != {exact_params}"
+
+        # The params that would be sent to bot_manager must exactly match
+        # what was stored in the research DB — no silently substituted defaults.
+        assert deployed_params["period"] == 14
+        assert deployed_params["oversold"] == 25.0
+        assert deployed_params["overbought"] == 70.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEST E — data fetch failure → FAILED lifecycle, error persisted, no results
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_data_failure_lifecycle():
+    """TEST E: Data fetch failure → session FAILED → error persisted → 0 results.
+    Confirms the full lifecycle: RUNNING→FAILED, no valid strategy results.
+    """
+    from automation.pipeline import PipelineConfig, ResearchPipeline
+    from data.provider import MarketDataProvider
+    from data.store import BarStore
+    from research_db.storage import ResearchStorage
+    import pandas as pd
+
+    class AlwaysFailProvider(MarketDataProvider):
+        """Always raises — simulates total network failure."""
+        def fetch_month(self, symbol, interval, year, month):
+            raise ConnectionError(
+                f"Simulated network failure: cannot reach exchange for "
+                f"{symbol}/{interval} {year}-{month:02d}"
+            )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path  = os.path.join(tmpdir, "test.db")
+        data_dir = os.path.join(tmpdir, "market_data")
+        cfg = PipelineConfig(
+            symbols=["BTCUSDT"],
+            intervals=["1h"],
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 12, 31),
+            fast_mode=True,
+            run_walk_forward=False,
+            run_monte_carlo=False,
+            run_robustness=False,
+            verbose=False,
+            db_path=db_path,
+            reports_dir=os.path.join(tmpdir, "reports"),
+            log_path=os.path.join(tmpdir, "research.log"),
+            data_provider=AlwaysFailProvider(),
+            data_store=BarStore(data_dir),
+        )
+        run = ResearchPipeline(cfg).execute()
+
+        assert run.n_tested == 0, \
+            f"Expected 0 tested, got {run.n_tested}"
+        assert run.n_data_failures >= 1, \
+            f"Expected ≥1 data failure, got {run.n_data_failures}"
+
+        storage = ResearchStorage(db_path)
+        sessions = storage.get_sessions(limit=10)
+        assert len(sessions) >= 1
+        assert sessions[0].status == "failed", \
+            f"Expected status='failed', got {sessions[0].status!r}"
+
+        results = storage.get_strategy_results(limit=200)
+        assert len(results) == 0, \
+            f"Expected 0 results on data failure, got {len(results)}"

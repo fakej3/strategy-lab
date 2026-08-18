@@ -263,45 +263,82 @@ async def api_bot_start(request: Request, _: AuthUser) -> JSONResponse:
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    capital   = float(body.get("capital",  200.0))
-    symbols   = body.get("symbols",   ["BTCUSDT"])
-    interval  = body.get("interval",  None)
-    intervals = body.get("intervals", None)
-    strategy  = body.get("strategy",  "EMACrossover")
-    db_path   = body.get("db_path",   "bot.db")
-    log_path  = body.get("log_path",  "logs/bot.log")
-    recover   = bool(body.get("recover",  True))
-
-    if isinstance(symbols, str):
-        symbols = [s.strip() for s in symbols.split(",") if s.strip()]
-    if isinstance(intervals, str):
-        intervals = [iv.strip() for iv in intervals.split(",") if iv.strip()]
-    if not intervals and interval:
-        intervals = [interval]
-    if not intervals:
-        intervals = ["1h"]
+    capital  = float(body.get("capital", 200.0))
+    db_path  = body.get("db_path",  "bot.db")
+    log_path = body.get("log_path", "logs/bot.log")
+    recover  = bool(body.get("recover", True))
 
     if capital <= 0:
         raise HTTPException(status_code=422, detail="capital must be > 0")
 
-    # Block deployment of strategies that have never passed the quality gate.
-    # If the strategy has ANY non-REJECT result, allow deployment.
-    storage = ResearchStorage(str(_DB_PATH))
-    all_results = storage.get_strategy_results(limit=1000)
-    strategy_results = [r for r in all_results if r.strategy_class == strategy]
-    if strategy_results:
-        has_passing = any(r.gate_decision != "REJECT" for r in strategy_results)
-        if not has_passing:
+    result_id = body.get("result_id")
+
+    if result_id is not None:
+        # ── Exact-result deployment path ────────────────────────────────────────
+        # Load the specific research result, verify gate + session, extract params.
+        try:
+            result_id = int(result_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="result_id must be an integer")
+
+        storage = ResearchStorage(str(_DB_PATH))
+        result = storage.get_strategy_result_by_id(result_id)
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Research result #{result_id} not found",
+            )
+        if result.gate_decision.upper() == "REJECT":
             raise HTTPException(
                 status_code=422,
-                detail=f"Strategy '{strategy}' has only REJECT results — cannot deploy. "
-                       "Run research with different parameters to find a passing configuration.",
+                detail=f"Research result #{result_id} was REJECTED — cannot deploy. "
+                       f"Gate decision: {result.gate_decision}",
             )
+
+        # Verify the session that produced this result is complete
+        session = storage.get_session(result.session_id)
+        if session is None or session.status != "complete":
+            sess_status = session.status if session else "missing"
+            raise HTTPException(
+                status_code=422,
+                detail=f"Research result #{result_id} belongs to an incomplete session "
+                       f"(status={sess_status!r}) — cannot deploy",
+            )
+
+        # Extract exact params from the result row
+        strategy = result.strategy_class
+        symbols  = [result.symbol]
+        intervals = [result.interval]
+        try:
+            strategy_params = json.loads(result.params) if result.params else {}
+        except (TypeError, json.JSONDecodeError):
+            strategy_params = {}
+
+    else:
+        # ── Manual launch path (no research result) ─────────────────────────────
+        # User started bot directly from PaperTrading page without deploying
+        # a specific research result. Use provided symbol/interval/strategy with
+        # no quality-gate check (no research context available).
+        symbols   = body.get("symbols",   ["BTCUSDT"])
+        interval  = body.get("interval",  None)
+        intervals = body.get("intervals", None)
+        strategy  = body.get("strategy",  "EMACrossover")
+
+        if isinstance(symbols, str):
+            symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+        if isinstance(intervals, str):
+            intervals = [iv.strip() for iv in intervals.split(",") if iv.strip()]
+        if not intervals and interval:
+            intervals = [interval]
+        if not intervals:
+            intervals = ["1h"]
+
+        strategy_params = None  # bot_manager will use strategy default params
 
     ok, err = bot_manager.start(
         capital=capital, symbols=symbols, intervals=intervals,
-        strategy=strategy, db_path=db_path, log_path=log_path,
-        recover=recover,
+        strategy=strategy, strategy_params=strategy_params,
+        db_path=db_path, log_path=log_path, recover=recover,
     )
     if not ok:
         raise HTTPException(status_code=409, detail=err)

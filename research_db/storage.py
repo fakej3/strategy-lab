@@ -126,6 +126,13 @@ class ResearchStorage:
         )
         return [_row_to_result(r) for r in rows]
 
+    def get_strategy_result_by_id(self, result_id: int) -> "StrategyResult | None":
+        """Load the exact strategy result row by its primary key."""
+        row = self.db.fetchone(
+            "SELECT * FROM strategy_results WHERE id=?", (result_id,)
+        )
+        return _row_to_result(row) if row else None
+
     def get_best_by(
         self,
         metric: str = "sharpe_ratio",

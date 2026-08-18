@@ -121,6 +121,12 @@ class PipelineConfig:
     log_path: str     = "logs/research.log"
     fast_mode: bool   = False   # skip WF + MC
 
+    # Injectable data provider and store — for testing only.
+    # None means use the default BinanceProvider + EDGELAB_DATA_DIR store.
+    # Set to a FixtureProvider + temp BarStore in tests to avoid network calls.
+    data_provider: Any | None = None
+    data_store: Any | None    = None
+
 
 @dataclass
 class PipelineRun:
@@ -351,6 +357,8 @@ class ResearchPipeline:
                 interval  = interval,
                 from_date = self.cfg.start_date,
                 to_date   = self.cfg.end_date,
+                provider  = self.cfg.data_provider,
+                store     = self.cfg.data_store,
             )
         except Exception as exc:
             self.notify.error(str(exc))

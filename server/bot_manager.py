@@ -65,6 +65,7 @@ class BotManager:
         interval: str | None = None,
         intervals: list[str] | None = None,
         strategy: str = "EMACrossover",
+        strategy_params: dict | None = None,
         db_path: str = "bot.db",
         log_path: str = "logs/bot.log",
         recover: bool = True,
@@ -114,7 +115,7 @@ class BotManager:
             cfg = BotConfig(
                 paper_capital    = capital,
                 strategy_name    = strategy,
-                strategy_params  = {"fast": 20, "slow": 50},
+                strategy_params  = strategy_params or {},
                 feed             = FeedConfig(
                     symbols   = symbols,
                     intervals = resolved_intervals,

@@ -13,6 +13,7 @@ export const botApi = {
                   intervals: string[]
                   strategy: string
                   recover: boolean
+                  result_id?: number
                 }) => api.post<{ started: boolean }>('/api/bot/start', body),
   stop:         ()                               => api.post<{ stopped: boolean }>('/api/bot/stop'),
   availableStrategies: ()                        => api.get<AvailableStrategy[]>('/api/available-strategies'),
