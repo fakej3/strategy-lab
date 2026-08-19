@@ -49,6 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_bo_created ON bot_orders(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS bot_positions (
     position_id       TEXT    PRIMARY KEY,
+    instance_id       TEXT    NOT NULL DEFAULT '',
     symbol            TEXT    NOT NULL,
     direction         TEXT    NOT NULL,   -- long | short
     status            TEXT    NOT NULL,   -- open | closed
@@ -73,6 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_bpos_opened ON bot_positions(opened_at DESC);
 CREATE TABLE IF NOT EXISTS bot_fills (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     fill_id         TEXT    UNIQUE,
+    instance_id     TEXT    NOT NULL DEFAULT '',
     order_id        TEXT    NOT NULL,
     symbol          TEXT    NOT NULL,
     side            TEXT    NOT NULL,
@@ -240,13 +242,14 @@ class BotStorage:
             c = self.connect()
             c.execute("""
                 INSERT OR REPLACE INTO bot_positions
-                (position_id, symbol, direction, status, size,
+                (position_id, instance_id, symbol, direction, status, size,
                  entry_price, avg_entry_price, exit_price, realized_pnl,
                  entry_fee, exit_fee, equity_at_entry,
                  entry_order_id, exit_order_id, opened_at, closed_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
-                pos["position_id"], pos["symbol"], pos["direction"], pos["status"],
+                pos["position_id"], pos.get("instance_id", ""), pos["symbol"],
+                pos["direction"], pos["status"],
                 pos["size"], pos["entry_price"], pos.get("avg_entry_price", pos["entry_price"]),
                 pos.get("exit_price"), pos.get("realized_pnl", 0.0),
                 pos.get("entry_fee", 0.0), pos.get("exit_fee", 0.0),
@@ -297,10 +300,10 @@ class BotStorage:
             c = self.connect()
             c.execute("""
                 INSERT OR IGNORE INTO bot_fills
-                (fill_id, order_id, symbol, side, fill_price, fill_qty, fee, is_maker, filled_at)
-                VALUES (?,?,?,?,?,?,?,?,?)
+                (fill_id, instance_id, order_id, symbol, side, fill_price, fill_qty, fee, is_maker, filled_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
             """, (
-                fill_id,
+                fill_id, fill.get("instance_id", ""),
                 fill["order_id"], fill["symbol"], fill["side"],
                 fill["fill_price"], fill["fill_qty"], fill["fee"],
                 int(fill.get("is_maker", False)), fill.get("filled_at", _now()),
@@ -489,11 +492,16 @@ class BotStorage:
             stmt = stmt.strip()
             if stmt:
                 c.execute(stmt)
-        # Migration: add fill_id to existing bot_fills tables created before this column.
-        try:
-            c.execute("ALTER TABLE bot_fills ADD COLUMN fill_id TEXT")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # Migrations for columns added after initial schema creation.
+        for migration in (
+            "ALTER TABLE bot_fills ADD COLUMN fill_id TEXT",
+            "ALTER TABLE bot_fills ADD COLUMN instance_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE bot_positions ADD COLUMN instance_id TEXT NOT NULL DEFAULT ''",
+        ):
+            try:
+                c.execute(migration)
+            except sqlite3.OperationalError:
+                pass  # column already exists
         c.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_bf_fill_id "
             "ON bot_fills(fill_id) WHERE fill_id IS NOT NULL"

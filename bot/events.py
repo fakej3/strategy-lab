@@ -72,6 +72,7 @@ class FillEvent(BotEvent):
     """An order (or part of it) has been filled."""
     order_id:    str   = ""
     symbol:      str   = ""
+    instance_id: str   = ""   # strategy instance that owns this fill
     side:        str   = ""
     fill_price:  float = 0.0
     fill_qty:    float = 0.0

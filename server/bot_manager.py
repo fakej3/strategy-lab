@@ -333,7 +333,7 @@ class BotManager:
             # Enrich with live position and unrealized PnL
             if positions:
                 try:
-                    pos = positions.get_open(inst.symbol)
+                    pos = positions.get_open(iid)
                     if pos:
                         marks = state.all_mark_prices() if state else {}
                         mp = marks.get(inst.symbol, pos.avg_entry_price)
@@ -449,12 +449,12 @@ class BotManager:
                     if inst.status == "running":
                         inst.last_signal = signal
 
-    def _update_instance_fill(self, symbol: str) -> None:
+    def _update_instance_fill(self, instance_id: str) -> None:
         """Update trade count on fill. Realized PnL read from storage on demand."""
         with self._lock:
-            for inst in self._instances.values():
-                if inst.symbol == symbol and inst.status == "running":
-                    inst.n_trades += 1
+            inst = self._instances.get(instance_id)
+            if inst and inst.status == "running":
+                inst.n_trades += 1
 
     # LOW-priority event types — candles and ticks.  Everything else (fills,
     # signals, errors, positions, reconnects…) is HIGH and never dropped.
@@ -813,6 +813,7 @@ class BotManager:
             with self._lock:
                 specs = list(self._instance_specs)
 
+            instance_map: dict = {}
             if specs:
                 # SENTINEL mode: each instance specifies its own strategy + params
                 strategy_map = {}
@@ -821,6 +822,7 @@ class BotManager:
                     try:
                         strat = _strat_registry.create(inst.strategy_name, inst.strategy_params)
                         strategy_map[key] = strat
+                        instance_map[key] = inst.instance_id
                         with self._lock:
                             live_inst = self._instances.get(inst.instance_id)
                             if live_inst:
@@ -842,16 +844,23 @@ class BotManager:
                     for sym in cfg.feed.symbols
                     for iv in cfg.feed.intervals
                 }
+                # In legacy mode, key positions by symbol:interval for clarity
+                instance_map = {
+                    (sym, iv): f"{sym}:{iv}"
+                    for sym in cfg.feed.symbols
+                    for iv in cfg.feed.intervals
+                }
             engine   = BotEngine(
-                config    = cfg,
-                strategy  = strategy_map,
-                state     = state,
-                orders    = orders,
-                positions = positions,
-                portfolio = portfolio,
-                risk      = risk,
-                storage   = storage,
-                bus       = bus,
+                config       = cfg,
+                strategy     = strategy_map,
+                state        = state,
+                orders       = orders,
+                positions    = positions,
+                portfolio    = portfolio,
+                risk         = risk,
+                storage      = storage,
+                bus          = bus,
+                instance_map = instance_map,
             )
             monitor = Monitor(state=state, storage=storage, bus=bus)
 
@@ -938,7 +947,7 @@ class BotManager:
                 self._update_instance_signal(ev.symbol, ev.interval, ev.signal)
 
             def _sentinel_fill(ev: FillEvent) -> None:
-                self._update_instance_fill(ev.symbol)
+                self._update_instance_fill(ev.instance_id or ev.symbol)
 
             bus.subscribe(CandleEvent, _sentinel_candle)
             bus.subscribe(SignalEvent, _sentinel_signal)

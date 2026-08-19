@@ -73,10 +73,12 @@ class OrderManager:
         qty: float,
         reduce_only: bool = False,
         current_position_size: float = 0.0,
+        instance_id: str = "",
     ) -> PaperOrder:
         return self._submit(
             symbol=symbol, side=side, order_type=ORDER_TYPE_MARKET, qty=qty,
             reduce_only=reduce_only, current_position_size=current_position_size,
+            instance_id=instance_id,
         )
 
     def submit_limit(
@@ -251,6 +253,7 @@ class OrderManager:
         time_in_force: str = TIF_GTC,
         reduce_only: bool = False,
         current_position_size: float = 0.0,
+        instance_id: str = "",
     ) -> PaperOrder:
         oid = str(uuid.uuid4())
         order = self.exchange.submit_order(
@@ -258,6 +261,7 @@ class OrderManager:
             price=price, stop_price=stop_price,
             time_in_force=time_in_force, reduce_only=reduce_only,
             order_id=oid, current_position_size=current_position_size,
+            instance_id=instance_id,
         )
         self._all[oid] = order
         if order.status == STATUS_ACCEPTED:

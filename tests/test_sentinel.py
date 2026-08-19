@@ -671,3 +671,212 @@ def test_restart_running_instance():
     ok, err = mgr.restart_instance(inst.instance_id)
     assert not ok
     assert "already" in err
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P0.1 Regression — Position isolation: SELL on instance B must not close A
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_position_isolation_sell_b_does_not_close_a():
+    """Core isolation regression: two instances on same symbol, different timeframes.
+
+    Instance A (BTCUSDT:1h) opens a LONG position.
+    Instance B (BTCUSDT:4h) receives a SELL signal — has no open position.
+    Result: A remains LONG; B remains FLAT.
+    """
+    from bot.position_manager import PositionManager
+    from bot.paper_exchange import PaperFill, SIDE_BUY, SIDE_SELL
+    from bot.events import EventBus
+    from unittest.mock import MagicMock
+
+    storage = MagicMock()
+    storage.get_open_positions.return_value = []
+    storage.save_position = MagicMock()
+    bus = EventBus()
+    pm = PositionManager(storage=storage, bus=bus)
+
+    iid_a = "BTCUSDT:1h:EMACrossover:fast=20:slow=200"
+    iid_b = "BTCUSDT:4h:RSIMeanReversion:period=14"
+
+    # Instance A opens a LONG position
+    buy_fill = PaperFill(
+        order_id="buy-a", symbol="BTCUSDT", side=SIDE_BUY,
+        fill_price=50000.0, fill_qty=0.01, fee=0.5,
+        is_maker=False, filled_at="t1", instance_id=iid_a,
+    )
+    pm.on_fill(buy_fill, equity=10000.0)
+
+    # A should have an open position
+    assert pm.has_open_position(iid_a), "Instance A should have LONG open"
+    assert not pm.has_open_position(iid_b), "Instance B should be FLAT"
+
+    # Instance B receives a SELL (e.g. strategy signal) — but has no position
+    sell_fill_b = PaperFill(
+        order_id="sell-b", symbol="BTCUSDT", side=SIDE_SELL,
+        fill_price=49000.0, fill_qty=0.01, fee=0.49,
+        is_maker=False, filled_at="t2", instance_id=iid_b,
+    )
+    # This fill opens a SHORT position for B (it's an entry, not an exit)
+    pm.on_fill(sell_fill_b, equity=10000.0)
+
+    # A's LONG must be untouched
+    pos_a = pm.get_open(iid_a)
+    assert pos_a is not None, "Instance A LONG position was incorrectly closed"
+    assert pos_a.direction == "long"
+    assert pos_a.symbol == "BTCUSDT"
+    assert pos_a.entry_price == 50000.0
+
+    # B has its own separate position (short) — independent of A
+    pos_b = pm.get_open(iid_b)
+    assert pos_b is not None
+    assert pos_b.direction == "short"
+    assert pos_b.instance_id == iid_b
+
+    # Now close A with A's own SELL — should not touch B
+    close_a = PaperFill(
+        order_id="close-a", symbol="BTCUSDT", side=SIDE_SELL,
+        fill_price=51000.0, fill_qty=0.01, fee=0.51,
+        is_maker=False, filled_at="t3", instance_id=iid_a,
+    )
+    closed = pm.on_fill(close_a, equity=10000.0)
+    assert closed.status == "closed"
+    # PnL: (51000 - 50000) * 0.01 - 0.5 (entry_fee) - 0.51 (exit_fee) = 8.99
+    assert abs(closed.realized_pnl - 8.99) < 0.01
+
+    # A is now closed; B's short is still open
+    assert not pm.has_open_position(iid_a), "A should be FLAT after exit"
+    assert pm.has_open_position(iid_b), "B short should still be open"
+
+
+def test_position_isolation_via_engine():
+    """End-to-end engine test: two instances same symbol, different intervals.
+
+    A BUY candle on BTCUSDT:1h opens A's position.
+    A SELL candle on BTCUSDT:4h must not close A's position.
+    """
+    from unittest.mock import MagicMock, patch
+    from bot.events import EventBus, CandleEvent, FillEvent
+    from bot.engine import BotEngine
+    from bot.position_manager import PositionManager
+    from bot.portfolio import Portfolio
+    from bot.order_manager import OrderManager
+    from bot.paper_exchange import PaperExchange
+    from bot.state import BotState
+    from bot.risk import RiskEngine
+    from bot.config import BotConfig, FeedConfig, RiskConfig
+
+    iid_a = "BTCUSDT:1h:EMACrossover:fast=20:slow=200"
+    iid_b = "BTCUSDT:4h:RSIMeanReversion:period=14"
+
+    # Minimal config — small min_signal_bars so the tiny test buffer is enough
+    cfg = BotConfig(
+        paper_capital=10000.0,
+        strategy_name="EMACrossover",
+        strategy_params={"fast": 20, "slow": 200},
+        feed=FeedConfig(symbols=["BTCUSDT"], intervals=["1h", "4h"]),
+        risk=RiskConfig(
+            max_open_positions=2,
+            max_position_size_usd=5000.0,
+            max_total_exposure_usd=8000.0,
+            max_daily_loss_usd=500.0,
+        ),
+        db_path=":memory:",
+        min_signal_bars=2,
+    )
+
+    bus = EventBus()
+    storage = MagicMock()
+    storage.get_open_positions.return_value = []
+    storage.save_position = MagicMock()
+    storage.save_fill = MagicMock()
+    storage.save_order = MagicMock()
+    storage.get_open_orders.return_value = []
+    storage.upsert_daily_stats = MagicMock()
+
+    state = BotState(buffer_size=50)
+    exchange = PaperExchange(bus=bus)
+    orders = OrderManager(exchange=exchange, storage=storage, bus=bus)
+    positions = PositionManager(storage=storage, bus=bus)
+
+    storage_mock = MagicMock()
+    portfolio = Portfolio(
+        starting_capital=10000.0,
+        storage=storage_mock,
+        bus=bus,
+    )
+    risk = RiskEngine(config=cfg.risk, bus=bus)
+
+    # Strategy A always says BUY; strategy B always says SELL
+    strat_a = MagicMock()
+    strat_b = MagicMock()
+
+    import pandas as pd
+    strat_a.generate_signals.return_value = pd.Series(["BUY"])
+    strat_b.generate_signals.return_value = pd.Series(["SELL"])
+
+    instance_map = {
+        ("BTCUSDT", "1h"): iid_a,
+        ("BTCUSDT", "4h"): iid_b,
+    }
+
+    engine = BotEngine(
+        config=cfg,
+        strategy={("BTCUSDT", "1h"): strat_a, ("BTCUSDT", "4h"): strat_b},
+        state=state,
+        orders=orders,
+        positions=positions,
+        portfolio=portfolio,
+        risk=risk,
+        storage=storage,
+        bus=bus,
+        instance_map=instance_map,
+    )
+
+    # Warm both buffers (history candles never submit orders)
+    for _ in range(cfg.min_signal_bars):
+        bus.emit(CandleEvent(
+            symbol="BTCUSDT", interval="1h",
+            open_time=0, open=50000.0, high=51000.0, low=49000.0,
+            close=50000.0, volume=1.0, close_time=3600000, is_history=True,
+        ))
+        bus.emit(CandleEvent(
+            symbol="BTCUSDT", interval="4h",
+            open_time=0, open=50000.0, high=51000.0, low=49000.0,
+            close=50000.0, volume=1.0, close_time=14400000, is_history=True,
+        ))
+
+    # Live candle on 1h: strategy A says BUY → should open A's LONG
+    bus.emit(CandleEvent(
+        symbol="BTCUSDT", interval="1h",
+        open_time=3600001, open=50100.0, high=51100.0, low=49500.0,
+        close=50100.0, volume=1.5, close_time=7200000, is_history=False,
+    ))
+
+    # Process next candle to fill the pending MARKET order for instance A
+    bus.emit(CandleEvent(
+        symbol="BTCUSDT", interval="1h",
+        open_time=7200001, open=50200.0, high=51200.0, low=49600.0,
+        close=50200.0, volume=1.5, close_time=10800000, is_history=False,
+    ))
+
+    # A should have a LONG position now
+    assert positions.has_open_position(iid_a), "Engine: instance A should be LONG after BUY signal"
+
+    # Live candle on 4h: strategy B says SELL but B has no position → no exit
+    bus.emit(CandleEvent(
+        symbol="BTCUSDT", interval="4h",
+        open_time=14400001, open=50300.0, high=51300.0, low=49700.0,
+        close=50300.0, volume=2.0, close_time=28800000, is_history=False,
+    ))
+
+    # A's position must still be open — B's SELL must not have closed it
+    assert positions.has_open_position(iid_a), (
+        "Engine: B's SELL candle must NOT close A's LONG position"
+    )
+    # B should still be FLAT (SELL without a position = new short; but strat_b
+    # returned SELL before B was LONG, so engine skips it: has_position(iid_b)=False → no exit)
+    # Since strategy B says SELL and B has no position, the engine does nothing for B
+    # (only a BUY signal opens a position; EXIT/SELL without a position is ignored)
+    assert not positions.has_open_position(iid_b), (
+        "Engine: B should remain FLAT (no BUY signal ever received)"
+    )

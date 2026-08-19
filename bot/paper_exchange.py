@@ -164,6 +164,7 @@ class PaperOrder:
     stop_price:    float | None  # stop trigger price
     time_in_force: str = TIF_GTC
     reduce_only:   bool = False
+    instance_id:   str  = ""    # owning strategy instance
 
     status:         str   = STATUS_NEW
     filled_qty:     float = 0.0
@@ -200,25 +201,27 @@ class PaperOrder:
 class PaperFill:
     """A single fill event."""
 
-    order_id:   str
-    symbol:     str
-    side:       str
-    fill_price: float
-    fill_qty:   float
-    fee:        float
-    is_maker:   bool = False
-    filled_at:  str  = field(default_factory=lambda: _now())
+    order_id:    str
+    symbol:      str
+    side:        str
+    fill_price:  float
+    fill_qty:    float
+    fee:         float
+    is_maker:    bool = False
+    filled_at:   str  = field(default_factory=lambda: _now())
+    instance_id: str  = ""     # owning strategy instance (positionally last for compat)
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "order_id":   self.order_id,
-            "symbol":     self.symbol,
-            "side":       self.side,
-            "fill_price": self.fill_price,
-            "fill_qty":   self.fill_qty,
-            "fee":        self.fee,
-            "is_maker":   self.is_maker,
-            "filled_at":  self.filled_at,
+            "order_id":    self.order_id,
+            "symbol":      self.symbol,
+            "instance_id": self.instance_id,
+            "side":        self.side,
+            "fill_price":  self.fill_price,
+            "fill_qty":    self.fill_qty,
+            "fee":         self.fee,
+            "is_maker":    self.is_maker,
+            "filled_at":   self.filled_at,
         }
 
 
@@ -304,6 +307,7 @@ class PaperExchange(ExchangeAdapter):
         reduce_only:   bool = False,
         order_id:      str | None = None,
         current_position_size: float = 0.0,
+        instance_id:   str = "",
     ) -> PaperOrder:
         """Validate and accept (or reject) a new order.
 
@@ -314,6 +318,8 @@ class PaperExchange(ExchangeAdapter):
         Args:
             current_position_size: Absolute size of current position in base
                 currency.  Used for reduce_only validation.
+            instance_id: Strategy instance that owns this order — propagated to
+                fills and fill events so positions can be routed correctly.
         """
         oid = order_id or str(uuid.uuid4())
         order = PaperOrder(
@@ -326,6 +332,7 @@ class PaperExchange(ExchangeAdapter):
             stop_price=stop_price,
             time_in_force=time_in_force,
             reduce_only=reduce_only,
+            instance_id=instance_id,
         )
 
         reject = self._validate(order, current_position_size)
@@ -739,12 +746,14 @@ class PaperExchange(ExchangeAdapter):
             fee=fee,
             is_maker=is_maker,
             filled_at=ts,
+            instance_id=order.instance_id,
         )
 
         if self.bus:
             self.bus.emit(FillEvent(
                 order_id=order.order_id,
                 symbol=order.symbol,
+                instance_id=order.instance_id,
                 side=order.side,
                 fill_price=fill_price,
                 fill_qty=fill_qty,

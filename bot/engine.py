@@ -62,6 +62,7 @@ class BotEngine:
         risk: RiskEngine,
         storage: BotStorage,
         bus: EventBus,
+        instance_map: dict | None = None,
     ) -> None:
         self.config    = config
         self.strategy  = strategy   # original value; may be a dict or single instance
@@ -75,6 +76,12 @@ class BotEngine:
         else:
             self._strategy_map = {}
             self._strategy_default = strategy
+
+        # Maps (symbol, interval) → instance_id string for position isolation.
+        # When set, each (symbol, interval) pair's position is keyed by instance_id
+        # instead of symbol, preventing cross-instance interference.
+        self._instance_map: dict[tuple[str, str], str] = instance_map or {}
+
         self.orders    = orders
         self.positions = positions
         self.portfolio = portfolio
@@ -156,8 +163,10 @@ class BotEngine:
             # Rebuild a PaperFill-like object from the event
             fill = _fill_from_event(event)
 
-            # Determine if this fill closes or opens a position
-            pos_before = self.positions.has_open_position(event.symbol)
+            # Determine if this fill closes or opens a position.
+            # Use instance_id for isolation; fall back to symbol for legacy fills.
+            fill_key = event.instance_id or event.symbol
+            pos_before = self.positions.has_open_position(fill_key)
 
             updated_pos = self.positions.on_fill(
                 fill, equity=self._current_equity()
@@ -185,6 +194,15 @@ class BotEngine:
         if self._strategy_map:
             return self._strategy_map.get((symbol, interval))
         return self._strategy_default
+
+    def _get_instance_id(self, symbol: str, interval: str) -> str:
+        """Return the instance_id for this (symbol, interval) pair.
+
+        Falls back to ``symbol:interval`` when no instance_map is configured,
+        ensuring each (symbol, interval) always gets its own position slot even
+        in single-strategy mode (backward compatible).
+        """
+        return self._instance_map.get((symbol, interval), f"{symbol}:{interval}")
 
     def _maybe_signal(self, event: CandleEvent) -> None:
         """Run strategy and submit order if signal warrants it."""
@@ -229,14 +247,15 @@ class BotEngine:
             signal=signal_str,
         ))
 
-        has_position = self.positions.has_open_position(event.symbol)
+        instance_id = self._get_instance_id(event.symbol, event.interval)
+        has_position = self.positions.has_open_position(instance_id)
 
         if signal_str == "BUY" and not has_position:
-            self._submit_entry(event.symbol, event.close)
+            self._submit_entry(event.symbol, event.close, instance_id)
         elif signal_str in ("EXIT", "SELL") and has_position:
-            self._submit_exit(event.symbol, event.close)
+            self._submit_exit(event.symbol, event.close, instance_id)
 
-    def _submit_entry(self, symbol: str, close_price: float) -> None:
+    def _submit_entry(self, symbol: str, close_price: float, instance_id: str = "") -> None:
         """Size and submit a market entry order."""
         equity = self._current_equity()
         qty = self._size_order(equity, close_price)
@@ -283,12 +302,14 @@ class BotEngine:
             symbol=symbol,
             side=SIDE_BUY,
             qty=qty,
+            instance_id=instance_id,
         )
-        log.info("Entry order submitted: %s BUY qty=%.5f @ ~%.2f", symbol, qty, close_price)
+        log.info("Entry order submitted: %s BUY qty=%.5f @ ~%.2f (instance=%s)",
+                 symbol, qty, close_price, instance_id)
 
-    def _submit_exit(self, symbol: str, close_price: float) -> None:
+    def _submit_exit(self, symbol: str, close_price: float, instance_id: str = "") -> None:
         """Submit a market exit order for the current position."""
-        pos = self.positions.get_open(symbol)
+        pos = self.positions.get_open(instance_id or symbol)
         if pos is None:
             return
 
@@ -301,8 +322,10 @@ class BotEngine:
             qty=pos.size,
             reduce_only=True,
             current_position_size=pos.size,
+            instance_id=instance_id,
         )
-        log.info("Exit order submitted: %s SELL qty=%.5f @ ~%.2f", symbol, pos.size, close_price)
+        log.info("Exit order submitted: %s SELL qty=%.5f @ ~%.2f (instance=%s)",
+                 symbol, pos.size, close_price, instance_id)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -359,7 +382,6 @@ class BotEngine:
 def _fill_from_event(event: FillEvent):
     """Create a minimal PaperFill-compatible object from a FillEvent."""
     from .paper_exchange import PaperFill
-    from datetime import timezone
     return PaperFill(
         order_id=event.order_id,
         symbol=event.symbol,
@@ -367,6 +389,7 @@ def _fill_from_event(event: FillEvent):
         fill_price=event.fill_price,
         fill_qty=event.fill_qty,
         fee=event.fee,
+        instance_id=event.instance_id,
         is_maker=event.is_maker,
         filled_at=event.ts.isoformat() if event.ts else "",
     )

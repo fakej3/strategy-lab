@@ -39,6 +39,7 @@ class Position:
     size:            float  # base currency units (e.g. BTC)
     entry_price:     float  # average entry price (fill price at open)
     avg_entry_price: float
+    instance_id:     str   = ""    # owning strategy instance
     exit_price:      float = 0.0
     realized_pnl:    float = 0.0
     entry_fee:       float = 0.0
@@ -61,6 +62,7 @@ class Position:
     def to_dict(self) -> dict[str, Any]:
         return {
             "position_id":     self.position_id,
+            "instance_id":     self.instance_id,
             "symbol":          self.symbol,
             "direction":       self.direction,
             "status":          self.status,
@@ -95,7 +97,7 @@ class PositionManager:
         # RLock so event handlers invoked while the lock is held can re-enter
         self._lock   = threading.RLock()
 
-        # symbol → open Position (one per symbol at a time)
+        # instance_id → open Position (one per strategy instance at a time)
         self._open: dict[str, Position] = {}
         # All positions (open + closed) keyed by position_id
         self._all:  dict[str, Position] = {}
@@ -106,9 +108,13 @@ class PositionManager:
         """Process a fill and update position state.
 
         Returns the affected position (newly opened or closed).
+        Positions are keyed by ``fill.instance_id``, ensuring that fills for
+        one strategy instance never affect another instance's position even
+        when both trade the same symbol.
         """
         with self._lock:
-            existing = self._open.get(fill.symbol)
+            key = fill.instance_id or fill.symbol
+            existing = self._open.get(key)
             if existing is None:
                 pos = self._open_position(fill, equity)
             else:
@@ -117,9 +123,9 @@ class PositionManager:
 
     # ── Queries ───────────────────────────────────────────────────────────────
 
-    def get_open(self, symbol: str) -> Position | None:
+    def get_open(self, instance_id: str) -> Position | None:
         with self._lock:
-            return self._open.get(symbol)
+            return self._open.get(instance_id)
 
     def get_all_open(self) -> list[Position]:
         with self._lock:
@@ -129,9 +135,9 @@ class PositionManager:
         with self._lock:
             return self._all.get(position_id)
 
-    def has_open_position(self, symbol: str) -> bool:
+    def has_open_position(self, instance_id: str) -> bool:
         with self._lock:
-            return symbol in self._open
+            return instance_id in self._open
 
     def open_position_count(self) -> int:
         with self._lock:
@@ -140,8 +146,8 @@ class PositionManager:
     def total_unrealized_pnl(self, mark_prices: dict[str, float]) -> float:
         with self._lock:
             total = 0.0
-            for sym, pos in self._open.items():
-                mp = mark_prices.get(sym)
+            for pos in self._open.values():
+                mp = mark_prices.get(pos.symbol)
                 if mp is not None:
                     total += pos.unrealized_pnl(mp)
             return total
@@ -166,7 +172,10 @@ class PositionManager:
             recovered = 0
             for row in rows:
                 pos = _row_to_position(row)
-                self._open[pos.symbol] = pos
+                # Use instance_id as the key; fall back to symbol for rows
+                # written before the instance_id column was added.
+                key = pos.instance_id or pos.symbol
+                self._open[key] = pos
                 self._all[pos.position_id] = pos
                 recovered += 1
             if recovered:
@@ -187,7 +196,8 @@ class PositionManager:
 
         for row in storage.get_orphan_buy_fills():
             fill = _fill_from_row(row)
-            if not self.has_open_position(fill.symbol):
+            key = fill.instance_id or fill.symbol
+            if not self.has_open_position(key):
                 log.warning(
                     "Crash-window recovery: replaying BUY fill %s for %s",
                     fill.order_id, fill.symbol,
@@ -197,7 +207,8 @@ class PositionManager:
 
         for row in storage.get_orphan_sell_fills():
             fill = _fill_from_row(row)
-            if self.has_open_position(fill.symbol):
+            key = fill.instance_id or fill.symbol
+            if self.has_open_position(key):
                 log.warning(
                     "Crash-window recovery: replaying SELL fill %s for %s",
                     fill.order_id, fill.symbol,
@@ -213,9 +224,11 @@ class PositionManager:
 
     def _open_position(self, fill: PaperFill, equity: float) -> Position:
         direction = "long" if fill.side == SIDE_BUY else "short"
+        key = fill.instance_id or fill.symbol
         pos = Position(
             position_id=str(uuid.uuid4()),
             symbol=fill.symbol,
+            instance_id=fill.instance_id,
             direction=direction,
             status="open",
             size=fill.fill_qty,
@@ -226,7 +239,7 @@ class PositionManager:
             entry_order_id=fill.order_id,
             opened_at=fill.filled_at,
         )
-        self._open[fill.symbol] = pos
+        self._open[key] = pos
         self._all[pos.position_id] = pos
         self.storage.save_position(pos.to_dict())
         log.info(
@@ -258,7 +271,7 @@ class PositionManager:
         pos.exit_order_id = fill.order_id
         pos.closed_at     = fill.filled_at
 
-        del self._open[pos.symbol]
+        del self._open[pos.instance_id or pos.symbol]
         self.storage.save_position(pos.to_dict())
         log.info(
             "Position closed: %s %s size=%.5f exit=%.2f pnl=%.4f",
@@ -292,6 +305,7 @@ def _fill_from_row(row: dict) -> PaperFill:
         fill_price=row["fill_price"],
         fill_qty=row["fill_qty"],
         fee=row["fee"],
+        instance_id=row.get("instance_id") or "",
         is_maker=bool(row.get("is_maker", False)),
         filled_at=row.get("filled_at", ""),
     )
@@ -301,6 +315,7 @@ def _row_to_position(row: dict) -> Position:
     return Position(
         position_id=row["position_id"],
         symbol=row["symbol"],
+        instance_id=row.get("instance_id") or "",
         direction=row["direction"],
         status=row["status"],
         size=row["size"],
