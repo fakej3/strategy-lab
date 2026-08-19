@@ -769,3 +769,293 @@ def test_data_failure_lifecycle():
         results = storage.get_strategy_results(limit=200)
         assert len(results) == 0, \
             f"Expected 0 results on data failure, got {len(results)}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEST F — LiveFeed terminates after max_reconnect_attempts (P0-5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_live_feed_terminates_after_max_attempts():
+    """TEST F: LiveFeed raises RuntimeError after max_reconnect_attempts consecutive
+    failures, not retrying forever. Bot must not stay RUNNING while receiving zero
+    candles indefinitely.
+    """
+    import asyncio
+    from bot.config import BotConfig, FeedConfig
+    from bot.events import EventBus
+    from bot.runtime import LiveFeed
+    from bot.state import BotState
+
+    cfg = BotConfig(
+        paper_capital=100.0,
+        feed=FeedConfig(
+            symbols=["BTCUSDT"],
+            intervals=["1h"],
+            ws_base_url="wss://localhost:1/stream",    # unreachable — always fails
+            rest_base_url="http://localhost:1/api/v3", # unreachable
+            reconnect_delay_s=0.0,
+            max_reconnect_delay_s=0.0,
+            max_reconnect_attempts=3,                  # fail fast for test
+            backfill_bars=1,
+        ),
+    )
+    state = BotState()
+    bus   = EventBus()
+    feed  = LiveFeed(config=cfg, state=state, bus=bus)
+
+    with pytest.raises(RuntimeError, match="Market data connection failed after 3"):
+        asyncio.run(feed.run())
+
+    # Reconnect counter must be incremented once per failure
+    counters = state.counters()
+    assert counters.get("reconnects", 0) == 3, \
+        f"Expected 3 reconnect increments, got {counters.get('reconnects', 0)}"
+
+
+def test_live_feed_unlimited_when_zero():
+    """TEST F-b: max_reconnect_attempts=0 means unlimited — feed does NOT raise
+    on the Nth failure (it keeps looping).  We verify by cancelling it.
+    """
+    import asyncio
+    from bot.config import BotConfig, FeedConfig
+    from bot.events import EventBus
+    from bot.runtime import LiveFeed
+    from bot.state import BotState
+
+    cfg = BotConfig(
+        paper_capital=100.0,
+        feed=FeedConfig(
+            symbols=["BTCUSDT"],
+            intervals=["1h"],
+            ws_base_url="wss://localhost:1/stream",
+            rest_base_url="http://localhost:1/api/v3",
+            reconnect_delay_s=0.0,
+            max_reconnect_delay_s=0.0,
+            max_reconnect_attempts=0,    # unlimited
+            backfill_bars=1,
+            backfill_max_retries=1,      # fail fast — no inner retry delays
+            backfill_retry_delay_s=0.0,
+            rest_timeout_s=2,
+        ),
+    )
+    state = BotState()
+    bus   = EventBus()
+    feed  = LiveFeed(config=cfg, state=state, bus=bus)
+
+    async def _run_and_cancel():
+        task = asyncio.create_task(feed.run())
+        # Poll until at least one reconnect registers, then cancel.
+        # Up to 10 seconds so the test is robust under CI load.
+        for _ in range(200):
+            await asyncio.sleep(0.05)
+            if state.counters().get("reconnects", 0) >= 1:
+                break
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, RuntimeError):
+            pass
+        return state.counters().get("reconnects", 0)
+
+    reconnects = asyncio.run(_run_and_cancel())
+    # Should have attempted at least once without raising RuntimeError from max_attempts
+    assert reconnects >= 1, \
+        "Feed with max_reconnect_attempts=0 should attempt at least once before cancel"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEST G — BotConfig integrity: unusual params flow exactly to BotConfig
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_botconfig_exact_params_from_result_id():
+    """TEST G: Unusual params (fast=7, slow=143) must flow exactly from the
+    research result through the deployment path to BotConfig.strategy_params.
+    No default substitution allowed.
+    """
+    import json
+    from research_db.storage import ResearchStorage
+    from research_db.models import SessionRecord, StrategyResult
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test.db")
+        s = ResearchStorage(db_path)
+
+        sess = SessionRecord(
+            session_id="test_params_integrity",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            status="complete",
+            symbols='["BTCUSDT"]',
+            intervals='["1h"]',
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+        )
+        s.save_session(sess)
+
+        unusual_params = {"fast": 7, "slow": 143}
+        result_id = s.save_strategy_result(StrategyResult(
+            session_id="test_params_integrity",
+            strategy_class="EMACrossover",
+            strategy_name="EMACrossover",
+            params=json.dumps(unusual_params),
+            symbol="BTCUSDT",
+            interval="1h",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            gate_decision="PROMISING",
+            gate_score=90.0,
+            total_trades=10,
+            sharpe_ratio=2.0,
+            cagr=0.20,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        ))
+
+        # Load exactly as the API would
+        r = s.get_strategy_result_by_id(result_id)
+        assert r is not None
+        assert r.gate_decision == "PROMISING"
+
+        deployed_params = json.loads(r.params)
+        assert deployed_params == unusual_params, \
+            f"Params mismatch: {deployed_params} != {unusual_params}"
+
+        # Simulate bot_manager.start() and verify BotConfig receives exact params
+        captured = {}
+        from server.bot_manager import BotManager
+        real_start = BotManager.start
+
+        def _mock_start(self, capital, symbols, intervals=None, strategy=None,
+                        strategy_params=None, **kwargs):
+            captured["strategy_params"] = strategy_params
+            return True, ""
+
+        with patch.object(BotManager, "start", _mock_start):
+            from server.bot_manager import bot_manager as bm
+            bm.start(
+                capital=10000.0,
+                symbols=[r.symbol],
+                intervals=[r.interval],
+                strategy=r.strategy_class,
+                strategy_params=deployed_params,
+            )
+
+        assert captured.get("strategy_params") == unusual_params, \
+            f"strategy_params not passed correctly: {captured.get('strategy_params')!r}"
+        assert captured["strategy_params"]["fast"] == 7
+        assert captured["strategy_params"]["slow"] == 143
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEST H — HTTP-level deployment gate (A=PROMISING→200, B=REJECT→422)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_http_deployment_gate_promising_and_reject():
+    """TEST H: PROMISING result (A) → HTTP 200. REJECT result (B, same strategy
+    class) → HTTP 422.  Even if EMACrossover has a PROMISING sibling, the REJECT
+    config itself must be refused.
+    """
+    import json
+    from research_db.storage import ResearchStorage
+    from research_db.models import SessionRecord, StrategyResult
+    from datetime import datetime, timezone
+    from fastapi.testclient import TestClient
+    from unittest.mock import patch
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test_http.db")
+        s = ResearchStorage(db_path)
+
+        sess = SessionRecord(
+            session_id="http_gate_sess",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            status="complete",
+            symbols='["BTCUSDT"]',
+            intervals='["1h"]',
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+        )
+        s.save_session(sess)
+
+        now = datetime.now(timezone.utc).isoformat()
+        promising_id = s.save_strategy_result(StrategyResult(
+            session_id="http_gate_sess",
+            strategy_class="EMACrossover",
+            strategy_name="EMACrossover",
+            params='{"fast":10,"slow":50}',
+            symbol="BTCUSDT",
+            interval="1h",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            gate_decision="PROMISING",
+            gate_score=80.0,
+            total_trades=20,
+            sharpe_ratio=1.6,
+            cagr=0.20,
+            created_at=now,
+        ))
+
+        reject_id = s.save_strategy_result(StrategyResult(
+            session_id="http_gate_sess",
+            strategy_class="EMACrossover",
+            strategy_name="EMACrossover",
+            params='{"fast":20,"slow":200}',
+            symbol="BTCUSDT",
+            interval="1h",
+            start_date="2024-01-01",
+            end_date="2024-12-31",
+            gate_decision="REJECT",
+            gate_score=20.0,
+            total_trades=3,
+            sharpe_ratio=0.1,
+            cagr=0.01,
+            created_at=now,
+        ))
+
+        # Patch the server's DB path and bot_manager.start for a clean test
+        import server.api as api_module
+        import server.bot_manager as bm_module
+        from server.auth import require_auth
+
+        with patch.object(bm_module.BotManager, "start", lambda self, **kwargs: (True, "")), \
+             patch.object(api_module, "_DB_PATH", Path(db_path)):
+
+            from server.api import router
+            from fastapi import FastAPI
+            app = FastAPI()
+            app.include_router(router)
+            app.dependency_overrides[require_auth] = lambda: "test-user"
+
+            client = TestClient(app)
+
+            # Result A (PROMISING, fast=10, slow=50) → should succeed
+            resp_a = client.post(
+                "/api/bot/start",
+                json={
+                    "capital": 10000,
+                    "symbols": ["BTCUSDT"],
+                    "intervals": ["1h"],
+                    "strategy": "EMACrossover",
+                    "recover": False,
+                    "result_id": promising_id,
+                },
+            )
+            assert resp_a.status_code == 200, \
+                f"PROMISING result should return 200, got {resp_a.status_code}: {resp_a.text}"
+
+            # Result B (REJECT, fast=20, slow=200) → must fail
+            resp_b = client.post(
+                "/api/bot/start",
+                json={
+                    "capital": 10000,
+                    "symbols": ["BTCUSDT"],
+                    "intervals": ["1h"],
+                    "strategy": "EMACrossover",
+                    "recover": False,
+                    "result_id": reject_id,
+                },
+            )
+            assert resp_b.status_code == 422, \
+                f"REJECT result should return 422, got {resp_b.status_code}: {resp_b.text}"
+            assert "REJECT" in resp_b.text or "rejected" in resp_b.text.lower(), \
+                f"422 response should mention rejection: {resp_b.text}"

@@ -104,9 +104,16 @@ class LiveFeed:
         self._last_close_time: dict[tuple[str, str], int] = {}
 
     async def run(self) -> None:
-        """Main loop — connects, backfills, streams.  Reconnects on failure."""
+        """Main loop — connects, backfills, streams.  Reconnects on failure.
+
+        Raises ``RuntimeError`` after ``config.feed.max_reconnect_attempts``
+        consecutive failures so the bot transitions to FAILED rather than
+        retrying forever when the market-data connection is permanently broken.
+        Set ``max_reconnect_attempts=0`` to restore unlimited retry behaviour.
+        """
         attempt = 0
         delay = self.config.feed.reconnect_delay_s
+        max_attempts = self.config.feed.max_reconnect_attempts
 
         while not self._stop.is_set():
             try:
@@ -129,6 +136,12 @@ class LiveFeed:
                 ))
                 if self._stop.is_set():
                     break
+                if max_attempts > 0 and attempt >= max_attempts:
+                    raise RuntimeError(
+                        f"Market data connection failed after {attempt} consecutive "
+                        f"attempts (max_reconnect_attempts={max_attempts}); "
+                        f"last error: {exc}"
+                    ) from exc
                 log.info("Reconnecting in %.1fs", delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self.config.feed.max_reconnect_delay_s)

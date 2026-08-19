@@ -21,6 +21,9 @@ class FeedConfig:
     backfill_bars: int       = 300    # candles to fetch via REST on (re)connect
     reconnect_delay_s: float = 5.0    # initial back-off before reconnecting
     max_reconnect_delay_s: float = 60.0
+    # After this many consecutive failures the feed raises a terminal error so
+    # the bot is marked FAILED rather than retrying forever.  0 = unlimited.
+    max_reconnect_attempts: int = 20
     heartbeat_interval_s: int = 30
     ping_timeout_s: int       = 20    # websockets ping timeout
     ws_open_timeout_s: int    = 30    # websockets connection open timeout
