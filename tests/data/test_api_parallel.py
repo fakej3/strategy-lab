@@ -87,13 +87,14 @@ class TestParallelDownloads:
         assert [done for _, done, _ in calls] == [1, 2, 3]
 
     def test_partial_fetch_failure_continues(self, tmp_path):
-        """A failing month should not prevent other months from returning.
+        """A failing past month must raise DataFetchError (not silently return partial data).
 
-        get_bars() intentionally emits a RuntimeWarning (not an exception)
-        when some months fail to fetch, so other months can still be returned.
-        This test explicitly asserts that warning is emitted with the correct
-        content, rather than letting it appear as an uncontrolled noisy warning.
+        This was the root cause of the EdgeLab integrity-failure bug: failed months were
+        swallowed, producing partial data that then caused a misleading integrity score.
+        The fix raises DataFetchError so the caller sees the real problem.
         """
+        from data.api import DataFetchError
+
         call_count = 0
 
         def failing_provider(s, i, y, m):
@@ -106,15 +107,14 @@ class TestParallelDownloads:
         provider = MagicMock()
         provider.fetch_month.side_effect = failing_provider
 
-        with pytest.warns(RuntimeWarning, match="simulated network error"):
-            result = get_bars(
+        with pytest.raises(DataFetchError) as exc_info:
+            get_bars(
                 "BTCUSDT", "1h", date(2024, 1, 1), date(2024, 3, 31),
                 provider=provider,
                 store=BarStore(tmp_path),
                 n_workers=4,
             )
-        # Jan and Mar should still be returned
-        assert not result.empty
+        assert "Failed to download" in str(exc_info.value)
         assert call_count == 3
 
     def test_no_duplicate_rows_at_month_boundaries(self, tmp_path):

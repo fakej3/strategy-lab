@@ -223,8 +223,13 @@ export function Scheduler() {
                         <input name="intervals" type="text" defaultValue="1h" placeholder="1h, 4h" className="field-input font-mono" />
                       </div>
                       <div>
-                        <label className="field-label block mb-1.5">Start Date</label>
-                        <input name="start_date" type="date" defaultValue="2024-01-01" className="field-input" />
+                        <label className="field-label block mb-1.5">Lookback Days</label>
+                        <input name="lookback_days" type="number" defaultValue="365" min="7" placeholder="e.g. 365" className="field-input font-mono"
+                          title="Number of calendar days from today to look back. Overrides Start Date when set." />
+                      </div>
+                      <div>
+                        <label className="field-label block mb-1.5">Start Date <span className="text-muted2 text-xs">(ignored when Lookback Days set)</span></label>
+                        <input name="start_date" type="date" defaultValue="" className="field-input" />
                       </div>
                       <div>
                         <label className="field-label block mb-1.5">End Date</label>

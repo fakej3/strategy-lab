@@ -81,6 +81,9 @@ class PipelineConfig:
     intervals: list[str] = field(default_factory=lambda: ["1h"])
     start_date: date     = field(default_factory=lambda: date(2024, 1, 1))
     end_date: date       = field(default_factory=lambda: date.today())
+    # lookback_days, when set, overrides start_date: start = end - lookback_days.
+    # This lets callers express "last N days" without hardcoding a calendar date.
+    lookback_days: int | None = None
 
     # Portfolio
     starting_capital: float       = 100_000.0
@@ -350,16 +353,29 @@ class ResearchPipeline:
     # ── Step 1: fetch market data ─────────────────────────────────────────────
 
     def _step1_fetch(self, symbol: str, interval: str) -> pd.DataFrame | None:
+        from data.api import DataFetchError
+        from datetime import timedelta
+
         self.notify.step("1", f"Updating market data  {symbol} {interval}")
+
+        # lookback_days takes precedence over an explicit start_date
+        if self.cfg.lookback_days is not None:
+            from_date = self.cfg.end_date - timedelta(days=self.cfg.lookback_days)
+        else:
+            from_date = self.cfg.start_date
+
         try:
             bars = get_bars(
                 symbol    = symbol,
                 interval  = interval,
-                from_date = self.cfg.start_date,
+                from_date = from_date,
                 to_date   = self.cfg.end_date,
                 provider  = self.cfg.data_provider,
                 store     = self.cfg.data_store,
             )
+        except DataFetchError as exc:
+            self.notify.error(f"Data download FAILED: {exc}")
+            return None
         except Exception as exc:
             self.notify.error(str(exc))
             return None

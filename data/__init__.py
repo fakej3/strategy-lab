@@ -1,4 +1,4 @@
-from .api import get_bars
+from .api import get_bars, DataFetchError
 from .fetcher import BinanceProvider
 from .manager import ProviderManager, ProviderError
 from .provider import MarketDataProvider
@@ -8,6 +8,7 @@ from .store import BarStore
 
 __all__ = [
     "get_bars",
+    "DataFetchError",
     "MarketDataProvider",
     "BinanceProvider",
     "YahooFinanceProvider",

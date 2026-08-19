@@ -35,6 +35,15 @@ _DEFAULT_DATA_DIR = Path(os.environ.get("EDGELAB_DATA_DIR", "market_data"))
 _EMPTY_COLS = ["open", "high", "low", "close", "volume"]
 
 
+class DataFetchError(RuntimeError):
+    """Raised when required historical months could not be downloaded.
+
+    Distinct from data integrity errors (corrupt/gappy data that was
+    successfully downloaded).  The message names the failed months and
+    suggests remediation steps.
+    """
+
+
 def get_bars(
     symbol: str,
     interval: str,
@@ -107,12 +116,17 @@ def get_bars(
             on_progress(f"{year}-{month:02d}", done, total)
 
     # Fetch network months in parallel
+    fetch_errors: list[str] = []  # accumulated across both serial and parallel paths
     if fetch_months:
         workers = min(n_workers, len(fetch_months))
         if workers <= 1:
             for year, month in fetch_months:
-                df = _fetch_and_cache(provider, store, symbol, interval, year, month)
-                results[(year, month)] = df
+                try:
+                    df = _fetch_and_cache(provider, store, symbol, interval, year, month)
+                    results[(year, month)] = df
+                except Exception as exc:
+                    results[(year, month)] = pd.DataFrame(columns=_EMPTY_COLS)
+                    fetch_errors.append(f"{year}-{month:02d}: {exc}")
                 done += 1
                 if on_progress:
                     on_progress(f"{year}-{month:02d}", done, total)
@@ -124,7 +138,6 @@ def get_bars(
                     ): (y, m)
                     for y, m in fetch_months
                 }
-                fetch_errors: list[str] = []
                 for future in as_completed(future_to_ym):
                     ym = future_to_ym[future]
                     try:
@@ -135,14 +148,49 @@ def get_bars(
                     done += 1
                     if on_progress:
                         on_progress(f"{ym[0]}-{ym[1]:02d}", done, total)
-                if fetch_errors:
-                    import warnings as _warn
-                    _warn.warn(
-                        f"Data fetch failures for {symbol}/{interval}: "
-                        + "; ".join(fetch_errors),
-                        RuntimeWarning,
-                        stacklevel=3,
-                    )
+
+    # Raise on past-month download failures BEFORE integrity checks so the
+    # caller sees a clear "download failed" error rather than a misleading
+    # "data integrity fail" caused by the resulting gaps.
+    if fetch_errors:
+        today = datetime.now(timezone.utc).date()
+        # Distinguish past months (should be in archive) from current month
+        past_failures = [
+            e for e in fetch_errors
+            if not e.startswith(f"{today.year}-{today.month:02d}:")
+        ]
+        if past_failures:
+            n = len(past_failures)
+            cached_months = sorted(
+                ym for ym in months
+                if ym not in {
+                    _ym_from_error(e) for e in past_failures
+                } and not results.get(ym, pd.DataFrame()).empty
+            )
+            cache_range = (
+                f" Available cached data: {cached_months[0][0]}-{cached_months[0][1]:02d}"
+                f" to {cached_months[-1][0]}-{cached_months[-1][1]:02d}."
+                if cached_months else " No cached data available."
+            )
+            raise DataFetchError(
+                f"Failed to download {n} month(s) of {symbol}/{interval} data "
+                f"from Binance (network error or blocked access). "
+                f"Failed months: {', '.join(e.split(':')[0] for e in past_failures[:5])}"
+                + (" ..." if n > 5 else "") + "."
+                + cache_range
+                + " To fix: resolve network access to data.binance.vision/api.binance.com,"
+                + " or narrow your start_date to use only locally cached data."
+                + f" First failure: {past_failures[0]}"
+            )
+        # Only current-month failures: issue a warning but don't block
+        if fetch_errors:
+            import warnings as _warn
+            _warn.warn(
+                f"Data fetch failures for {symbol}/{interval}: "
+                + "; ".join(fetch_errors),
+                RuntimeWarning,
+                stacklevel=3,
+            )
 
     # Assemble frames in chronological order
     frames = [results[ym] for ym in months if not results.get(ym, pd.DataFrame()).empty]
@@ -252,3 +300,13 @@ def _iter_months(from_date: date, to_date: date):
 def _is_current_month(year: int, month: int) -> bool:
     today = datetime.now(timezone.utc).date()
     return year == today.year and month == today.month
+
+
+def _ym_from_error(error_str: str) -> tuple[int, int] | None:
+    """Parse (year, month) from an error string like '2025-03: ...'."""
+    try:
+        prefix = error_str.split(":")[0].strip()
+        y, m = prefix.split("-")
+        return int(y), int(m)
+    except (ValueError, IndexError):
+        return None

@@ -308,10 +308,17 @@ def dict_to_config(d: dict) -> PipelineConfig:
         else list(raw_iv)
     )
 
-    start = d.get("start_date", "2024-01-01")
-    end   = d.get("end_date",   str(date.today()))
-    cfg.start_date = date.fromisoformat(start) if isinstance(start, str) else start
-    cfg.end_date   = date.fromisoformat(end)   if isinstance(end,   str) else end
+    end   = d.get("end_date", str(date.today()))
+    cfg.end_date = date.fromisoformat(end) if isinstance(end, str) else end
+
+    # lookback_days, if provided, overrides start_date.
+    raw_lb = d.get("lookback_days", "")
+    if raw_lb and str(raw_lb).strip():
+        cfg.lookback_days = int(raw_lb)
+        cfg.start_date    = cfg.end_date  # irrelevant when lookback_days set
+    else:
+        start = d.get("start_date", "2024-01-01")
+        cfg.start_date = date.fromisoformat(start) if isinstance(start, str) else start
 
     # Portfolio
     cfg.starting_capital = float(d.get("starting_capital", 100_000))
