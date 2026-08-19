@@ -40,6 +40,7 @@ class BotManager:
         self._started_at: datetime | None = None
         self._stopped_at: datetime | None = None
         self._error: str  = ""
+        self._status: str = "idle"
 
         # Priority-split event queues — both bounded to prevent memory growth.
         # HIGH: fills/signals/errors/positions/reconnects — drop-oldest when
@@ -140,6 +141,7 @@ class BotManager:
                 return False, "Previous bot thread still shutting down — please wait"
             self._config     = cfg
             self._error      = ""
+            self._status     = "running"
             self._running    = True
             self._started_at = datetime.now(timezone.utc)
             self._stopped_at = None
@@ -336,6 +338,7 @@ class BotManager:
         """Return a status dict suitable for JSON serialisation."""
         with self._lock:
             running     = self._running
+            status_str  = self._status
             cfg         = self._config
             started_at  = self._started_at
             stopped_at  = self._stopped_at
@@ -346,6 +349,7 @@ class BotManager:
 
         result: dict[str, Any] = {
             "running":         running,
+            "status":          status_str,
             "started_at":      started_at.isoformat()  if started_at  else None,
             "stopped_at":      stopped_at.isoformat()  if stopped_at  else None,
             "error":           error,
@@ -442,15 +446,20 @@ class BotManager:
             self._loop = loop
         try:
             loop.run_until_complete(self._run_bot())
+        except asyncio.CancelledError:
+            pass  # normal shutdown via stop()
         except Exception:
             log.exception("Bot thread raised an unhandled exception")
             with self._lock:
                 import traceback
-                self._error = traceback.format_exc(limit=10)
+                self._error  = traceback.format_exc(limit=10)
+                self._status = "failed"
         finally:
             loop.close()
             with self._lock:
                 self._running   = False
+                if self._status == "running":
+                    self._status = "stopped"
                 self._loop      = None
                 self._task      = None
                 self._portfolio = None

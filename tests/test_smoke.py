@@ -864,6 +864,147 @@ def test_live_feed_unlimited_when_zero():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# TESTS A-D — Explicit bot failure state (P0 gap)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+
+def _poll_status(bm, target_statuses: list, timeout: float = 10.0) -> dict:
+    """Poll get_status() until status field is in target_statuses."""
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        st = bm.get_status()
+        if st.get("status") in target_statuses:
+            return st
+        time.sleep(0.05)
+    return bm.get_status()
+
+
+def _wait_task_registered(bm, timeout: float = 5.0) -> None:
+    """Wait until the bot thread has registered self._task (so stop() can cancel it)."""
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with bm._lock:
+            if bm._task is not None:
+                return
+        time.sleep(0.02)
+
+
+def _make_bm_with_mock_run_bot(mock_coro):
+    """Return a fresh BotManager whose _run_bot is replaced by mock_coro."""
+    import types
+    from server.bot_manager import BotManager
+    bm = BotManager.__new__(BotManager)
+    BotManager.__init__(bm)
+    bm._run_bot = types.MethodType(mock_coro, bm)
+    return bm
+
+
+def _start_bm(bm, tmpdir: str) -> None:
+    """Call bm.start() with minimal args; assert it succeeds."""
+    import types
+    log_path = os.path.join(tmpdir, "bot.log")
+    db_path  = os.path.join(tmpdir, "bot.db")
+    ok, err = bm.start(
+        capital=10_000.0,
+        symbols=["BTCUSDT"],
+        interval="1h",
+        strategy="EMACrossover",
+        db_path=db_path,
+        log_path=log_path,
+    )
+    assert ok, f"start() failed: {err}"
+
+
+async def _mock_bot_healthy(self):
+    """Mock _run_bot: registers task then blocks until cancelled (simulates clean run)."""
+    import asyncio
+    task = asyncio.current_task()
+    with self._lock:
+        self._task = task
+    await asyncio.sleep(3600)  # CancelledError propagates from here
+
+
+async def _mock_bot_failing(self):
+    """Mock _run_bot: raises RuntimeError immediately (simulates feed exhausted)."""
+    raise RuntimeError(
+        "Market data connection failed after 3 consecutive attempts "
+        "(max_reconnect_attempts=3); last error: Connection refused"
+    )
+
+
+def test_bot_status_A_running():
+    """TEST A: start() → status must be 'running'."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        bm = _make_bm_with_mock_run_bot(_mock_bot_healthy)
+        _start_bm(bm, tmpdir)
+        try:
+            st = _poll_status(bm, ["running"], timeout=5.0)
+            assert st["status"] == "running", f"Expected 'running', got {st['status']!r}"
+            assert st["running"] is True
+        finally:
+            _wait_task_registered(bm)
+            bm.stop()
+            _poll_status(bm, ["stopped", "failed", "idle"], timeout=5.0)
+
+
+def test_bot_status_B_manual_stop_not_failed():
+    """TEST B: start() → stop() → status must be 'stopped', error must be empty."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        bm = _make_bm_with_mock_run_bot(_mock_bot_healthy)
+        _start_bm(bm, tmpdir)
+        _poll_status(bm, ["running"], timeout=5.0)
+        _wait_task_registered(bm)
+        bm.stop()
+        st = _poll_status(bm, ["stopped", "idle"], timeout=5.0)
+        assert st["status"] == "stopped", \
+            f"Manual stop must produce 'stopped', got {st['status']!r}"
+        assert st["error"] == "", \
+            f"Manual stop must not set error, got {st['error']!r}"
+        assert st["running"] is False
+
+
+def test_bot_status_C_feed_failure_produces_failed():
+    """TEST C: _run_bot raises RuntimeError (feed exhausted) → status must be 'failed'."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        bm = _make_bm_with_mock_run_bot(_mock_bot_failing)
+        _start_bm(bm, tmpdir)
+        st = _poll_status(bm, ["failed"], timeout=5.0)
+        assert st["status"] == "failed", \
+            f"Market-data failure must produce 'failed', got {st['status']!r}"
+        assert st["running"] is False
+        assert "Market data connection failed" in st["error"], \
+            f"Error must mention connection failure, got {st['error']!r}"
+
+
+def test_bot_status_D_restart_after_failure_clears_error():
+    """TEST D: fail → confirm 'failed' → restart with healthy bot → 'running', error cleared."""
+    import types
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # First: cause a failure
+        bm = _make_bm_with_mock_run_bot(_mock_bot_failing)
+        _start_bm(bm, tmpdir)
+        st = _poll_status(bm, ["failed"], timeout=5.0)
+        assert st["status"] == "failed", f"Expected 'failed', got {st['status']!r}"
+
+        # Swap mock to healthy and restart — previous error must be cleared
+        bm._run_bot = types.MethodType(_mock_bot_healthy, bm)
+        _start_bm(bm, tmpdir)
+        try:
+            st = _poll_status(bm, ["running"], timeout=5.0)
+            assert st["status"] == "running", \
+                f"Restart after failure must produce 'running', got {st['status']!r}"
+            assert st["error"] == "", \
+                f"Restart must clear previous error, got {st['error']!r}"
+        finally:
+            _wait_task_registered(bm)
+            bm.stop()
+            _poll_status(bm, ["stopped", "failed", "idle"], timeout=5.0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TEST G — BotConfig integrity: unusual params flow exactly to BotConfig
 # ─────────────────────────────────────────────────────────────────────────────
 
