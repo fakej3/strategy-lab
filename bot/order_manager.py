@@ -105,11 +105,13 @@ class OrderManager:
         stop_price: float,
         reduce_only: bool = False,
         current_position_size: float = 0.0,
+        instance_id: str = "",
     ) -> PaperOrder:
         return self._submit(
             symbol=symbol, side=side, order_type=ORDER_TYPE_STOP_MARKET, qty=qty,
             stop_price=stop_price, reduce_only=reduce_only,
             current_position_size=current_position_size,
+            instance_id=instance_id,
         )
 
     def submit_stop_limit(
@@ -136,11 +138,13 @@ class OrderManager:
         stop_price: float,
         reduce_only: bool = True,
         current_position_size: float = 0.0,
+        instance_id: str = "",
     ) -> PaperOrder:
         return self._submit(
             symbol=symbol, side=side, order_type=ORDER_TYPE_TAKE_PROFIT, qty=qty,
             stop_price=stop_price, reduce_only=reduce_only,
             current_position_size=current_position_size,
+            instance_id=instance_id,
         )
 
     # ── Cancel ────────────────────────────────────────────────────────────────

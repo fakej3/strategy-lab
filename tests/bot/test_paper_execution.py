@@ -184,7 +184,7 @@ class TestDefaultConfigFills:
         _live(bus, 65, "1m", price=50_000.0)
         _live(bus, 66, "1m", price=50_000.0)
 
-        assert pm.has_open_position("BTCUSDT"), (
+        assert pm.has_open_position("BTCUSDT:1m"), (
             "Default config must open a position after BUY signal + fill"
         )
 
@@ -345,7 +345,7 @@ class TestPnLAccounting:
         _live(bus, 66, price=50_000.0)
         _live(bus, 67, price=50_000.0)
 
-        assert not pm.has_open_position("BTCUSDT"), "Position must be closed"
+        assert not pm.has_open_position("BTCUSDT:1m"), "Position must be closed"
         assert pf.cash > 0.0, "Cash must be > 0 after round trip"
 
 
@@ -367,20 +367,21 @@ class TestStopLossExecution:
         _live(bus, 65, price=entry_price)   # BUY queued
         _live(bus, 66, price=entry_price)   # BUY fills
 
-        assert pm.has_open_position("BTCUSDT"), "Position must be open after entry"
-        pos = pm.get_open("BTCUSDT")
+        assert pm.has_open_position("BTCUSDT:1m"), "Position must be open after entry"
+        pos = pm.get_open("BTCUSDT:1m")
 
         # Submit a stop-loss order (STOP_MARKET SELL)
         om.submit_stop_market(
             symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
             stop_price=stop_price, reduce_only=True,
             current_position_size=pos.size,
+            instance_id="BTCUSDT:1m",
         )
 
         # Send a candle with low below stop price — triggers the SL
         _live(bus, 67, price=entry_price, low=47_000.0, high=entry_price * 1.001)
 
-        assert not pm.has_open_position("BTCUSDT"), (
+        assert not pm.has_open_position("BTCUSDT:1m"), (
             "Position must be closed after stop-loss trigger"
         )
 
@@ -399,20 +400,21 @@ class TestStopLossExecution:
         _live(bus, 65, price=entry_price)
         _live(bus, 66, price=entry_price)
 
-        assert pm.has_open_position("BTCUSDT")
-        pos = pm.get_open("BTCUSDT")
+        assert pm.has_open_position("BTCUSDT:1m")
+        pos = pm.get_open("BTCUSDT:1m")
 
         om.submit_stop_market(
             symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
             stop_price=stop_price, reduce_only=True,
             current_position_size=pos.size,
+            instance_id="BTCUSDT:1m",
         )
 
         # Bar stays well above stop_price
         _live(bus, 67, price=entry_price,
               low=49_000.0, high=entry_price * 1.01)
 
-        assert pm.has_open_position("BTCUSDT"), (
+        assert pm.has_open_position("BTCUSDT:1m"), (
             "Position must remain open when bar low > stop_price"
         )
 
@@ -431,11 +433,12 @@ class TestStopLossExecution:
         _live(bus, 65, price=entry_price)
         _live(bus, 66, price=entry_price)
 
-        pos = pm.get_open("BTCUSDT")
+        pos = pm.get_open("BTCUSDT:1m")
         om.submit_stop_market(
             symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
             stop_price=stop_price, reduce_only=True,
             current_position_size=pos.size,
+            instance_id="BTCUSDT:1m",
         )
 
         _live(bus, 67, price=entry_price, low=47_000.0, high=entry_price * 1.001)
@@ -466,20 +469,21 @@ class TestTakeProfitExecution:
         _live(bus, 65, price=entry_price)
         _live(bus, 66, price=entry_price)
 
-        assert pm.has_open_position("BTCUSDT")
-        pos = pm.get_open("BTCUSDT")
+        assert pm.has_open_position("BTCUSDT:1m")
+        pos = pm.get_open("BTCUSDT:1m")
 
         # Submit take-profit order
         om.submit_take_profit(
             symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
             stop_price=tp_price, reduce_only=True,
             current_position_size=pos.size,
+            instance_id="BTCUSDT:1m",
         )
 
         # Send candle with high above TP price
         _live(bus, 67, price=entry_price, high=53_000.0, low=entry_price * 0.99)
 
-        assert not pm.has_open_position("BTCUSDT"), (
+        assert not pm.has_open_position("BTCUSDT:1m"), (
             "Position must be closed after take-profit trigger"
         )
 
@@ -498,17 +502,18 @@ class TestTakeProfitExecution:
         _live(bus, 65, price=entry_price)
         _live(bus, 66, price=entry_price)
 
-        pos = pm.get_open("BTCUSDT")
+        pos = pm.get_open("BTCUSDT:1m")
         om.submit_take_profit(
             symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
             stop_price=tp_price, reduce_only=True,
             current_position_size=pos.size,
+            instance_id="BTCUSDT:1m",
         )
 
         # Bar high stays below TP
         _live(bus, 67, price=entry_price, high=51_000.0, low=entry_price * 0.99)
 
-        assert pm.has_open_position("BTCUSDT"), (
+        assert pm.has_open_position("BTCUSDT:1m"), (
             "Position must stay open when bar high < take-profit price"
         )
 
@@ -527,11 +532,12 @@ class TestTakeProfitExecution:
         _live(bus, 65, price=entry_price)
         _live(bus, 66, price=entry_price)
 
-        pos = pm.get_open("BTCUSDT")
+        pos = pm.get_open("BTCUSDT:1m")
         om.submit_take_profit(
             symbol="BTCUSDT", side=SIDE_SELL, qty=pos.size,
             stop_price=tp_price, reduce_only=True,
             current_position_size=pos.size,
+            instance_id="BTCUSDT:1m",
         )
 
         _live(bus, 67, price=entry_price, high=53_000.0, low=entry_price * 0.99)
@@ -689,7 +695,7 @@ class TestMultiSymbolGlobalPositionLimit:
         _live(bus, 65, symbol="BTCUSDT", price=50_000.0)    # BUY queued
         _live(bus, 66, symbol="BTCUSDT", price=50_000.0)    # BUY fills
 
-        assert pm.has_open_position("BTCUSDT"), "BTCUSDT must be open"
+        assert pm.has_open_position("BTCUSDT:1m"), "BTCUSDT must be open"
         assert pm.open_position_count() == 1
 
         # Now warm up ETHUSDT and try to open
@@ -697,7 +703,7 @@ class TestMultiSymbolGlobalPositionLimit:
         _live(bus, 65, symbol="ETHUSDT", price=3_000.0)     # BUY signal → risk blocks
         _live(bus, 66, symbol="ETHUSDT", price=3_000.0)
 
-        assert not pm.has_open_position("ETHUSDT"), (
+        assert not pm.has_open_position("ETHUSDT:1m"), (
             "ETHUSDT position must be blocked while BTCUSDT is open (max_open_positions=1)"
         )
         assert pm.open_position_count() == 1, "Total positions must remain 1"
@@ -764,11 +770,11 @@ class TestMultiSymbolGlobalPositionLimit:
         _live(bus, 65, symbol="BTCUSDT", price=50_000.0)
         _live(bus, 66, symbol="BTCUSDT", price=50_000.0)   # BUY fills; EXIT queued next
 
-        assert pm.has_open_position("BTCUSDT")
+        assert pm.has_open_position("BTCUSDT:1m")
 
         # Step 2: BTCUSDT EXIT (signal 2), fill closes position
         _live(bus, 67, symbol="BTCUSDT", price=50_000.0)   # EXIT fills
-        assert not pm.has_open_position("BTCUSDT"), "BTCUSDT must be closed"
+        assert not pm.has_open_position("BTCUSDT:1m"), "BTCUSDT must be closed"
 
         # Step 3: ETHUSDT BUY now allowed (signal 2+)
         # n=1 → HOLD, n=2 → BUY queued, n=3 candle → BUY fills (market fills at next open)
@@ -776,7 +782,7 @@ class TestMultiSymbolGlobalPositionLimit:
         _live(bus, 66, symbol="ETHUSDT", price=3_000.0)   # EthStrategy n=2 → BUY queued
         _live(bus, 67, symbol="ETHUSDT", price=3_000.0)   # BUY fills at candle open
 
-        assert pm.has_open_position("ETHUSDT"), (
+        assert pm.has_open_position("ETHUSDT:1m"), (
             "ETHUSDT position must be allowed after BTCUSDT closes"
         )
 

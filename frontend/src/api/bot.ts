@@ -22,7 +22,7 @@ export const botApi = {
   instances:       ()                            => api.get<StrategyInstance[]>('/api/bot/instances'),
   portfolio:       ()                            => api.get<SentinelPortfolio>('/api/bot/portfolio'),
   startInstances:  (body: { specs: { symbol: string; interval: string; strategy_name: string; strategy_params: Record<string, unknown>; instance_id?: string }[]; capital: number }) =>
-                     api.post<{ started: boolean }>('/api/bot/instances/start', body),
+                     api.post<{ started: boolean }>('/api/bot/instances/start', { instances: body.specs, capital: body.capital }),
   stopInstance:    (id: string)                  => api.post<{ ok: boolean }>(`/api/bot/instances/${encodeURIComponent(id)}/stop`, {}),
   restartInstance: (id: string)                  => api.post<{ ok: boolean }>(`/api/bot/instances/${encodeURIComponent(id)}/restart`, {}),
   scan:            (body: ScanRequest)           => api.post<{ jobs: { job_id: string; symbol: string; interval: string; strategy: string }[] }>('/api/research/scan', body),

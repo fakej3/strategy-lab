@@ -187,7 +187,7 @@ class TestSmokePipelineEntryFill:
         _emit_live(bus, 65, interval)   # triggers BUY order
         _emit_live(bus, 66, interval)   # fills BUY order
 
-        assert pm.has_open_position("BTCUSDT"), (
+        assert pm.has_open_position(f"BTCUSDT:{interval}"), (
             f"Position must be open after entry fill for interval {interval!r}"
         )
 
@@ -218,7 +218,7 @@ class TestSmokePipelineExitFill:
         # Fill EXIT order
         _emit_live(bus, 67, interval)
 
-        assert not pm.has_open_position("BTCUSDT"), (
+        assert not pm.has_open_position(f"BTCUSDT:{interval}"), (
             f"Position must be closed after EXIT fill for interval {interval!r}"
         )
 

@@ -1311,14 +1311,14 @@ class TestReconnectPositionSurvival:
 
         # Open a position via live candles
         self._emit_candles(bus, 0, 6, is_history=False)   # warm + BUY + fill
-        assert pm.has_open_position("BTCUSDT"), "Position must open before reconnect"
+        assert pm.has_open_position("BTCUSDT:1m"), "Position must open before reconnect"
 
         n_fills_before = len(fills)
 
         # Simulate reconnect: re-backfill (is_history=True)
         self._emit_candles(bus, 0, 6, is_history=True)
 
-        assert pm.has_open_position("BTCUSDT"), (
+        assert pm.has_open_position("BTCUSDT:1m"), (
             "Position must survive re-backfill (is_history candles must not close it)"
         )
         assert len(fills) == n_fills_before, (
