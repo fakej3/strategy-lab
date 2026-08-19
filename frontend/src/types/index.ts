@@ -118,6 +118,7 @@ export interface Fill {
 
 export interface BotStatus {
   running: boolean
+  status: 'idle' | 'running' | 'stopped' | 'failed'
   started_at: string | null
   stopped_at: string | null
   error: string

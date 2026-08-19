@@ -40,10 +40,11 @@ export function PaperTrading() {
   }
 
   if (!status?.running) {
+    const botError = status?.status === 'failed' && status.error ? status.error : undefined
     return (
       <StoppedState
         strategies={strategies}
-        error={error || undefined}
+        error={error || botError}
         onStarted={load}
       />
     )

@@ -191,7 +191,8 @@ class BacktestJob(BaseJob):
         }
 
 
-def _safe(v: float) -> float | None:
+def _safe(v: float) -> float:
+    """Map NaN/Inf to 0.0 so NOT NULL columns in the DB always receive a number."""
     if math.isnan(v) or math.isinf(v):
-        return None
+        return 0.0
     return v

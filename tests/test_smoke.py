@@ -117,12 +117,12 @@ def test_single_backtest_metrics():
             f"sharpe_ratio is not finite: {data['sharpe_ratio']}"
 
 
-def test_safe_returns_none_for_nan():
-    """_safe() in backtest_job returns None for NaN/Inf, not 0.0."""
+def test_safe_returns_zero_for_nan():
+    """_safe() in backtest_job returns 0.0 for NaN/Inf so NOT NULL columns always get a number."""
     from jobs.backtest_job import _safe
-    assert _safe(float("nan")) is None, "_safe(nan) should return None"
-    assert _safe(float("inf")) is None, "_safe(inf) should return None"
-    assert _safe(float("-inf")) is None, "_safe(-inf) should return None"
+    assert _safe(float("nan")) == 0.0, "_safe(nan) should return 0.0"
+    assert _safe(float("inf")) == 0.0, "_safe(inf) should return 0.0"
+    assert _safe(float("-inf")) == 0.0, "_safe(-inf) should return 0.0"
     assert _safe(1.5) == 1.5, "_safe(valid float) should return float unchanged"
     assert _safe(0.0) == 0.0, "_safe(0.0) should return 0.0"
 
