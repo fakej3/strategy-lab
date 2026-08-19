@@ -196,3 +196,49 @@ export interface Notification {
   level: 'info' | 'warn' | 'error'
   timestamp: string
 }
+
+// ── SENTINEL Multi-Instance ────────────────────────────────────────────────────
+export type InstanceStatus = 'starting' | 'running' | 'stopped' | 'failed'
+
+export interface StrategyInstance {
+  instance_id:     string
+  symbol:          string
+  interval:        string
+  strategy_name:   string
+  strategy_params: Record<string, unknown>
+  status:          InstanceStatus
+  error:           string
+  started_at:      string
+  stopped_at:      string
+  n_candles:       number
+  n_trades:        number
+  realized_pnl:    number
+  unrealized_pnl:  number
+  last_signal:     string
+  last_candle_ts:  string
+  position?:       {
+    size:        number
+    entry_price: number
+    direction:   string
+  } | null
+}
+
+export interface SentinelPortfolio {
+  capital:        number
+  cash:           number
+  equity:         number
+  unrealized_pnl: number
+  realized_pnl:   number
+  n_instances:    number
+  n_running:      number
+  n_failed:       number
+}
+
+export interface ScanRequest {
+  symbols:    string[]
+  intervals:  string[]
+  strategies: string[]
+  start_date: string
+  end_date:   string
+  capital:    number
+}

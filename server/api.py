@@ -518,3 +518,175 @@ def api_settings(_: AuthUser) -> JSONResponse:
         "log_path":    str(_LOG_PATH_SETTINGS),
         "env_vars":    env_vars,
     })
+
+
+# ── SENTINEL Multi-Instance API ───────────────────────────────────────────────
+
+_VALID_SYMBOLS = {
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT",
+    "ADAUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT", "LTCUSDT", "LINKUSDT",
+}
+_VALID_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "1w"}
+
+
+@router.get("/bot/instances")
+def api_bot_instances(_: AuthUser) -> JSONResponse:
+    """List all SENTINEL strategy instances with their status."""
+    return JSONResponse(bot_manager.get_instances())
+
+
+@router.post("/bot/instances/start")
+async def api_bot_instances_start(request: Request, _: AuthUser) -> JSONResponse:
+    """Start SENTINEL with a list of strategy instances.
+
+    Body: {
+        "capital": 1000.0,
+        "instances": [
+            {"symbol": "BTCUSDT", "interval": "1h", "strategy_name": "EMACrossover",
+             "strategy_params": {"fast": 20, "slow": 200}},
+            ...
+        ],
+        "db_path": "bot.db",
+        "log_path": "logs/bot.log",
+        "recover": true
+    }
+    """
+    from server.sentinel import StrategyInstance
+
+    ct = request.headers.get("content-type", "")
+    if "application/json" not in ct:
+        raise HTTPException(status_code=415, detail="Content-Type must be application/json")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    capital = float(body.get("capital", 1000.0))
+    if capital <= 0:
+        raise HTTPException(status_code=422, detail="capital must be > 0")
+
+    raw_instances = body.get("instances", [])
+    if not isinstance(raw_instances, list) or not raw_instances:
+        raise HTTPException(status_code=422, detail="instances must be a non-empty list")
+
+    specs = []
+    for item in raw_instances:
+        symbol   = str(item.get("symbol", "")).strip().upper()
+        interval = str(item.get("interval", "")).strip()
+        strat    = str(item.get("strategy_name", "")).strip()
+        params   = item.get("strategy_params", {})
+        if not symbol:
+            raise HTTPException(status_code=422, detail="Each instance must have a symbol")
+        if not strat:
+            raise HTTPException(status_code=422, detail="Each instance must have a strategy_name")
+        if not isinstance(params, dict):
+            params = {}
+        inst = StrategyInstance(
+            instance_id    = StrategyInstance.make_id(symbol, interval, strat, params),
+            symbol         = symbol,
+            interval       = interval or "1h",
+            strategy_name  = strat,
+            strategy_params = params,
+        )
+        specs.append(inst)
+
+    ok, err = bot_manager.start_instances(
+        specs    = specs,
+        capital  = capital,
+        db_path  = body.get("db_path",  "bot.db"),
+        log_path = body.get("log_path", "logs/bot.log"),
+        recover  = bool(body.get("recover", True)),
+    )
+    if not ok:
+        raise HTTPException(status_code=409, detail=err)
+    return JSONResponse({"started": True, "n_instances": len(specs)})
+
+
+@router.post("/bot/instances/{instance_id:path}/stop")
+def api_bot_instance_stop(instance_id: str, _: AuthUser) -> JSONResponse:
+    """Stop one strategy instance without stopping the whole bot."""
+    ok, err = bot_manager.stop_instance(instance_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=err)
+    return JSONResponse({"stopped": True, "instance_id": instance_id})
+
+
+@router.post("/bot/instances/{instance_id:path}/restart")
+def api_bot_instance_restart(instance_id: str, _: AuthUser) -> JSONResponse:
+    """Re-enable a stopped or failed strategy instance."""
+    ok, err = bot_manager.restart_instance(instance_id)
+    if not ok:
+        raise HTTPException(status_code=409, detail=err)
+    return JSONResponse({"restarted": True, "instance_id": instance_id})
+
+
+@router.get("/bot/portfolio")
+def api_bot_portfolio(_: AuthUser) -> JSONResponse:
+    """Return SENTINEL portfolio summary (shared capital across all instances)."""
+    return JSONResponse(bot_manager.get_portfolio())
+
+
+@router.post("/research/scan")
+async def api_research_scan(request: Request, _: AuthUser) -> JSONResponse:
+    """Fan-out research across symbols × timeframes × strategies.
+
+    Body: {
+        "symbols":     ["BTCUSDT", "ETHUSDT"],
+        "intervals":   ["1h", "4h"],
+        "strategies":  ["EMACrossover", "RSIMeanReversion"],  // empty = all
+        "start_date":  "2022-01-01",
+        "end_date":    "2024-01-01",
+        "capital":     10000.0
+    }
+
+    Returns list of {job_id, symbol, interval, strategy}.
+    """
+    ct = request.headers.get("content-type", "")
+    if "application/json" not in ct:
+        raise HTTPException(status_code=415, detail="Content-Type must be application/json")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    symbols    = [s.strip().upper() for s in body.get("symbols",   []) if s]
+    intervals  = [iv.strip()        for iv in body.get("intervals", []) if iv]
+    strategies = [st.strip()        for st in body.get("strategies", []) if st]
+    start_date = body.get("start_date", "2022-01-01")
+    end_date   = body.get("end_date",   "2024-01-01")
+    capital    = float(body.get("capital", 10000.0))
+
+    if not symbols:
+        symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    if not intervals:
+        intervals = ["1h"]
+
+    # If no strategies specified, use all available
+    if not strategies:
+        from server.jobs import get_available_strategies
+        strategies = [s["name"] for s in get_available_strategies()]
+
+    jobs = []
+    for symbol in symbols:
+        for interval in intervals:
+            for strat in strategies:
+                config = {
+                    "symbols":     [symbol],
+                    "intervals":   [interval],
+                    "strategies":  [strat],
+                    "start_date":  start_date,
+                    "end_date":    end_date,
+                    "capital":     capital,
+                }
+                job_id = job_manager.submit(config)
+                jobs.append({
+                    "job_id":   job_id,
+                    "symbol":   symbol,
+                    "interval": interval,
+                    "strategy": strat,
+                })
+
+    return JSONResponse({
+        "n_jobs": len(jobs),
+        "jobs":   jobs,
+    }, status_code=202)

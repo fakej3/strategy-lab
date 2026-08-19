@@ -1,13 +1,26 @@
 """Paper trading bot lifecycle manager — runs inside the FastAPI server process.
 
-Only one bot instance may run at a time.  The bot's asyncio event loop runs
-in a dedicated daemon thread so it never blocks FastAPI's own event loop.
+Supports both single-bot (legacy) and SENTINEL multi-instance mode.
+In multi-instance mode, each (symbol, interval, strategy, params) combination
+is a StrategyInstance tracked separately.  All instances share one LiveFeed,
+one EventBus, one Portfolio, and one PositionManager.  The BotEngine routes
+candles and signals to the correct strategy via its strategy_map.
 
 Usage
 -----
     from server.bot_manager import bot_manager
 
+    # Legacy single-instance
     ok, err = bot_manager.start(capital=25.0, symbols=["BTCUSDT"], ...)
+
+    # Multi-instance (SENTINEL)
+    from server.sentinel import StrategyInstance
+    specs = [
+        StrategyInstance.make_id("BTCUSDT","1h","EMACrossover",{"fast":20,"slow":200}),
+        ...
+    ]
+    ok, err = bot_manager.start_instances(specs=specs, capital=1000.0)
+
     status  = bot_manager.get_status()
     ok, err = bot_manager.stop()
 """
@@ -41,6 +54,11 @@ class BotManager:
         self._stopped_at: datetime | None = None
         self._error: str  = ""
         self._status: str = "idle"
+
+        # SENTINEL multi-instance tracking
+        # instance_id → StrategyInstance (populated by start_instances())
+        self._instances: dict = {}          # {instance_id: StrategyInstance}
+        self._instance_specs: list = []     # ordered list for _run_bot rebuild
 
         # Priority-split event queues — both bounded to prevent memory growth.
         # HIGH: fills/signals/errors/positions/reconnects — drop-oldest when
@@ -199,6 +217,244 @@ class BotManager:
     def is_running(self) -> bool:
         with self._lock:
             return self._running
+
+    # ── SENTINEL multi-instance API ────────────────────────────────────────────
+
+    def start_instances(
+        self,
+        specs: list,          # list[StrategyInstance]
+        capital: float,
+        db_path: str  = "bot.db",
+        log_path: str = "logs/bot.log",
+        recover: bool = True,
+    ) -> tuple[bool, str]:
+        """Start bot with multiple strategy instances.
+
+        Each spec is a StrategyInstance (or dict with keys: symbol, interval,
+        strategy_name, strategy_params).  All instances share one LiveFeed,
+        Portfolio, and PositionManager.
+        """
+        from server.sentinel import StrategyInstance
+
+        if not specs:
+            return False, "No strategy instances specified"
+
+        # Normalise dicts → StrategyInstance
+        norm: list = []
+        for s in specs:
+            if isinstance(s, dict):
+                inst = StrategyInstance(
+                    instance_id    = s.get("instance_id") or StrategyInstance.make_id(
+                        s["symbol"], s["interval"], s["strategy_name"], s.get("strategy_params", {})
+                    ),
+                    symbol         = s["symbol"],
+                    interval       = s["interval"],
+                    strategy_name  = s["strategy_name"],
+                    strategy_params = s.get("strategy_params", {}),
+                )
+            else:
+                inst = s
+            norm.append(inst)
+
+        # Collect unique symbols and a single interval per symbol (last wins)
+        unique_symbols: list[str] = []
+        seen_syms: set[str] = set()
+        unique_intervals: set[str] = set()
+        for inst in norm:
+            if inst.symbol not in seen_syms:
+                unique_symbols.append(inst.symbol)
+                seen_syms.add(inst.symbol)
+            unique_intervals.add(inst.interval)
+
+        n_instances = len(norm)
+        per_pos_usd = max(1.0, (capital * 0.8) / n_instances)
+
+        from bot.config import BotConfig, FeedConfig, RiskConfig
+        try:
+            cfg = BotConfig(
+                paper_capital   = capital,
+                strategy_name   = norm[0].strategy_name,   # placeholder; overridden by map
+                strategy_params = norm[0].strategy_params,
+                feed = FeedConfig(
+                    symbols   = unique_symbols,
+                    intervals = sorted(unique_intervals),
+                ),
+                risk = RiskConfig(
+                    max_open_positions    = n_instances,
+                    max_position_size_usd = per_pos_usd,
+                    max_total_exposure_usd = capital * 0.8,
+                    max_daily_loss_usd    = capital * 0.05,
+                ),
+                db_path            = db_path,
+                log_path           = log_path,
+                recover_on_restart = recover,
+            )
+        except ValueError as exc:
+            return False, str(exc)
+
+        with self._lock:
+            if self._running:
+                return False, "Bot is already running"
+            if self._thread and self._thread.is_alive():
+                return False, "Previous bot thread still shutting down"
+            self._config       = cfg
+            self._instance_specs = norm
+            # Populate instance registry
+            self._instances = {inst.instance_id: inst for inst in norm}
+            self._error        = ""
+            self._status       = "running"
+            self._running      = True
+            self._started_at   = datetime.now(timezone.utc)
+            self._stopped_at   = None
+
+        for q in (self._q_high, self._q_low):
+            while True:
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    break
+
+        self._thread = threading.Thread(
+            target=self._run_in_thread, daemon=True, name="sentinel-bot"
+        )
+        self._thread.start()
+        return True, ""
+
+    def get_instances(self) -> list[dict]:
+        """Return current status of all strategy instances."""
+        with self._lock:
+            instances = dict(self._instances)
+            positions = self._positions
+            state     = self._state
+
+        result = []
+        for iid, inst in instances.items():
+            d = inst.to_dict()
+            # Enrich with live position and unrealized PnL
+            if positions:
+                try:
+                    pos = positions.get_open(inst.symbol)
+                    if pos:
+                        marks = state.all_mark_prices() if state else {}
+                        mp = marks.get(inst.symbol, pos.avg_entry_price)
+                        d["unrealized_pnl"] = round(pos.unrealized_pnl(mp), 4)
+                        d["position"] = {
+                            "size":        pos.size,
+                            "entry_price": pos.avg_entry_price,
+                            "direction":   pos.direction,
+                        }
+                    else:
+                        d["position"] = None
+                except Exception:
+                    d["position"] = None
+            else:
+                d["position"] = None
+            result.append(d)
+        return result
+
+    def get_portfolio(self) -> dict:
+        """Return portfolio-level summary for the SENTINEL dashboard."""
+        with self._lock:
+            cfg       = self._config
+            portfolio = self._portfolio
+            positions = self._positions
+            state     = self._state
+            instances = dict(self._instances)
+
+        out: dict = {
+            "capital":        cfg.paper_capital if cfg else 0.0,
+            "cash":           0.0,
+            "equity":         0.0,
+            "unrealized_pnl": 0.0,
+            "realized_pnl":   0.0,
+            "n_instances":    len(instances),
+            "n_running":      sum(1 for i in instances.values() if i.status == "running"),
+            "n_failed":       sum(1 for i in instances.values() if i.status == "failed"),
+        }
+
+        if portfolio:
+            try:
+                out["cash"] = portfolio.cash
+            except Exception:
+                pass
+
+        if positions and state:
+            try:
+                marks = state.all_mark_prices()
+                open_pos = positions.get_all_open()
+                pos_val = sum(marks.get(p.symbol, p.avg_entry_price) * p.size for p in open_pos)
+                out["equity"] = out["cash"] + pos_val
+                out["unrealized_pnl"] = sum(
+                    p.unrealized_pnl(marks.get(p.symbol, p.avg_entry_price))
+                    for p in open_pos
+                )
+            except Exception:
+                pass
+
+        if cfg:
+            try:
+                from bot.storage import BotStorage
+                reader = BotStorage(cfg.db_path)
+                reader.connect()
+                try:
+                    out["realized_pnl"] = reader.get_realized_pnl()
+                    hist = reader.get_balance_history(limit=1)
+                    if hist:
+                        snap = hist[0]
+                        out["equity"]        = snap.get("equity",    out["cash"])
+                        out["unrealized_pnl"] = snap.get("unrealized", 0.0)
+                finally:
+                    reader.close()
+            except Exception:
+                pass
+
+        return out
+
+    def stop_instance(self, instance_id: str) -> tuple[bool, str]:
+        """Mark one instance as stopped (does not stop the whole bot)."""
+        with self._lock:
+            inst = self._instances.get(instance_id)
+            if inst is None:
+                return False, f"Instance {instance_id!r} not found"
+            inst.status     = "stopped"
+            inst.stopped_at = datetime.now(timezone.utc).isoformat()
+        return True, ""
+
+    def restart_instance(self, instance_id: str) -> tuple[bool, str]:
+        """Mark one instance as running again (re-enables signal processing)."""
+        with self._lock:
+            inst = self._instances.get(instance_id)
+            if inst is None:
+                return False, f"Instance {instance_id!r} not found"
+            if inst.status not in ("stopped", "failed"):
+                return False, f"Instance {instance_id!r} is already {inst.status!r}"
+            inst.status     = "running"
+            inst.error      = ""
+            inst.stopped_at = ""
+        return True, ""
+
+    def _update_instance_candle(self, symbol: str, interval: str, ts: str) -> None:
+        """Called from event bridge — update per-instance candle counter."""
+        with self._lock:
+            for inst in self._instances.values():
+                if inst.symbol == symbol and inst.interval == interval:
+                    if inst.status == "running":
+                        inst.n_candles     += 1
+                        inst.last_candle_ts = ts
+
+    def _update_instance_signal(self, symbol: str, interval: str, signal: str) -> None:
+        with self._lock:
+            for inst in self._instances.values():
+                if inst.symbol == symbol and inst.interval == interval:
+                    if inst.status == "running":
+                        inst.last_signal = signal
+
+    def _update_instance_fill(self, symbol: str) -> None:
+        """Update trade count on fill. Realized PnL read from storage on demand."""
+        with self._lock:
+            for inst in self._instances.values():
+                if inst.symbol == symbol and inst.status == "running":
+                    inst.n_trades += 1
 
     # LOW-priority event types — candles and ticks.  Everything else (fills,
     # signals, errors, positions, reconnects…) is HIGH and never dropped.
@@ -465,6 +721,11 @@ class BotManager:
                 self._portfolio = None
                 self._positions = None
                 self._state     = None
+                # Mark all still-running instances as stopped
+                for inst in self._instances.values():
+                    if inst.status == "running":
+                        inst.status = "stopped"
+                        inst.stopped_at = datetime.now(timezone.utc).isoformat()
 
     async def _run_bot(self) -> None:
         """Core bot coroutine — mirrors bot_trade._main() without argparse."""
@@ -546,13 +807,41 @@ class BotManager:
                 fee_rate         = cfg.fee_rate,
             )
             risk     = RiskEngine(config=cfg.risk, bus=bus)
-            # Create an independent strategy instance for every (symbol, interval)
-            # pair so that stateful strategies never cross-contaminate buffers.
-            strategy_map = {
-                (sym, iv): _load_strategy(cfg)
-                for sym in cfg.feed.symbols
-                for iv in cfg.feed.intervals
-            }
+            # Build strategy map from instance specs (multi-instance) or fall back
+            # to the legacy per-symbol-interval clone of the single configured strategy.
+            from strategies import registry as _strat_registry
+            with self._lock:
+                specs = list(self._instance_specs)
+
+            if specs:
+                # SENTINEL mode: each instance specifies its own strategy + params
+                strategy_map = {}
+                for inst in specs:
+                    key = (inst.symbol, inst.interval)
+                    try:
+                        strat = _strat_registry.create(inst.strategy_name, inst.strategy_params)
+                        strategy_map[key] = strat
+                        with self._lock:
+                            live_inst = self._instances.get(inst.instance_id)
+                            if live_inst:
+                                live_inst.status = "running"
+                    except Exception as exc:
+                        log.error(
+                            "Failed to load strategy for instance %s: %s",
+                            inst.instance_id, exc,
+                        )
+                        with self._lock:
+                            live_inst = self._instances.get(inst.instance_id)
+                            if live_inst:
+                                live_inst.status = "failed"
+                                live_inst.error  = str(exc)
+            else:
+                # Legacy mode: same strategy class for every (symbol, interval)
+                strategy_map = {
+                    (sym, iv): _load_strategy(cfg)
+                    for sym in cfg.feed.symbols
+                    for iv in cfg.feed.intervals
+                }
             engine   = BotEngine(
                 config    = cfg,
                 strategy  = strategy_map,
@@ -639,6 +928,21 @@ class BotManager:
             bus.subscribe(ReconnectEvent,     _enq('reconnect'))
             bus.subscribe(RiskRejectionEvent, _enq('risk_rejected'))
             bus.subscribe(PositionEvent,      _enq('position'))
+
+            # SENTINEL: per-instance stat tracking
+            def _sentinel_candle(ev: CandleEvent) -> None:
+                if not ev.is_history:
+                    self._update_instance_candle(ev.symbol, ev.interval, ev.ts.isoformat())
+
+            def _sentinel_signal(ev: SignalEvent) -> None:
+                self._update_instance_signal(ev.symbol, ev.interval, ev.signal)
+
+            def _sentinel_fill(ev: FillEvent) -> None:
+                self._update_instance_fill(ev.symbol)
+
+            bus.subscribe(CandleEvent, _sentinel_candle)
+            bus.subscribe(SignalEvent, _sentinel_signal)
+            bus.subscribe(FillEvent,   _sentinel_fill)
 
             def _on_order_event(ev: OrderEvent) -> None:
                 if ev.status == 'REJECTED':
