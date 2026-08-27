@@ -19,11 +19,14 @@ def equity():
     )
 
 
-def test_total_return_is_not_bar_count_annualized():
+def test_total_return_and_elapsed_time_cagr():
     m = calculate_v2_metrics(equity())
     assert m.total_return == pytest.approx(0.20)
-    assert m.cagr == pytest.approx(0.20 ** 0 + 1.0) - 1 if False else m.cagr
-    assert m.cagr == pytest.approx((120.0 / 100.0) ** (1.0 / ((pd.Timestamp("2021-07-02", tz="UTC") - pd.Timestamp("2020-01-01", tz="UTC")).total_seconds() / (365.2425 * 86400))) - 1.0)
+    elapsed_years = (
+        pd.Timestamp("2021-07-02", tz="UTC") - pd.Timestamp("2020-01-01", tz="UTC")
+    ).total_seconds() / (365.2425 * 86400)
+    expected_cagr = (120.0 / 100.0) ** (1.0 / elapsed_years) - 1.0
+    assert m.cagr == pytest.approx(expected_cagr)
 
 
 def test_sharpe_requires_explicit_annualization():
