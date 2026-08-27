@@ -5,14 +5,14 @@ import numpy as np
 import pandas as pd
 
 from .models import BacktestTrade, EngineConfig, ExitReason, _Position
-from .strategy import Signal, StrategyBase
+from .strategy import CausalStrategyBase, Signal, StrategyBase
 
 _REQUIRED_OHLC: frozenset[str] = frozenset({"open", "high", "low", "close"})
 _VALID_SIGNAL_VALUES: frozenset[str] = frozenset(s.value for s in Signal)
 
 
 def _validate_bars(bars: pd.DataFrame) -> None:
-    """Raise ValueError if bars is not structurally valid OHLC data."""
+    """Raise ValueError if bars is structurally valid OHLC data."""
     missing = _REQUIRED_OHLC - set(bars.columns)
     if missing:
         raise ValueError(f"bars is missing required column(s): {sorted(missing)}")
@@ -47,12 +47,10 @@ def _validate_signals(signals: pd.Series, expected_len: int) -> None:
 class BacktestExecutor:
     """Translate strategy signals into completed trades.
 
-    Execution contract: signal at T is eligible to fill at T+1 open. This
-    prevents the execution layer from filling a signal on the same bar.
-    It does NOT prove the strategy itself is causal: ``generate_signals`` is
-    currently called with the full DataFrame, so strategy implementations must
-    still avoid using future information. V2 treats that as an explicit
-    research contract until the strategy API is redesigned to enforce it.
+    For ``CausalStrategyBase`` implementations the strategy is called with
+    history ending at the current bar, so future OHLCV rows are unavailable.
+    Legacy ``StrategyBase`` implementations still receive the full dataset
+    and retain the older author-enforced causality contract.
     """
 
     def __init__(self, config: EngineConfig | None = None) -> None:
