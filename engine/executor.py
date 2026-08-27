@@ -4,43 +4,16 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from data.v2_contract import DatasetSpec, validate_research_dataset
 from .models import BacktestTrade, EngineConfig, ExitReason, _Position
 from .strategy import CausalStrategyBase, Signal, StrategyBase
 
-_REQUIRED_OHLC: frozenset[str] = frozenset({"open", "high", "low", "close"})
 _VALID_SIGNAL_VALUES: frozenset[str] = frozenset(s.value for s in Signal)
 
 
 def _validate_bars(bars: pd.DataFrame) -> None:
-    """Raise ValueError if bars is structurally valid, ordered OHLC data.
-
-    A backtest must not silently operate on ambiguous chronology. Duplicate or
-    descending timestamps can otherwise create impossible execution ordering.
-    """
-    missing = _REQUIRED_OHLC - set(bars.columns)
-    if missing:
-        raise ValueError(f"bars is missing required column(s): {sorted(missing)}")
-    if not bars.index.is_monotonic_increasing:
-        raise ValueError("bars index must be monotonically increasing")
-    if bars.index.has_duplicates:
-        raise ValueError("bars index contains duplicate timestamps")
-
-    try:
-        ohlc = bars[["open", "high", "low", "close"]].to_numpy(dtype=float)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("bars OHLC columns must contain numeric values") from exc
-
-    o, h, l, c = ohlc[:, 0], ohlc[:, 1], ohlc[:, 2], ohlc[:, 3]
-    if np.isnan(ohlc).any():
-        raise ValueError("bars contains NaN values in OHLC columns; clean or forward-fill the data before backtesting")
-    if np.isinf(ohlc).any():
-        raise ValueError("bars contains infinite values in OHLC columns")
-    if (h < l).any():
-        raise ValueError("bars contains rows where high < low (corrupted candle data)")
-    if (o < l).any() or (o > h).any():
-        raise ValueError("bars contains rows where open is outside [low, high]")
-    if (c < l).any() or (c > h).any():
-        raise ValueError("bars contains rows where close is outside [low, high]")
+    """Compatibility wrapper around the V2 research dataset contract."""
+    validate_research_dataset(bars, DatasetSpec())
 
 
 def _validate_signals(signals: pd.Series, expected_len: int) -> None:
@@ -60,10 +33,9 @@ def _validate_signals(signals: pd.Series, expected_len: int) -> None:
 class BacktestExecutor:
     """Translate strategy signals into completed trades.
 
-    For ``CausalStrategyBase`` implementations the strategy is called with
-    history ending at the current bar, so future OHLCV rows are unavailable.
-    Legacy ``StrategyBase`` implementations still receive the full dataset
-    and retain the older author-enforced causality contract.
+    V2 causal strategies are evaluated one bar at a time by the executor, so
+    they never receive future rows. Legacy StrategyBase implementations retain
+    the older full-data API and remain author-responsible for causality.
     """
 
     def __init__(self, config: EngineConfig | None = None) -> None:
@@ -73,7 +45,15 @@ class BacktestExecutor:
         if bars.empty:
             return []
         _validate_bars(bars)
-        signals = strategy.generate_signals(bars)
+
+        if isinstance(strategy, CausalStrategyBase):
+            signals = pd.Series(
+                [strategy.generate_signal(bars.iloc[: i + 1].copy()) for i in range(len(bars))],
+                index=bars.index,
+                dtype=object,
+            )
+        else:
+            signals = strategy.generate_signals(bars)
         _validate_signals(signals, len(bars))
 
         n = len(bars)
@@ -83,7 +63,6 @@ class BacktestExecutor:
 
         for i in range(n):
             bar = bars.iloc[i]
-
             if position is not None:
                 sl_tp = self._check_sl_tp(position, bar)
                 if sl_tp is not None:
@@ -97,7 +76,6 @@ class BacktestExecutor:
 
             raw_next_open = float(bars.iloc[i + 1]["open"])
             next_time = bars.index[i + 1]
-
             if position is None and signal_is(signals.iloc[i], Signal.BUY):
                 position = self._open_long(raw_next_open, next_time, i + 1)
             elif position is not None and signal_is_any(signals.iloc[i], (Signal.EXIT, Signal.SELL)):
@@ -109,7 +87,6 @@ class BacktestExecutor:
             last_close = float(bars.iloc[-1]["close"])
             trade_count += 1
             trades.append(self._close(position, trade_count, last_close, bars.index[-1], n - 1, ExitReason.END_OF_DATA))
-
         return trades
 
     def _open_long(self, raw_open: float, entry_time, entry_bar: int) -> _Position:
