@@ -12,11 +12,24 @@ _VALID_SIGNAL_VALUES: frozenset[str] = frozenset(s.value for s in Signal)
 
 
 def _validate_bars(bars: pd.DataFrame) -> None:
-    """Raise ValueError if bars is structurally valid OHLC data."""
+    """Raise ValueError if bars is structurally valid, ordered OHLC data.
+
+    A backtest must not silently operate on ambiguous chronology. Duplicate or
+    descending timestamps can otherwise create impossible execution ordering.
+    """
     missing = _REQUIRED_OHLC - set(bars.columns)
     if missing:
         raise ValueError(f"bars is missing required column(s): {sorted(missing)}")
-    ohlc = bars[["open", "high", "low", "close"]].to_numpy(dtype=float)
+    if not bars.index.is_monotonic_increasing:
+        raise ValueError("bars index must be monotonically increasing")
+    if bars.index.has_duplicates:
+        raise ValueError("bars index contains duplicate timestamps")
+
+    try:
+        ohlc = bars[["open", "high", "low", "close"]].to_numpy(dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("bars OHLC columns must contain numeric values") from exc
+
     o, h, l, c = ohlc[:, 0], ohlc[:, 1], ohlc[:, 2], ohlc[:, 3]
     if np.isnan(ohlc).any():
         raise ValueError("bars contains NaN values in OHLC columns; clean or forward-fill the data before backtesting")
