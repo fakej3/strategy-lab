@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Callable, Any
 import pandas as pd
 
-from data.v2_contract import normalize_ohlcv
+from data.v2_contract import normalize_research_dataset
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ def run_signal_execution(
     signal_fn: Callable[[pd.DataFrame], Any],
     execute_fn: Callable[[int, Any, pd.Series], Any],
 ) -> RunResult:
-    data = normalize_ohlcv(bars)
+    data = normalize_research_dataset(bars)
     signals: list[Signal] = []
     executions: list[Any] = []
     for i in range(len(data) - 1):

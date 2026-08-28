@@ -1,9 +1,8 @@
 """Canonical transaction-to-account state transition for Strategy Labs V2.
 
-This is deliberately a small deterministic ledger primitive. A completed fill
-updates cash by signed trade cash-flow and fees; mark-to-market equity is then
-cash plus the current unrealized P&L. Higher-level engines may add margin,
-leverage and financing explicitly rather than hiding them here.
+Cash is settled cash. For an open long, equity is cash plus market value;
+for an open short, equity is cash minus the marked liability. This keeps
+principal and unrealized P&L from being counted twice.
 """
 from __future__ import annotations
 
@@ -43,14 +42,8 @@ def open_position(state: V2LedgerState, *, direction: str, units: float, fill_pr
         raise ValueError("state and fill values must be finite")
     if units <= 0 or fill_price <= 0 or fee < 0 or state.position is not None:
         raise ValueError("invalid opening transaction")
-    # Long buys consume cash; short sales provide cash. Fees always consume cash.
     signed_cash_flow = -units * fill_price if direction == "long" else units * fill_price
-    return V2LedgerState(
-        cash=state.cash + signed_cash_flow - fee,
-        position=V2Position(direction, units, fill_price),
-        realized_pnl=state.realized_pnl,
-        fees_paid=state.fees_paid + fee,
-    )
+    return V2LedgerState(state.cash + signed_cash_flow - fee, V2Position(direction, units, fill_price), state.realized_pnl, state.fees_paid + fee)
 
 
 def close_position(state: V2LedgerState, *, fill_price: float, fee: float) -> V2LedgerState:
@@ -63,16 +56,9 @@ def close_position(state: V2LedgerState, *, fill_price: float, fee: float) -> V2
     p = state.position
     direction = 1.0 if p.direction == "long" else -1.0
     gross = (fill_price - p.entry_price) * p.units * direction
-    # Return the position's principal and price movement to cash. Entry fee was
-    # already deducted at open; only the exit fee is deducted here.
     principal = p.entry_price * p.units
     cash_change = principal + gross if p.direction == "long" else -principal + gross
-    return V2LedgerState(
-        cash=state.cash + cash_change - fee,
-        position=None,
-        realized_pnl=state.realized_pnl + gross,
-        fees_paid=state.fees_paid + fee,
-    )
+    return V2LedgerState(state.cash + cash_change - fee, None, state.realized_pnl + gross, state.fees_paid + fee)
 
 
 def unrealized_pnl(state: V2LedgerState, mark_price: float) -> float:
@@ -86,4 +72,8 @@ def unrealized_pnl(state: V2LedgerState, mark_price: float) -> float:
 
 
 def equity(state: V2LedgerState, mark_price: float) -> float:
-    return state.cash + unrealized_pnl(state, mark_price)
+    if state.position is None:
+        return state.cash
+    p = state.position
+    market_value = p.units * mark_price
+    return state.cash + market_value if p.direction == "long" else state.cash - market_value
