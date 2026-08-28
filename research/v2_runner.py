@@ -1,17 +1,11 @@
-"""Minimal deterministic V2 research runner.
-
-This runner wires validated bars to a strategy callback while enforcing the
-basic information boundary: a signal produced from bar i is passed to the
-execution callback for bar i+1. It intentionally does not embed strategy,
-fees, or portfolio math; those remain explicit dependencies.
-"""
+"""Deterministic V2 research runner with an explicit information boundary."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable, Any
 import pandas as pd
 
-from data.v2_contract import normalize_ohlcv
+from data.v2_contract import normalize_research_dataset
 
 
 @dataclass(frozen=True)
@@ -31,7 +25,8 @@ def run_signal_execution(
     signal_fn: Callable[[pd.DataFrame], Any],
     execute_fn: Callable[[int, Any, pd.Series], Any],
 ) -> RunResult:
-    data = normalize_ohlcv(bars)
+    """Generate signal on bar i and make it eligible on bar i+1."""
+    data = normalize_research_dataset(bars)
     signals: list[Signal] = []
     executions: list[Any] = []
     for i in range(len(data) - 1):
