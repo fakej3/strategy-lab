@@ -1,9 +1,9 @@
 """Canonical transaction-to-account state transition for Strategy Labs V2.
 
-This is deliberately a small deterministic ledger primitive. A completed fill
-updates cash by signed trade cash-flow and fees; mark-to-market equity is then
-cash plus the current unrealized P&L. Higher-level engines may add margin,
-leverage and financing explicitly rather than hiding them here.
+Equity is defined from cash plus the marked position value. Long positions
+contribute positive market value; short positions contribute a negative
+liability. Unrealized P&L is reported separately and must not be added to cash
+as a second representation of the position's value.
 """
 from __future__ import annotations
 
@@ -43,7 +43,6 @@ def open_position(state: V2LedgerState, *, direction: str, units: float, fill_pr
         raise ValueError("state and fill values must be finite")
     if units <= 0 or fill_price <= 0 or fee < 0 or state.position is not None:
         raise ValueError("invalid opening transaction")
-    # Long buys consume cash; short sales provide cash. Fees always consume cash.
     signed_cash_flow = -units * fill_price if direction == "long" else units * fill_price
     return V2LedgerState(
         cash=state.cash + signed_cash_flow - fee,
@@ -63,8 +62,6 @@ def close_position(state: V2LedgerState, *, fill_price: float, fee: float) -> V2
     p = state.position
     direction = 1.0 if p.direction == "long" else -1.0
     gross = (fill_price - p.entry_price) * p.units * direction
-    # Return the position's principal and price movement to cash. Entry fee was
-    # already deducted at open; only the exit fee is deducted here.
     principal = p.entry_price * p.units
     cash_change = principal + gross if p.direction == "long" else -principal + gross
     return V2LedgerState(
@@ -85,5 +82,16 @@ def unrealized_pnl(state: V2LedgerState, mark_price: float) -> float:
     return (mark_price - p.entry_price) * p.units * direction
 
 
+def position_market_value(state: V2LedgerState, mark_price: float) -> float:
+    if not _finite(mark_price) or mark_price <= 0:
+        raise ValueError("mark_price must be positive and finite")
+    if state.position is None:
+        return 0.0
+    p = state.position
+    signed_units = p.units if p.direction == "long" else -p.units
+    return signed_units * mark_price
+
+
 def equity(state: V2LedgerState, mark_price: float) -> float:
-    return state.cash + unrealized_pnl(state, mark_price)
+    """Mark-to-market equity: cash plus signed market value of the position."""
+    return state.cash + position_market_value(state, mark_price)
