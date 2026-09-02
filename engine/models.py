@@ -38,8 +38,8 @@ class EngineConfig:
             raise ValueError(f"position_size must be finite and > 0, got {self.position_size!r}")
         if not math.isfinite(self.fee_rate) or self.fee_rate < 0:
             raise ValueError(f"fee_rate must be finite and >= 0, got {self.fee_rate!r}")
-        if not math.isfinite(self.slippage_pct) or self.slippage_pct < 0:
-            raise ValueError(f"slippage_pct must be finite and >= 0, got {self.slippage_pct!r}")
+        if not math.isfinite(self.slippage_pct) or not (0.0 <= self.slippage_pct < 1.0):
+            raise ValueError(f"slippage_pct must be finite and in [0, 1), got {self.slippage_pct!r}")
         if self.stop_loss_pct is not None and (
             not math.isfinite(self.stop_loss_pct) or not (0.0 < self.stop_loss_pct < 1.0)
         ):
