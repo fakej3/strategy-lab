@@ -44,6 +44,16 @@ class PortfolioConfig:
     summary_only     : bool       = False
 
     def __post_init__(self) -> None:
+        # Dataclasses do not enforce annotations at runtime. Reject arbitrary
+        # strings/objects rather than letting the engine silently fall back to
+        # FIXED_UNITS, which would make an invalid configuration look valid.
+        if not isinstance(self.sizing_mode, SizingMode):
+            try:
+                self.sizing_mode = SizingMode(self.sizing_mode)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"sizing_mode must be a valid SizingMode, got {self.sizing_mode!r}"
+                ) from exc
         if not math.isfinite(self.starting_capital) or self.starting_capital <= 0:
             raise ValueError(f"starting_capital must be finite and > 0, got {self.starting_capital!r}")
         if not math.isfinite(self.position_size) or self.position_size <= 0:
