@@ -13,6 +13,7 @@ Design
 """
 from __future__ import annotations
 
+import math
 import os
 import queue
 import threading
@@ -113,6 +114,9 @@ class JobManager:
 
     def submit(self, config_dict: dict) -> str:
         """Submit a research job. Returns job_id immediately."""
+        if not isinstance(config_dict, dict):
+            raise TypeError("Research job config must be a JSON object")
+
         job_id = str(uuid.uuid4())
         q: queue.Queue = queue.Queue(maxsize=50_000)
         cancel_ev      = threading.Event()
@@ -291,7 +295,15 @@ def _put(q: queue.Queue, msg: dict) -> None:
 # ── Config conversion ─────────────────────────────────────────────────────────
 
 def dict_to_config(d: dict) -> PipelineConfig:
-    """Convert a flat string dict (from form or JSON) to PipelineConfig."""
+    """Convert and validate a flat JSON/form dict to PipelineConfig.
+
+    Validation is intentionally fail-closed: invalid research parameters raise
+    before a ResearchPipeline is constructed, rather than allowing NaN,
+    negative, or nonsensical values to reach execution.
+    """
+    if not isinstance(d, dict):
+        raise TypeError("Research job config must be a JSON object")
+
     cfg = PipelineConfig()
 
     # Market data
@@ -307,63 +319,138 @@ def dict_to_config(d: dict) -> PipelineConfig:
         if isinstance(raw_iv, str)
         else list(raw_iv)
     )
+    if not cfg.symbols or any(not isinstance(s, str) or not s.strip() for s in cfg.symbols):
+        raise ValueError("symbols must contain at least one non-empty string")
+    if not cfg.intervals or any(not isinstance(i, str) or not i.strip() for i in cfg.intervals):
+        raise ValueError("intervals must contain at least one non-empty string")
 
-    end   = d.get("end_date", str(date.today()))
+    end = d.get("end_date", str(date.today()))
     cfg.end_date = date.fromisoformat(end) if isinstance(end, str) else end
+    if not isinstance(cfg.end_date, date):
+        raise ValueError("end_date must be a date")
 
     # lookback_days, if provided, overrides start_date.
     raw_lb = d.get("lookback_days", "")
     if raw_lb and str(raw_lb).strip():
-        cfg.lookback_days = int(raw_lb)
-        cfg.start_date    = cfg.end_date  # irrelevant when lookback_days set
+        cfg.lookback_days = _int(raw_lb, "lookback_days", minimum=1)
+        cfg.start_date = cfg.end_date  # irrelevant when lookback_days is set
     else:
         start = d.get("start_date", "2024-01-01")
         cfg.start_date = date.fromisoformat(start) if isinstance(start, str) else start
+        if not isinstance(cfg.start_date, date):
+            raise ValueError("start_date must be a date")
+        if cfg.start_date > cfg.end_date:
+            raise ValueError("start_date must be on or before end_date")
 
     # Portfolio
-    cfg.starting_capital = float(d.get("starting_capital", 100_000))
-    cfg.fee_rate         = float(d.get("fee_rate",         0.001))
-    cfg.slippage_pct     = float(d.get("slippage_pct",     0.0005))
+    cfg.starting_capital = _finite_float(d.get("starting_capital", 100_000), "starting_capital")
+    cfg.fee_rate         = _bounded_float(d.get("fee_rate", 0.001), "fee_rate", 0.0, 1.0, upper_exclusive=True)
+    cfg.slippage_pct     = _bounded_float(d.get("slippage_pct", 0.0005), "slippage_pct", 0.0, 1.0, upper_exclusive=True)
 
-    sl = d.get("stop_loss_pct",   "")
+    sl = d.get("stop_loss_pct", "")
     tp = d.get("take_profit_pct", "")
-    cfg.stop_loss_pct   = float(sl) if sl else None
-    cfg.take_profit_pct = float(tp) if tp else None
+    cfg.stop_loss_pct   = _optional_bounded_float(sl, "stop_loss_pct", 0.0, 1.0)
+    cfg.take_profit_pct = _optional_bounded_float(tp, "take_profit_pct", 0.0, 1.0)
 
     # Gate thresholds
-    cfg.min_trades             = int(d.get("min_trades", 10))
-    cfg.max_drawdown_threshold = float(d.get("max_drawdown_threshold", 0.35))
+    cfg.min_trades             = _int(d.get("min_trades", 10), "min_trades", minimum=0)
+    cfg.max_drawdown_threshold = _bounded_float(
+        d.get("max_drawdown_threshold", 0.35),
+        "max_drawdown_threshold", 0.0, 1.0,
+    )
 
     # Execution
-    cfg.n_workers = int(d.get("n_workers", max(1, os.cpu_count() or 1)))
+    cfg.n_workers = _int(d.get("n_workers", max(1, os.cpu_count() or 1)), "n_workers", minimum=1)
 
     # Walk-forward
     cfg.run_walk_forward = _bool(d.get("run_walk_forward", True))
-    cfg.wf_train_bars    = int(d.get("wf_train_bars", 1008))
-    cfg.wf_test_bars     = int(d.get("wf_test_bars",  336))
+    cfg.wf_train_bars    = _int(d.get("wf_train_bars", 1008), "wf_train_bars", minimum=1)
+    cfg.wf_test_bars     = _int(d.get("wf_test_bars",  336), "wf_test_bars", minimum=1)
 
     # Monte Carlo
     cfg.run_monte_carlo = _bool(d.get("run_monte_carlo", True))
-    cfg.mc_simulations  = int(d.get("mc_simulations",  500))
+    cfg.mc_simulations  = _int(d.get("mc_simulations",  500), "mc_simulations", minimum=1)
 
     # Robustness
     cfg.run_robustness   = _bool(d.get("run_robustness",   True))
-    cfg.robustness_steps = int(d.get("robustness_steps", 1))
+    cfg.robustness_steps = _int(d.get("robustness_steps", 1), "robustness_steps", minimum=0)
 
     # Storage
-    cfg.db_path      = d.get("db_path",      "research.db")
-    cfg.reports_dir  = d.get("reports_dir",  "reports")
-    cfg.log_path     = d.get("log_path",     "logs/research.log")
+    cfg.db_path      = str(d.get("db_path",      "research.db"))
+    cfg.reports_dir  = str(d.get("reports_dir",  "reports"))
+    cfg.log_path     = str(d.get("log_path",     "logs/research.log"))
+    if not cfg.db_path.strip() or not cfg.reports_dir.strip() or not cfg.log_path.strip():
+        raise ValueError("db_path, reports_dir, and log_path must be non-empty")
 
     # Strategy filter
     raw_strategies = d.get("strategies", [])
     cfg.strategies = list(raw_strategies) if raw_strategies else []
+    if any(not isinstance(s, str) or not s.strip() for s in cfg.strategies):
+        raise ValueError("strategies must contain only non-empty strings")
 
     # Behaviour
     cfg.verbose   = _bool(d.get("verbose",   False))
     cfg.fast_mode = _bool(d.get("fast_mode", False))
 
     return cfg
+
+
+def _finite_float(value: Any, name: str) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be numeric") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{name} must be finite")
+    if result <= 0:
+        raise ValueError(f"{name} must be > 0")
+    return result
+
+
+def _bounded_float(
+    value: Any,
+    name: str,
+    minimum: float,
+    maximum: float,
+    *,
+    upper_exclusive: bool = False,
+) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be numeric") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{name} must be finite")
+    if result < minimum or (upper_exclusive and result >= maximum) or (not upper_exclusive and result > maximum):
+        comparator = "<" if upper_exclusive else "≤"
+        raise ValueError(f"{name} must be in [{minimum}, {comparator} {maximum}")
+    return result
+
+
+def _optional_bounded_float(value: Any, name: str, minimum: float, maximum: float) -> float | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return _bounded_float(value, name, minimum, maximum, upper_exclusive=True)
+
+
+def _int(value: Any, name: str, *, minimum: int) -> int:
+    try:
+        if isinstance(value, bool):
+            raise ValueError
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    # Reject lossy numeric strings/values such as 1.5 rather than silently
+    # truncating them to an apparently valid integer.
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = float(result)
+    if not math.isfinite(numeric) or numeric != result:
+        raise ValueError(f"{name} must be an integer")
+    if result < minimum:
+        raise ValueError(f"{name} must be >= {minimum}")
+    return result
 
 
 def _bool(v: Any) -> bool:
