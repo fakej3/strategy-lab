@@ -16,6 +16,7 @@ but are NOT mounted or rendered as the active UI.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -33,10 +34,18 @@ from server.background import job_manager
 from server import api as api_module
 from server import websocket as ws_module
 
+logger = logging.getLogger(__name__)
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _REPORTS_DIR = Path(os.environ.get("EDGELAB_REPORTS", "reports"))
 _SCHED_FILE  = Path(__file__).parent / "schedules.json"
 _SPA_DIST    = Path(__file__).parent.parent / "frontend" / "dist"
+
+# Local development can run over HTTP. Production deployments should set this
+# explicitly to true so the session cookie is never sent over cleartext HTTP.
+_HTTPS_ONLY = os.environ.get("EDGELAB_HTTPS_ONLY", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
 
 
 # ── App factory ───────────────────────────────────────────────────────────────
@@ -48,7 +57,7 @@ def create_app() -> FastAPI:
         SessionMiddleware,
         secret_key     = SECRET_KEY,
         session_cookie = "edgelab_session",
-        https_only     = False,
+        https_only     = _HTTPS_ONLY,
         same_site      = "lax",
     )
 
@@ -113,6 +122,7 @@ def _load_schedules() -> list[dict]:
     try:
         return json.loads(_SCHED_FILE.read_text())
     except Exception:
+        logger.exception("Failed to load schedules from %s", _SCHED_FILE)
         return []
 
 
@@ -140,7 +150,7 @@ def _scheduler_tick() -> None:
             if changed:
                 _save_schedules(schedules)
         except Exception:
-            pass
+            logger.exception("Scheduler tick failed")
         time.sleep(60)
 
 
@@ -162,6 +172,8 @@ def _is_due(s: dict, now: datetime) -> bool:
         return now.day == s.get("day_of_month", 1)
     return False
 
+
+# ── Scheduler startup ─────────────────────────────────────────────────────────
 
 def _start_scheduler_thread() -> None:
     t = threading.Thread(target=_scheduler_tick, daemon=True, name="scheduler")
