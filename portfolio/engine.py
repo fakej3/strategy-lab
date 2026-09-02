@@ -89,7 +89,7 @@ def build_equity_curve(bars: pd.DataFrame, trades: list[PortfolioTrade], startin
             equity_arr[prev_end:entry] = starting_capital + realized
         entry_fee = float(trade.entry_fee)
         if entry < exit_ and exit_ <= n:
-            direction_sign = -1.0 if getattr(trade, "direction", "long") == "short" else 1.0
+            direction_sign = _direction_sign(trade.direction)
             unrealized = (closes[entry:exit_] - trade.entry_price) * trade.size * direction_sign
             equity_arr[entry:exit_] = starting_capital + realized - entry_fee + unrealized
         if exit_ < n:
@@ -99,6 +99,16 @@ def build_equity_curve(bars: pd.DataFrame, trades: list[PortfolioTrade], startin
     if prev_end < n:
         equity_arr[prev_end:] = starting_capital + realized
     return pd.Series(equity_arr, index=bars.index, name="equity")
+
+
+def _direction_sign(direction: str) -> float:
+    """Return the P&L sign for a position direction, rejecting ambiguity."""
+    normalized = str(direction).strip().lower()
+    if normalized == "long":
+        return 1.0
+    if normalized == "short":
+        return -1.0
+    raise ValueError(f"unsupported trade direction: {direction!r}")
 
 
 def build_balance_curve(bars: pd.DataFrame, trades: list[PortfolioTrade], starting_capital: float) -> pd.Series:
@@ -162,7 +172,7 @@ def _apply_dynamic_sizing(raw_trades: list[BacktestTrade], portfolio_cfg: Portfo
     for t in raw_trades:
         actual_size = _compute_size(equity=equity, entry_price=t.entry_price, sizing_mode=portfolio_cfg.sizing_mode, equity_fraction=portfolio_cfg.equity_fraction, trade_capital=portfolio_cfg.trade_capital, fraction=portfolio_cfg.fraction)
         _validate_entry_funding(equity, t.entry_price, actual_size, engine_cfg.fee_rate)
-        direction_sign = -1.0 if t.direction == "short" else 1.0
+        direction_sign = _direction_sign(t.direction)
         gross_pnl = (t.exit_price - t.entry_price) * actual_size * direction_sign
         entry_fee = t.entry_price * actual_size * engine_cfg.fee_rate
         exit_fee = t.exit_price * actual_size * engine_cfg.fee_rate
