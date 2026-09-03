@@ -15,6 +15,13 @@ def test_slippage_must_be_finite_and_strictly_below_one(value):
         EngineConfig(slippage_pct=value)
 
 
+@pytest.mark.parametrize("value", [1.0, 1.000001, 2.0])
+def test_fee_rate_must_be_strictly_below_one(value):
+    """A >=100% proportional fee can drive funded cash-only equity negative."""
+    with pytest.raises(ValueError, match="fee_rate"):
+        EngineConfig(fee_rate=value)
+
+
 @pytest.mark.parametrize("field", ["position_size", "fee_rate"])
 @pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
 def test_scalar_execution_parameters_reject_non_finite_values(field, value):
