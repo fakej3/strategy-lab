@@ -15,6 +15,22 @@ def test_slippage_must_be_finite_and_strictly_below_one(value):
         EngineConfig(slippage_pct=value)
 
 
+@pytest.mark.parametrize("field", ["position_size", "fee_rate"])
+@pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
+def test_scalar_execution_parameters_reject_non_finite_values(field, value):
+    """NaN/Inf must never enter the execution kernel through config."""
+    with pytest.raises(ValueError, match=field):
+        EngineConfig(**{field: value})
+
+
+@pytest.mark.parametrize("field", ["stop_loss_pct", "take_profit_pct"])
+@pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
+def test_optional_execution_parameters_reject_non_finite_values(field, value):
+    """Optional risk controls must fail closed rather than propagate NaN/Inf."""
+    with pytest.raises(ValueError, match=field):
+        EngineConfig(**{field: value})
+
+
 def test_zero_slippage_remains_valid():
     cfg = EngineConfig(slippage_pct=0.0)
     assert cfg.slippage_pct == 0.0
