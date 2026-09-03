@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from research.provenance import is_publishable
+
 
 @dataclass
 class SessionRecord:
@@ -78,6 +80,11 @@ class StrategyResult:
     confidence_score: float | None        = None
     confidence_recommendation: str | None = None
     confidence_json: str | None           = None
+    diagnostic_provenance_json: str | None = None
+
+    @property
+    def publishable(self) -> bool:
+        return is_publishable(self.gate_decision, self.diagnostic_provenance_json)
 
 
 @dataclass
