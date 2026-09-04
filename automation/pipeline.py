@@ -37,6 +37,7 @@ from data.api import get_bars
 from engine.strategy import StrategyBase
 from jobs.backtest_job import BacktestJob, BacktestParams
 from jobs.walkforward_job import WalkForwardJob, WalkForwardParams
+from research.provenance import DiagnosticStage, DiagnosticStatus, failed_stage, serialize_stages
 from research_db.models import SessionRecord, StrategyResult
 from research_db.storage import ResearchStorage
 from research.validation import validate_bars_extended
@@ -205,9 +206,6 @@ class ResearchPipeline:
         else:
             run.elapsed_secs = time.perf_counter() - t0
             run.finished_at  = datetime.now(timezone.utc)
-            # Treat as failure when every symbol/interval was blocked by data
-            # integrity problems — n_tested=0 with no strategies run is NOT
-            # a successful "zero-result" run, it is a data-quality failure.
             if run.n_tested == 0 and run.n_data_failures > 0:
                 msg = (
                     f"No strategies tested — data integrity failure blocked "
@@ -331,7 +329,7 @@ class ResearchPipeline:
                     if sr is not None:
                         run.strategy_results.append(sr)
                         self.storage.save_strategy_result(sr)
-                        if sr.gate_decision != "REJECT":
+                        if sr.publishable:
                             run.n_passed += 1
                         else:
                             run.n_rejected += 1
@@ -406,15 +404,14 @@ class ResearchPipeline:
             if integrity.warnings:
                 for w in integrity.warnings:
                     self.notify.warn(f"Integrity: {w}")
-            # Attach to bars so downstream steps can reference it
             bars.attrs["_integrity_score"] = integrity.integrity_score
-            import json as _json
-            bars.attrs["_integrity_json"]  = _json.dumps(integrity.to_dict())
+            bars.attrs["_integrity_json"]  = json.dumps(integrity.to_dict())
         except ValueError as exc:
             self.notify.error(f"Data integrity hard failure: {exc}")
             return None
-        except Exception:
-            pass  # audit failure must never block the pipeline
+        except Exception as exc:
+            self.notify.error(f"Data integrity audit failed: {type(exc).__name__}: {exc}")
+            return None
 
         self.notify.ok(
             f"{len(bars):,} bars  "
@@ -437,7 +434,6 @@ class ResearchPipeline:
             if space:
                 all_c = _cartesian(space)
             else:
-                # Default: try instantiating with no args
                 try:
                     cls()
                     all_c = [{}]
@@ -446,8 +442,6 @@ class ResearchPipeline:
                         f"  {cls.__name__}: no param space, cannot instantiate — skipping"
                     )
                     continue
-
-            # Filter invalid combos (e.g. EMACrossover fast >= slow)
             valid = []
             for c in all_c:
                 try:
@@ -455,7 +449,6 @@ class ResearchPipeline:
                     valid.append(c)
                 except Exception:
                     pass
-
             if valid:
                 combos.append({
                     "cls"    : cls,
@@ -477,7 +470,6 @@ class ResearchPipeline:
         interval: str,
     ) -> list[dict]:
         self.notify.step("4", "Running parallel backtests")
-
         job_dicts = []
         for entry in combos:
             cls = entry["cls"]
@@ -496,12 +488,8 @@ class ResearchPipeline:
                     "stop_loss_pct"  : self.cfg.stop_loss_pct,
                     "take_profit_pct": self.cfg.take_profit_pct,
                 })
-
         n = len(job_dicts)
         self.notify.info(f"Submitting {n} job(s) to {self.cfg.n_workers} worker(s) …")
-
-        # Use in-process sequential execution to avoid spawn overhead on small runs,
-        # parallel for larger batches.
         if n == 1 or self.cfg.n_workers == 1 or n < 4:
             results = [_run_job_inprocess(j, bars) for j in job_dicts]
         else:
@@ -511,7 +499,6 @@ class ResearchPipeline:
                 verbose   = self.cfg.verbose,
             )
             results = runner.run(bars, job_dicts, cancel_event=self.cancel_event)
-
         ok = sum(1 for r in results if r.get("ok"))
         self.notify.ok(f"{ok}/{n} backtests succeeded")
         return results
@@ -526,12 +513,28 @@ class ResearchPipeline:
     ) -> dict:
         """Add walk-forward return and MC stats to a backtest result dict."""
         cfg = self.cfg
+        stages: list[DiagnosticStage] = []
 
         if cfg.fast_mode or (
             not cfg.run_walk_forward
             and not cfg.run_monte_carlo
             and not cfg.run_robustness
         ):
+            # Fast mode is intentionally non-publishable: required diagnostics
+            # are explicitly recorded as SKIPPED rather than silently omitted.
+            for name in ("walk_forward", "monte_carlo", "robustness", "overfitting", "stress", "confidence"):
+                stages.append(DiagnosticStage(name, DiagnosticStatus.SKIPPED))
+            data["data_integrity_score"] = bars.attrs.get("_integrity_score")
+            data["data_integrity_json"] = bars.attrs.get("_integrity_json")
+            if data["data_integrity_score"] is not None and data["data_integrity_json"]:
+                stages.append(DiagnosticStage("data_integrity", DiagnosticStatus.PASS))
+            else:
+                stages.append(DiagnosticStage("data_integrity", DiagnosticStatus.FAILED, "MissingEvidence", "data integrity metadata was not attached to bars"))
+            if data.get("accounting_passed") is True:
+                stages.append(DiagnosticStage("accounting", DiagnosticStatus.PASS))
+            else:
+                stages.append(DiagnosticStage("accounting", DiagnosticStatus.FAILED, "AccountingVerificationFailed", str(data.get("accounting_json") or "accounting_passed was not true")))
+            data["diagnostic_provenance_json"] = serialize_stages(stages)
             return data
 
         # Find strategy class
@@ -542,11 +545,13 @@ class ResearchPipeline:
                 break
 
         if cls is None:
+            for name in ("walk_forward", "monte_carlo", "robustness", "overfitting", "stress", "data_integrity", "accounting", "confidence"):
+                stages.append(DiagnosticStage(name, DiagnosticStatus.FAILED, "StrategyResolutionError", "strategy class could not be resolved for diagnostic augmentation"))
+            data["diagnostic_provenance_json"] = serialize_stages(stages)
             return data
 
         params = json.loads(data["params"]) if isinstance(data["params"], str) else data["params"]
 
-        # Walk-forward
         if cfg.run_walk_forward and not cfg.fast_mode:
             try:
                 wfp = WalkForwardParams(
@@ -562,53 +567,54 @@ class ResearchPipeline:
                     test_bars        = cfg.wf_test_bars,
                 )
                 wf_result = WalkForwardJob(wfp).run()
-                if wf_result.success and wf_result.data:
-                    wd = wf_result.data
-                    data["walk_forward_return"] = wd.get("walk_forward_return")
-                    data["wf_n_folds"]          = wd.get("n_folds")
+                if not wf_result.success or not wf_result.data:
+                    raise RuntimeError(str(getattr(wf_result, "error", None) or "walk-forward returned no data"))
+                wd = wf_result.data
+                data["walk_forward_return"] = wd.get("walk_forward_return")
+                data["wf_n_folds"]          = wd.get("n_folds")
+                fold_returns = wd.get("fold_returns") or []
+                if fold_returns:
+                    import numpy as _np
+                    fr_arr = _np.array(fold_returns, dtype=float)
+                    max_fold = float(fr_arr.max()) if fr_arr.max() != 0 else 1.0
+                    data["wf_efficiency"] = (
+                        round(float(fr_arr.mean()) / abs(max_fold), 4)
+                        if max_fold != 0 else 0.0
+                    )
+                    data["wf_consistency"] = round(
+                        float((fr_arr > 0).mean()) * 100.0, 2
+                    )
+                stages.append(DiagnosticStage("walk_forward", DiagnosticStatus.PASS))
+            except Exception as exc:
+                stages.append(failed_stage("walk_forward", exc))
+        else:
+            stages.append(DiagnosticStage("walk_forward", DiagnosticStatus.SKIPPED))
 
-                    # Phase 7 WF enhancements
-                    fold_returns = wd.get("fold_returns") or []
-                    if fold_returns:
-                        import numpy as _np
-                        fr_arr = _np.array(fold_returns, dtype=float)
-                        # Efficiency: mean fold return / abs(max fold return)
-                        max_fold = float(fr_arr.max()) if fr_arr.max() != 0 else 1.0
-                        data["wf_efficiency"] = (
-                            round(float(fr_arr.mean()) / abs(max_fold), 4)
-                            if max_fold != 0 else 0.0
-                        )
-                        # Consistency: % of folds with positive return
-                        data["wf_consistency"] = round(
-                            float((fr_arr > 0).mean()) * 100.0, 2
-                        )
-            except Exception:
-                pass  # walk-forward failure never stops the pipeline
-
-        # Monte Carlo — use trade_pnls from the backtest result (no second run needed).
-        # BacktestJob now includes trade_pnls in its return dict, so we avoid
-        # re-running the entire backtest just to obtain trade PnL values.
         if cfg.run_monte_carlo and not cfg.fast_mode:
             try:
                 trade_pnls = data.get("trade_pnls", [])
-                if trade_pnls:
-                    from jobs.montecarlo_job import MonteCarloJob, MonteCarloParams
-                    mc_job = MonteCarloJob(MonteCarloParams(
-                        pnl_sequence     = trade_pnls,
-                        starting_capital = cfg.starting_capital,
-                        n_simulations    = cfg.mc_simulations,
-                    ))
-                    mc_result = mc_job.run()
-                    if mc_result.success and mc_result.data:
-                        mc = mc_result.data
-                        data["mc_median_return"] = mc.get("median_return")
-                        data["mc_pct5_return"]   = mc.get("pct5_return")
-                        data["mc_pct95_return"]  = mc.get("pct95_return")
-                        data["mc_prob_positive"] = mc.get("prob_positive")
-            except Exception:
-                pass
+                if not trade_pnls:
+                    raise ValueError("trade_pnls evidence is missing")
+                from jobs.montecarlo_job import MonteCarloJob, MonteCarloParams
+                mc_job = MonteCarloJob(MonteCarloParams(
+                    pnl_sequence     = trade_pnls,
+                    starting_capital = cfg.starting_capital,
+                    n_simulations    = cfg.mc_simulations,
+                ))
+                mc_result = mc_job.run()
+                if not mc_result.success or not mc_result.data:
+                    raise RuntimeError(str(getattr(mc_result, "error", None) or "Monte Carlo returned no data"))
+                mc = mc_result.data
+                data["mc_median_return"] = mc.get("median_return")
+                data["mc_pct5_return"]   = mc.get("pct5_return")
+                data["mc_pct95_return"]  = mc.get("pct95_return")
+                data["mc_prob_positive"] = mc.get("prob_positive")
+                stages.append(DiagnosticStage("monte_carlo", DiagnosticStatus.PASS))
+            except Exception as exc:
+                stages.append(failed_stage("monte_carlo", exc))
+        else:
+            stages.append(DiagnosticStage("monte_carlo", DiagnosticStatus.SKIPPED))
 
-        # Robustness analysis — needs access to the full bars + param space
         if cfg.run_robustness and not cfg.fast_mode:
             try:
                 space = STRATEGY_PARAMETER_SPACES.get(cls.__name__, {})
@@ -635,10 +641,14 @@ class ResearchPipeline:
                     data["robustness_score"]  = rob_data.get("robustness_score")
                     data["stability_score"]   = rob_data.get("stability_score")
                     data["robustness_json"]   = json.dumps(rob_data)
-            except Exception:
-                pass
+                    stages.append(DiagnosticStage("robustness", DiagnosticStatus.PASS))
+                else:
+                    raise ValueError("robustness parameter space is missing")
+            except Exception as exc:
+                stages.append(failed_stage("robustness", exc))
+        else:
+            stages.append(DiagnosticStage("robustness", DiagnosticStatus.SKIPPED))
 
-        # Overfitting analysis
         if not cfg.fast_mode:
             try:
                 from research.overfitting import analyze_overfitting
@@ -647,7 +657,6 @@ class ResearchPipeline:
                 n_params_tested = 1
                 if cls.__name__ in STRATEGY_PARAMETER_SPACES:
                     space = STRATEGY_PARAMETER_SPACES[cls.__name__]
-                    import math as _math
                     import functools as _ft
                     n_params_tested = _ft.reduce(lambda a, b: a * b,
                                                  [len(v) for v in space.values()], 1)
@@ -661,10 +670,12 @@ class ResearchPipeline:
                 data["overfitting_score"]      = of_report.overfitting_score
                 data["overfitting_risk_level"] = of_report.risk_level
                 data["overfitting_json"]       = json.dumps(of_report.to_dict())
-            except Exception:
-                pass
+                stages.append(DiagnosticStage("overfitting", DiagnosticStatus.PASS))
+            except Exception as exc:
+                stages.append(failed_stage("overfitting", exc))
+        else:
+            stages.append(DiagnosticStage("overfitting", DiagnosticStatus.SKIPPED))
 
-        # Stress testing (run for non-rejected strategies to measure resilience)
         if not cfg.fast_mode and data.get("gate_decision", "REJECT") != "REJECT":
             try:
                 from research.stress import run_stress_tests
@@ -688,22 +699,32 @@ class ResearchPipeline:
                 data["stress_score"]      = st_report.stress_score
                 data["stress_risk_level"] = st_report.risk_level
                 data["stress_json"]       = json.dumps(st_report.to_dict())
-            except Exception:
-                pass
+                stages.append(DiagnosticStage("stress", DiagnosticStatus.PASS))
+            except Exception as exc:
+                stages.append(failed_stage("stress", exc))
+        else:
+            stages.append(DiagnosticStage("stress", DiagnosticStatus.SKIPPED))
 
-        # Data integrity score (passed via bars.attrs from step1)
         try:
             data["data_integrity_score"] = bars.attrs.get("_integrity_score")
             data["data_integrity_json"]  = bars.attrs.get("_integrity_json")
-        except Exception:
-            pass
+            if data["data_integrity_score"] is None or not data["data_integrity_json"]:
+                raise ValueError("data integrity evidence is missing")
+            stages.append(DiagnosticStage("data_integrity", DiagnosticStatus.PASS))
+        except Exception as exc:
+            stages.append(failed_stage("data_integrity", exc))
 
-        # Confidence score
+        accounting_passed = data.get("accounting_passed")
+        if accounting_passed is True:
+            stages.append(DiagnosticStage("accounting", DiagnosticStatus.PASS))
+        else:
+            stages.append(DiagnosticStage("accounting", DiagnosticStatus.FAILED, "AccountingVerificationFailed", str(data.get("accounting_json") or "accounting_passed was not true")))
+
         try:
             from research.confidence import calculate_confidence
             cf_report = calculate_confidence(
                 data_integrity_score   = data.get("data_integrity_score"),
-                accounting_passed      = True,  # gate passed means accounting reconciled
+                accounting_passed      = accounting_passed,
                 sharpe_ratio           = data.get("sharpe_ratio"),
                 total_trades           = data.get("total_trades"),
                 wf_efficiency          = data.get("wf_efficiency"),
@@ -717,9 +738,11 @@ class ResearchPipeline:
             data["confidence_score"]          = cf_report.confidence_score
             data["confidence_recommendation"] = cf_report.recommendation
             data["confidence_json"]           = json.dumps(cf_report.to_dict())
-        except Exception:
-            pass
+            stages.append(DiagnosticStage("confidence", DiagnosticStatus.PASS))
+        except Exception as exc:
+            stages.append(failed_stage("confidence", exc))
 
+        data["diagnostic_provenance_json"] = serialize_stages(stages)
         return data
 
     # ── Step 6: filter + build StrategyResult ─────────────────────────────────
@@ -733,8 +756,6 @@ class ResearchPipeline:
     ) -> StrategyResult | None:
         cfg = self.cfg
         decision = data.get("gate_decision", "REJECT")
-
-        # Hard rejection criteria beyond quality gate
         if data.get("total_trades", 0) < cfg.min_trades and decision != "REJECT":
             decision = "REJECT"
         if data.get("max_drawdown_pct", 0.0) > cfg.max_drawdown_threshold:
@@ -794,6 +815,7 @@ class ResearchPipeline:
             confidence_score          = data.get("confidence_score"),
             confidence_recommendation = data.get("confidence_recommendation"),
             confidence_json           = data.get("confidence_json"),
+            diagnostic_provenance_json = data.get("diagnostic_provenance_json"),
         )
 
     # ── Step 8: generate reports ──────────────────────────────────────────────
@@ -813,7 +835,6 @@ class ResearchPipeline:
         slug = f"{symbol}_{interval}_{run.session_id[:8]}_{ts}"
         paths: dict[str, Path] = {}
 
-        # HTML report
         try:
             html_path = reports_dir / f"{slug}.html"
             html      = generate_html_report(
@@ -831,7 +852,6 @@ class ResearchPipeline:
         except Exception:
             self.notify.warn("HTML report failed: " + traceback.format_exc()[-100:])
 
-        # JSON summary
         try:
             json_path = reports_dir / f"{slug}.json"
             _write_json_summary(json_path, run, symbol, interval)
@@ -839,7 +859,6 @@ class ResearchPipeline:
         except Exception:
             pass
 
-        # Markdown summary
         try:
             md_path = reports_dir / f"{slug}.md"
             _write_md_summary(md_path, run, symbol, interval)
@@ -848,8 +867,6 @@ class ResearchPipeline:
             pass
 
         return paths
-
-    # ── Terminal summary ──────────────────────────────────────────────────────
 
     def _print_summary(self, run: PipelineRun) -> None:
         n = self.notify
@@ -872,7 +889,6 @@ class ResearchPipeline:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _discover_strategies() -> list[Type[StrategyBase]]:
     """Find all StrategyBase subclasses in the strategies/ package."""
     found = []
@@ -976,7 +992,7 @@ def _write_json_summary(path: Path, run: PipelineRun, symbol: str, interval: str
 
 
 def _write_md_summary(path: Path, run: PipelineRun, symbol: str, interval: str) -> None:
-    passed  = [r for r in run.strategy_results if r.gate_decision != "REJECT"]
+    passed  = [r for r in run.strategy_results if r.publishable]
     lines   = [
         f"# EdgeLab Research Report",
         f"",
