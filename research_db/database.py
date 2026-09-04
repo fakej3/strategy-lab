@@ -129,6 +129,7 @@ _PHASE9_COLS: list[tuple[str, str]] = [
     ("confidence_score",        "REAL"),
     ("confidence_recommendation","TEXT"),
     ("confidence_json",         "TEXT"),
+    ("diagnostic_provenance_json", "TEXT"),
 ]
 
 
@@ -172,13 +173,11 @@ class Database:
             if stmt:
                 conn.execute(stmt)
         # Add Phase 7 + Phase 9 columns via ALTER TABLE (idempotent).
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(strategy_results)")}
         for col, typedef in _PHASE7_COLS + _PHASE9_COLS:
-            try:
-                conn.execute(
-                    f"ALTER TABLE strategy_results ADD COLUMN {col} {typedef}"
-                )
-            except Exception:
-                pass  # column already exists — SQLite raises OperationalError
+            if col in existing:
+                continue
+            conn.execute(f"ALTER TABLE strategy_results ADD COLUMN {col} {typedef}")
         conn.commit()
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:

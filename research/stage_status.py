@@ -14,6 +14,7 @@ class StageStatus(str, Enum):
     PASS = "PASS"
     FAILED = "FAILED"
     SKIPPED = "SKIPPED"
+    NOT_RUN = "NOT_RUN"
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,10 @@ def stage_passed(name: str) -> StageResult:
 
 def stage_skipped(name: str) -> StageResult:
     return StageResult(name=name, status=StageStatus.SKIPPED)
+
+
+def stage_not_run(name: str) -> StageResult:
+    return StageResult(name=name, status=StageStatus.NOT_RUN)
 
 
 def stage_failed(name: str, exc: BaseException) -> StageResult:
