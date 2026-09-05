@@ -82,7 +82,8 @@ class WalkForwardJob(BaseJob):
         }
 
 
-def _safe(v: float) -> float:
-    if math.isnan(v) or math.isinf(v):
-        return 0.0
-    return v
+def _safe(v: float) -> float | None:
+    """Preserve missing/non-finite statistics as None; never turn them into 0."""
+    if not math.isfinite(v):
+        return None
+    return float(v)

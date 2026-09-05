@@ -12,90 +12,81 @@ def bootstrap_confidence_intervals(
     n_simulations: int = 1000,
     seed: int = 42,
 ) -> dict[str, Any]:
-    """Compute bootstrap CIs for key metrics using per-trade PnL list.
+    """Compute empirical percentile intervals from per-trade PnL bootstrap samples.
 
-    Uses ``np.random.default_rng`` for reproducible, vectorised resampling.
-    Returns 5th, 50th, 95th percentiles for each metric.
+    This is an uncertainty diagnostic, not proof of statistical significance.
+    It assumes the observed trade outcomes are an appropriate resampling unit;
+    serial dependence, regime changes, and execution effects are not modeled.
 
-    Metrics:
-      - total_return:  sum(pnls) / starting_capital
-      - trade_sharpe:  mean(pnls) / std(pnls)  (trade-level, no annualisation)
-      - win_rate:      fraction of positive pnls
-      - profit_factor: gross_profit / gross_loss
-      - expectancy:    mean(pnls)
-      - max_drawdown:  max cumulative drawdown from running equity
-
-    Args:
-        pnls:             Per-trade PnL values.
-        starting_capital: Starting capital for return calculation.
-        n_simulations:    Number of bootstrap samples.
-        seed:             RNG seed for full reproducibility.
+    Profit factor is represented as ``inf`` when a bootstrap sample has no
+    losses. No arbitrary finite sentinel is substituted.
     """
-    if len(pnls) < 3:
+    if isinstance(n_simulations, bool) or not isinstance(n_simulations, int) or n_simulations < 1:
+        raise ValueError("n_simulations must be a positive integer")
+    if not np.isfinite(starting_capital) or starting_capital <= 0:
+        raise ValueError("starting_capital must be finite and > 0")
+
+    arr = np.asarray(pnls, dtype=float)
+    if arr.ndim != 1:
+        raise ValueError("pnls must be one-dimensional")
+    if len(arr) < 3:
         return _empty()
+    if not np.isfinite(arr).all():
+        raise ValueError("pnls must contain only finite values")
 
     rng = np.random.default_rng(seed)
-    arr = np.array(pnls, dtype=float)
-    n   = len(arr)
-
-    # ── Vectorised bootstrap (n_simulations × n_trades matrix) ────────────────
+    n = len(arr)
     samples = rng.choice(arr, size=(n_simulations, n), replace=True)
 
-    totals   = samples.sum(axis=1)
-    means    = samples.mean(axis=1)
-    stds     = samples.std(axis=1, ddof=1)
-
-    returns_arr  = totals / starting_capital
-    sharpes_arr  = np.where(stds > 0, means / np.maximum(stds, 1e-300), 0.0)
+    totals = samples.sum(axis=1)
+    means = samples.mean(axis=1)
+    stds = samples.std(axis=1, ddof=1)
+    returns_arr = totals / starting_capital
+    sharpes_arr = np.divide(means, stds, out=np.zeros_like(means), where=stds > 0)
     win_rates_arr = (samples > 0).mean(axis=1)
 
-    # Profit factor — can't fully vectorise the conditional sums, so loop once
-    pf_arr  = np.empty(n_simulations)
-    mdd_arr = np.empty(n_simulations)
-    for i in range(n_simulations):
-        s       = samples[i]
-        gross   = float(s[s > 0].sum())
-        loss    = float((-s[s < 0]).sum())
-        pf_arr[i]  = gross / loss if loss > 0.0 else 999.0
-        mdd_arr[i] = _max_drawdown_from_pnls(s)
-
-    def _ci(a: np.ndarray) -> dict:
-        p5, p50, p95 = np.percentile(a, [5, 50, 95])
-        return {
-            "pct_5" : round(float(p5),  6),
-            "pct_50": round(float(p50), 6),
-            "pct_95": round(float(p95), 6),
-        }
+    pf_arr = np.empty(n_simulations, dtype=float)
+    mdd_arr = np.empty(n_simulations, dtype=float)
+    for i, sample in enumerate(samples):
+        gross_profit = float(sample[sample > 0].sum())
+        gross_loss = float((-sample[sample < 0]).sum())
+        pf_arr[i] = np.inf if gross_loss == 0.0 else gross_profit / gross_loss
+        mdd_arr[i] = _max_drawdown_from_pnls(sample)
 
     return {
-        "total_return"  : _ci(returns_arr),
-        "trade_sharpe"  : _ci(sharpes_arr),
-        "win_rate"      : _ci(win_rates_arr),
-        "profit_factor" : _ci(pf_arr),
-        "expectancy"    : _ci(means),
-        "max_drawdown"  : _ci(mdd_arr),
-        "n_simulations" : n_simulations,
-        "n_trades"      : n,
+        "total_return": _ci(returns_arr),
+        "trade_sharpe": _ci(sharpes_arr),
+        "win_rate": _ci(win_rates_arr),
+        "profit_factor": _ci(pf_arr),
+        "expectancy": _ci(means),
+        "max_drawdown": _ci(mdd_arr),
+        "n_simulations": n_simulations,
+        "n_trades": n,
     }
 
 
+def _ci(values: np.ndarray) -> dict[str, float]:
+    """Return 5th/50th/95th percentiles, preserving legitimate infinities."""
+    p5, p50, p95 = np.percentile(values, [5, 50, 95])
+    return {"pct_5": float(p5), "pct_50": float(p50), "pct_95": float(p95)}
+
+
 def _max_drawdown_from_pnls(pnls: np.ndarray) -> float:
-    """Maximum drawdown from cumulative PnL sequence (starting from 0)."""
-    equity = np.concatenate([[0.0], np.cumsum(pnls)])
-    peak   = np.maximum.accumulate(equity)
-    dd     = equity - peak
-    return float(-dd.min())
+    """Maximum absolute PnL drawdown from cumulative PnL starting at zero."""
+    equity = np.concatenate(([0.0], np.cumsum(pnls)))
+    peak = np.maximum.accumulate(equity)
+    return float(np.max(peak - equity))
 
 
-def _empty() -> dict:
+def _empty() -> dict[str, Any]:
     null_ci = {"pct_5": None, "pct_50": None, "pct_95": None}
     return {
-        "total_return"  : null_ci,
-        "trade_sharpe"  : null_ci,
-        "win_rate"      : null_ci,
-        "profit_factor" : null_ci,
-        "expectancy"    : null_ci,
-        "max_drawdown"  : null_ci,
-        "n_simulations" : 0,
-        "n_trades"      : 0,
+        "total_return": null_ci,
+        "trade_sharpe": null_ci,
+        "win_rate": null_ci,
+        "profit_factor": null_ci,
+        "expectancy": null_ci,
+        "max_drawdown": null_ci,
+        "n_simulations": 0,
+        "n_trades": 0,
     }

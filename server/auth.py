@@ -15,11 +15,14 @@ from fastapi import Depends, HTTPException, Request, status
 # Set EDGELAB_USERNAME and EDGELAB_PASSWORD_HASH before starting.
 # Generate a hash:
 #   python -c "from server.auth import hash_password; print(hash_password('yourpass'))"
+#
+# Authentication is fail-closed: an unset password hash disables login rather
+# than silently enabling a well-known admin/admin credential pair.
 
-_USERNAME  = os.environ.get("EDGELAB_USERNAME",      "admin")
+_USERNAME  = os.environ.get("EDGELAB_USERNAME", "admin")
 _PASS_HASH = os.environ.get("EDGELAB_PASSWORD_HASH", "")
 
-USING_DEFAULT_CREDS: bool = not _PASS_HASH  # warn on startup if true
+USING_DEFAULT_CREDS: bool = not _PASS_HASH
 
 # ── Secret key (session signing) ──────────────────────────────────────────────
 # Persist across restarts by storing in a local file, or set EDGELAB_SECRET_KEY.
@@ -51,9 +54,9 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
+    """Verify a configured password hash; an empty hash always fails closed."""
     if not stored_hash:
-        # No hash configured — default credentials are admin / admin
-        return password == "admin"
+        return False
     computed = hash_password(password)
     return hmac.compare_digest(computed, stored_hash)
 

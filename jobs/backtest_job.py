@@ -19,11 +19,6 @@ from research.metrics import calculate_research_metrics
 
 from .base import BaseJob
 
-# Lazy imports for analysis modules — called inside execute() to avoid overhead
-# when workers are spawned without needing all features.
-_analysis_imports_done = False
-
-
 # Bars-per-year table (mirrors run.py)
 BARS_PER_YEAR: dict[str, int] = {
     "1m": 525_600, "3m": 175_200, "5m": 105_120,
@@ -36,7 +31,7 @@ BARS_PER_YEAR: dict[str, int] = {
 
 @dataclass
 class BacktestParams:
-    bars: pd.DataFrame          # pre-loaded OHLCV; shared across jobs in same process
+    bars: pd.DataFrame
     strategy_class: Type[StrategyBase]
     params: dict[str, Any]
     symbol: str
@@ -71,14 +66,14 @@ class BacktestJob(BaseJob):
         port_cfg = PortfolioConfig(starting_capital=p.starting_capital)
         result   = PortfolioEngine(port_cfg).run(p.bars, strategy, eng_cfg)
 
-        # Institutional metrics
+        accounting = _verify_accounting(result)
+
         metrics = calculate_research_metrics(
             equity_curve  = result.equity_curve,
             trades        = result.trades,
             bars_per_year = bpy,
         )
 
-        # Quality gate
         gate_decision = "REJECT"
         gate_score    = 0.0
         if result.trades:
@@ -87,17 +82,14 @@ class BacktestJob(BaseJob):
             gate_decision = gate.decision.value
             gate_score    = gate.overall_score
 
-        # Sample equity curve for storage (≤ 300 points) as [{equity: v}, ...]
         eq_series = result.equity_curve
         if len(eq_series) > 300:
             step     = len(eq_series) // 300
             eq_series = eq_series.iloc[::step]
         eq = [{"equity": round(float(v), 2)} for v in eq_series]
 
-        # Trade PnL list — used by pipeline for MC without a second backtest run
         trade_pnls = [t.net_pnl for t in result.trades]
 
-        # ── Phase 7: Statistical analysis ─────────────────────────────────────
         regime_json      = None
         rolling_json     = None
         degradation_json = None
@@ -108,22 +100,14 @@ class BacktestJob(BaseJob):
         if result.trades:
             try:
                 from research.regime import analyze_per_regime
-                regime_data = analyze_per_regime(
-                    bars=p.bars,
-                    trades=result.trades,
-                    equity_curve=result.equity_curve,
-                )
+                regime_data = analyze_per_regime(bars=p.bars, trades=result.trades, equity_curve=result.equity_curve)
                 regime_json = json.dumps(regime_data)
             except Exception:
                 pass
 
             try:
                 from research.rolling import compute_rolling_metrics
-                rolling_data = compute_rolling_metrics(
-                    equity_curve=result.equity_curve,
-                    trades=result.trades,
-                    bars_per_year=bpy,
-                )
+                rolling_data = compute_rolling_metrics(equity_curve=result.equity_curve, trades=result.trades, bars_per_year=bpy)
                 rolling_json = json.dumps(rolling_data)
             except Exception:
                 pass
@@ -138,21 +122,14 @@ class BacktestJob(BaseJob):
 
             try:
                 from research.distribution import analyze_distribution
-                dist_data = analyze_distribution(
-                    pnls=trade_pnls,
-                    equity_curve=result.equity_curve,
-                )
+                dist_data = analyze_distribution(pnls=trade_pnls, equity_curve=result.equity_curve)
                 distribution_json = json.dumps(dist_data)
             except Exception:
                 pass
 
             try:
                 from research.bootstrap import bootstrap_confidence_intervals
-                bs_data = bootstrap_confidence_intervals(
-                    pnls=trade_pnls,
-                    starting_capital=p.starting_capital,
-                    n_simulations=200,
-                )
+                bs_data = bootstrap_confidence_intervals(pnls=trade_pnls, starting_capital=p.starting_capital, n_simulations=200)
                 bootstrap_json = json.dumps(bs_data)
             except Exception:
                 pass
@@ -181,7 +158,8 @@ class BacktestJob(BaseJob):
             "avg_trade_pnl"    : metrics.avg_trade_pnl,
             "equity_curve_json": json.dumps(eq),
             "starting_capital" : p.starting_capital,
-            # Phase 7
+            "accounting_passed": accounting["passed"],
+            "accounting_json"  : json.dumps(accounting),
             "regime_json"      : regime_json,
             "rolling_json"     : rolling_json,
             "degradation_json" : degradation_json,
@@ -189,6 +167,36 @@ class BacktestJob(BaseJob):
             "bootstrap_json"   : bootstrap_json,
             "degradation_score": degradation_score,
         }
+
+
+def _verify_accounting(result: Any, tolerance: float = 1e-8) -> dict[str, Any]:
+    """Verify that reported profit, trade PnL and equity agree.
+
+    This is evidence used by the research provenance boundary; it is deliberately
+    independent of the quality gate so a passing gate can never imply accounting.
+    """
+    starting = float(result.starting_capital)
+    ending = float(result.ending_equity)
+    reported_profit = float(result.net_profit)
+    trade_profit = sum(float(t.net_pnl) for t in result.trades)
+    curve_end = ending
+    if len(result.equity_curve):
+        curve_end = float(result.equity_curve.iloc[-1])
+
+    checks = {
+        "ending_equity_matches_curve": math.isclose(ending, curve_end, rel_tol=tolerance, abs_tol=tolerance),
+        "reported_profit_matches_equity": math.isclose(reported_profit, ending - starting, rel_tol=tolerance, abs_tol=tolerance),
+        "trade_pnl_matches_profit": math.isclose(trade_profit, reported_profit, rel_tol=tolerance, abs_tol=tolerance),
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "starting_capital": starting,
+        "ending_equity": ending,
+        "reported_net_profit": reported_profit,
+        "sum_trade_net_pnl": trade_profit,
+        "equity_curve_end": curve_end,
+    }
 
 
 def _safe(v: float) -> float:

@@ -19,40 +19,21 @@ from .report import ResearchReport, build_report
 from .validation import ValidationWarning, validate_bars_extended
 from .visualization import VisualizationData, build_visualization_data
 from .walk_forward import WalkForwardConfig, WalkForwardResult, WalkForwardTester
+from .bootstrap import bootstrap_confidence_intervals
+from .monte_carlo import MonteCarloResult, simulate_trade_paths
+from .sensitivity import ParameterSensitivity, SensitivityResult, analyze_sensitivity
 
 __all__ = [
-    # metrics
-    "InstitutionalMetrics",
-    "calculate_research_metrics",
-    # curves
-    "build_equity_curve",
-    "build_drawdown_curve",
-    "build_daily_returns",
-    "build_monthly_returns",
-    "build_rolling_metric",
-    # walk-forward
-    "WalkForwardTester",
-    "WalkForwardConfig",
-    "WalkForwardResult",
-    # optimizer
-    "GridSearchOptimizer",
-    "RandomSearchOptimizer",
-    "ParameterSpace",
-    "OptimizationResult",
-    # comparison
-    "compare_strategies",
-    "ComparisonResult",
-    # benchmark
-    "BuyAndHoldBenchmark",
-    "BenchmarkResult",
-    "compute_alpha_beta",
-    # report
-    "ResearchReport",
-    "build_report",
-    # validation
-    "validate_bars_extended",
-    "ValidationWarning",
-    # visualization
-    "build_visualization_data",
-    "VisualizationData",
+    "InstitutionalMetrics", "calculate_research_metrics",
+    "build_equity_curve", "build_drawdown_curve", "build_daily_returns",
+    "build_monthly_returns", "build_rolling_metric",
+    "WalkForwardTester", "WalkForwardConfig", "WalkForwardResult",
+    "GridSearchOptimizer", "RandomSearchOptimizer", "ParameterSpace", "OptimizationResult",
+    "compare_strategies", "ComparisonResult",
+    "BuyAndHoldBenchmark", "BenchmarkResult", "compute_alpha_beta",
+    "ResearchReport", "build_report",
+    "validate_bars_extended", "ValidationWarning",
+    "build_visualization_data", "VisualizationData",
+    "bootstrap_confidence_intervals", "MonteCarloResult", "simulate_trade_paths",
+    "ParameterSensitivity", "SensitivityResult", "analyze_sensitivity",
 ]

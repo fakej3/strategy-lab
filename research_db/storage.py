@@ -77,9 +77,10 @@ class ResearchStorage:
                 data_integrity_score, data_integrity_json,
                 overfitting_score, overfitting_risk_level, overfitting_json,
                 stress_score, stress_risk_level, stress_json,
-                confidence_score, confidence_recommendation, confidence_json)
+                confidence_score, confidence_recommendation, confidence_json,
+                diagnostic_provenance_json)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
-                       ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (r.session_id, r.strategy_class, r.strategy_name, r.params,
              r.symbol, r.interval, r.start_date, r.end_date,
              r.gate_decision, _safe(r.gate_score),
@@ -99,7 +100,8 @@ class ResearchStorage:
              _safe(r.data_integrity_score), r.data_integrity_json,
              _safe(r.overfitting_score), r.overfitting_risk_level, r.overfitting_json,
              _safe(r.stress_score), r.stress_risk_level, r.stress_json,
-             _safe(r.confidence_score), r.confidence_recommendation, r.confidence_json),
+             _safe(r.confidence_score), r.confidence_recommendation, r.confidence_json,
+             r.diagnostic_provenance_json),
         )
         self.db.commit()
         return cur.lastrowid
@@ -131,7 +133,8 @@ class ResearchStorage:
         row = self.db.fetchone(
             "SELECT * FROM strategy_results WHERE id=?", (result_id,)
         )
-        return _row_to_result(row) if row else None
+        result = _row_to_result(row) if row else None
+        return result if result and result.publishable else None
 
     def get_best_by(
         self,
@@ -150,10 +153,11 @@ class ResearchStorage:
         rows = self.db.fetchall(
             f"SELECT * FROM strategy_results "
             f"WHERE total_trades >= ? AND gate_decision != 'REJECT' "
+            f"AND diagnostic_provenance_json IS NOT NULL "
             f"ORDER BY {metric} {asc} LIMIT ?",
             (min_trades, limit),
         )
-        return [_row_to_result(r) for r in rows]
+        return [r for r in (_row_to_result(row) for row in rows) if r.publishable]
 
     def get_stats(self) -> dict:
         row = self.db.fetchone(
@@ -303,7 +307,7 @@ def _row_to_result(row) -> StrategyResult:
         strategy_name       = row["strategy_name"],
         params              = row["params"],
         symbol              = row["symbol"],
-        interval            = row["interval"],
+        interval             = row["interval"],
         start_date          = row["start_date"],
         end_date            = row["end_date"],
         gate_decision       = row["gate_decision"],
@@ -316,29 +320,29 @@ def _row_to_result(row) -> StrategyResult:
         sortino_ratio       = row["sortino_ratio"],
         calmar_ratio        = row["calmar_ratio"],
         cagr                = row["cagr"],
-        win_rate            = row["win_rate"],
-        profit_factor       = row["profit_factor"],
-        avg_trade_pnl       = row["avg_trade_pnl"],
-        walk_forward_return = row["walk_forward_return"],
-        mc_median_return    = row["mc_median_return"],
-        mc_pct5_return      = row["mc_pct5_return"],
-        mc_pct95_return     = row["mc_pct95_return"],
-        mc_prob_positive    = row["mc_prob_positive"],
-        equity_curve_json   = row["equity_curve_json"],
-        created_at          = row["created_at"],
+        win_rate             = row["win_rate"],
+        profit_factor        = row["profit_factor"],
+        avg_trade_pnl        = row["avg_trade_pnl"],
+        walk_forward_return  = row["walk_forward_return"],
+        mc_median_return     = row["mc_median_return"],
+        mc_pct5_return       = row["mc_pct5_return"],
+        mc_pct95_return      = row["mc_pct95_return"],
+        mc_prob_positive     = row["mc_prob_positive"],
+        equity_curve_json    = row["equity_curve_json"],
+        created_at           = row["created_at"],
         # Phase 7 columns (may be absent in legacy rows)
-        degradation_score   = _get("degradation_score"),
-        robustness_score    = _get("robustness_score"),
-        stability_score     = _get("stability_score"),
-        wf_n_folds          = _get("wf_n_folds"),
-        wf_efficiency       = _get("wf_efficiency"),
-        wf_consistency      = _get("wf_consistency"),
-        regime_json         = _get("regime_json"),
-        rolling_json        = _get("rolling_json"),
-        degradation_json    = _get("degradation_json"),
-        distribution_json   = _get("distribution_json"),
-        bootstrap_json      = _get("bootstrap_json"),
-        robustness_json     = _get("robustness_json"),
+        degradation_score    = _get("degradation_score"),
+        robustness_score     = _get("robustness_score"),
+        stability_score      = _get("stability_score"),
+        wf_n_folds            = _get("wf_n_folds"),
+        wf_efficiency         = _get("wf_efficiency"),
+        wf_consistency        = _get("wf_consistency"),
+        regime_json           = _get("regime_json"),
+        rolling_json          = _get("rolling_json"),
+        degradation_json      = _get("degradation_json"),
+        distribution_json     = _get("distribution_json"),
+        bootstrap_json        = _get("bootstrap_json"),
+        robustness_json       = _get("robustness_json"),
         # Phase 9 columns
         data_integrity_score      = _get("data_integrity_score"),
         data_integrity_json       = _get("data_integrity_json"),
@@ -351,6 +355,7 @@ def _row_to_result(row) -> StrategyResult:
         confidence_score          = _get("confidence_score"),
         confidence_recommendation = _get("confidence_recommendation"),
         confidence_json           = _get("confidence_json"),
+        diagnostic_provenance_json = _get("diagnostic_provenance_json"),
     )
 
 
