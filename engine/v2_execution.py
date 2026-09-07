@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 
 
 class Side(str, Enum):
@@ -32,15 +33,32 @@ class Fill:
     reason: str
 
 
+def _finite_positive(value: float, name: str) -> None:
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be finite and > 0")
+
+
 def next_open(raw_open: float, slippage_rate: float) -> float:
-    if raw_open <= 0 or slippage_rate < 0:
-        raise ValueError("invalid open or slippage")
+    _finite_positive(raw_open, "open")
+    if not math.isfinite(slippage_rate) or slippage_rate < 0 or slippage_rate >= 1:
+        raise ValueError("slippage_rate must be finite and in [0, 1)")
     return raw_open * (1.0 + slippage_rate)
 
 
 def protective_exit(*, raw_open: float, raw_high: float, raw_low: float, stop: float | None, target: float | None, slippage_rate: float) -> Fill | None:
-    if min(raw_open, raw_high, raw_low) <= 0 or raw_low > raw_high or slippage_rate < 0:
-        raise ValueError("invalid OHLC or slippage")
+    for value, name in ((raw_open, "open"), (raw_high, "high"), (raw_low, "low")):
+        _finite_positive(value, name)
+    if raw_low > raw_high or raw_open < raw_low or raw_open > raw_high:
+        raise ValueError("invalid OHLC relationships")
+    if not math.isfinite(slippage_rate) or slippage_rate < 0 or slippage_rate >= 1:
+        raise ValueError("slippage_rate must be finite and in [0, 1)")
+    if stop is not None:
+        _finite_positive(stop, "stop")
+    if target is not None:
+        _finite_positive(target, "target")
+    if stop is not None and target is not None and stop >= target:
+        raise ValueError("stop must be below target for a long position")
+
     stop_hit = stop is not None and raw_low <= stop
     target_hit = target is not None and raw_high >= target
     if not stop_hit and not target_hit:
