@@ -2,9 +2,13 @@ name: Strategy Labs V2 CI
 
 on:
   push:
-    branches: ["strategy-lab-v2-core"]
+    branches:
+      - "claude/trading-lab-architecture-e4212v"
+      - "strategy-lab-v2-core"
   pull_request:
-    branches: ["strategy-lab-v2-core"]
+    branches:
+      - "claude/trading-lab-architecture-e4212v"
+      - "strategy-lab-v2-core"
 
 concurrency:
   group: v2-ci-${{ github.ref }}
