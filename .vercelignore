@@ -1,13 +1,14 @@
 # Strategy Lab is a Vite SPA on Vercel. The Python research/trading runtime
 # is intentionally deployed separately and must not be auto-detected/bundled
 # as a Vercel Python Function.
-api/
-bot/
-automation/
-data/
-jobs/
-research_db/
-strategies/
-server/
-tests/
+/api/
+/backend/
+/bot/
+/automation/
+/data/
+/jobs/
+/research_db/
+/strategies/
+/server/
+/tests/
 *.py
