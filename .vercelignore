@@ -1,7 +1,5 @@
-# Strategy Lab is a Vite SPA on Vercel. The Python research/trading runtime
-# is intentionally deployed separately and must not be auto-detected/bundled
-# as a Vercel Python Function.
-/api/
+# Strategy Lab frontend + lightweight Vercel API.
+# Keep the heavy Python research/trading runtime out of the frontend deployment.
 /backend/
 /bot/
 /automation/
@@ -11,4 +9,5 @@
 /strategies/
 /server/
 /tests/
-*.py
+*.pyc
+__pycache__/
